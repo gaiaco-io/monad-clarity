@@ -7,6 +7,25 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 3 (data layer, part 3 — Phase 3 complete): `Services\Cache` — PSR-16
+  (`Psr\SimpleCache\CacheInterface`), three drivers in one class bound at construction
+  (`Cache::DRIVER_FILE`/`DRIVER_DATABASE`/`DRIVER_REDIS`), per `ReleaseNotes_26.07.md`
+  §26. Full get/set/delete/clear/has/getMultiple/setMultiple/deleteMultiple surface.
+  TTL accepts `null` (never expires, per `DDL.sql`'s own comment: "expires_at NULL =
+  never expires"), `int` seconds, or `DateInterval`. Cache keys containing a PSR-16
+  reserved character (`{}()/\@:`) or empty throw `CacheInvalidArgumentException`
+  (implements `Psr\SimpleCache\InvalidArgumentException`, per spec). The database
+  driver enforces Architecture.md §9's rule directly: `key_hash` is only an index
+  shortcut, and every read compares the row's stored `cache_key` against the requested
+  key, treating any mismatch as a miss. The Redis driver accepts any object exposing
+  get/set/setex/del/keys rather than being hard-typed to ext-redis's `Redis` class —
+  DeploymentTopology.md §1 keeps that extension optional, and this keeps Cache
+  loadable and the Redis driver *testable* (via a plain fake) without it. 40 tests
+  across all three drivers via a shared data provider, including a constructed
+  cache_key/key_hash-mismatch row (a real SHA-256 collision can't be produced for a
+  test) proving the "never trust the hash alone" rule actually governs reads rather
+  than passing vacuously.
+- `psr/simple-cache` added to `composer.json` `require` (PSR-16 compliance).
 - Phase 3 (data layer, part 2): `Services\Migration` — orchestrates migration files
   (`GapAnalysis_BuildPlan_26.07.md` §12; create/drop database/table/index are Schema's
   job, used directly from a migration's `up()`/`down()`). A migration file returns an
