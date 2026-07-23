@@ -36,13 +36,13 @@ final class Route
      *     pattern: string,
      *     action: callable|array,
      *     name: ?string,
-     *     middleware: list<string>,
+     *     middleware: list<string|callable>,
      *     wheres: array<string, string>,
      * }>
      */
     private static array $routes = [];
 
-    /** @var list<array{prefix: string, middleware: list<string>}> */
+    /** @var list<array{prefix: string, middleware: list<string|callable>}> */
     private static array $groupStack = [];
 
     /** @var callable|array|null */
@@ -83,7 +83,7 @@ final class Route
     }
 
     /**
-     * @param array{prefix?: string, middleware?: string|list<string>} $attributes
+     * @param array{prefix?: string, middleware?: string|callable|list<string|callable>} $attributes
      */
     public static function group(array $attributes, callable $callback): void
     {
@@ -92,7 +92,7 @@ final class Route
 
         self::$groupStack[] = [
             'prefix' => rtrim($parentPrefix . '/' . trim((string) ($attributes['prefix'] ?? ''), '/'), '/'),
-            'middleware' => [...$parentMiddleware, ...(array) ($attributes['middleware'] ?? [])],
+            'middleware' => [...$parentMiddleware, ...self::normalizeMiddleware($attributes['middleware'] ?? [])],
         ];
 
         try {
@@ -114,14 +114,29 @@ final class Route
         return $this;
     }
 
-    public function middleware(string|array $middleware): self
+    public function middleware(string|callable|array $middleware): self
     {
         self::$routes[$this->index]['middleware'] = [
             ...self::$routes[$this->index]['middleware'],
-            ...(array) $middleware,
+            ...self::normalizeMiddleware($middleware),
         ];
 
         return $this;
+    }
+
+    /**
+     * Normalise a single string/callable or a list of either into always a list.
+     * Deliberately not a plain `(array)` cast: casting a Closure to array happens to
+     * wrap it as a single-element list, but casting a plain invokable *object*
+     * (anything with `__invoke()` that isn't a Closure) instead extracts its
+     * properties — silently producing an empty array for an object with none, which
+     * would drop the middleware entirely rather than registering it.
+     *
+     * @return list<string|callable>
+     */
+    private static function normalizeMiddleware(mixed $middleware): array
+    {
+        return is_array($middleware) ? $middleware : [$middleware];
     }
 
     public function where(string $parameter, string $pattern): self
@@ -295,13 +310,20 @@ final class Route
      * Request the layer before it passed to $next(), so a middleware that calls
      * $next($request->withSomething(...)) actually reaches the controller.
      *
-     * @param list<string> $middlewareNames
+     * A middleware entry is either a class-string (instantiated with no constructor
+     * arguments — the reason Csrf/RateLimiter/Authentication/RBAC are meant to be
+     * registered via a thin `app/middlewares/` subclass supplying their real config, per
+     * CrossRepoContracts.md §5) or an already-callable value (a closure or invokable
+     * object) used as-is — e.g. RBAC::guard()'s return value, which closes over its own
+     * configuration and has no zero-argument form to be instantiated from a string.
+     *
+     * @param list<string|callable> $middlewareNames
      */
     private static function runPipeline(array $middlewareNames, Request $request, callable $destination): Response
     {
         $pipeline = array_reduce(
             array_reverse($middlewareNames),
-            static function (callable $next, string $middlewareName): callable {
+            static function (callable $next, string|callable $middlewareName): callable {
                 return static function (Request $request) use ($middlewareName, $next): Response {
                     $middleware = is_callable($middlewareName) ? $middlewareName : new $middlewareName();
 

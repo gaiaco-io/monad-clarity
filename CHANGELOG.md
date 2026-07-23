@@ -7,6 +7,35 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 5, part 4: `Middlewares\RBAC` (ReleaseNotes §16). Same split as Authentication:
+  Clarity owns the permission *check*, the app owns the role/permission *data* — no new
+  schema. `$permissionsForUser` (duck-typed callable) is expected to already union
+  user→role→permission and user→direct-permission (§16.2.1–2) into one flat set; RBAC
+  doesn't need to know which a given permission came from. `can()`/`canAny()`/`canAll()`
+  satisfy "service-level checks" (§16.2.5) directly as plain public methods.
+  `roleHasPermission()` (§16.2.3, optional `$permissionsForRole`) checks a role
+  independent of any specific user. `guard()` (§16.2.4 — route guards) returns a closure
+  matching Route's middleware signature rather than a class-string, so it can close over
+  its own config directly.
+  **Caught a real integration bug this exposed in Route** (Phase 2, previously shipped):
+  Route's middleware pipeline was typed `string` end-to-end (`middleware(string|array)`,
+  the internal reduce callback's `string $middlewareName` param), so registering a
+  closure — exactly what `guard()` returns — threw a `TypeError` at dispatch, not at
+  registration, meaning the failure would only surface when the guarded route was
+  actually hit. Confirmed the crash empirically before fixing it. Widened Route's
+  middleware type to `string|callable` throughout (route table shape, `middleware()`,
+  `group()`'s attributes, the pipeline reducer) — additive/semver-minor, and it makes
+  *any* closure or invokable-object middleware work, not just RBAC's. While widening,
+  replaced the `(array) $middleware` normalisation with an explicit `is_array(...) ?
+  ... : [...]` check: casting a Closure to array happens to wrap it as a single-element
+  list, but casting a plain invokable object (anything with `__invoke()` that isn't a
+  Closure) instead extracts its properties — silently producing an empty array for an
+  object with none, which would have dropped that middleware entirely rather than
+  registering it. Added a test that runs `RBAC::guard()` through `Route::dispatch()`
+  itself (not just a direct closure call) so this class of gap can't reappear unnoticed.
+  Not `final`, extended by `app/middlewares/` per the same §5 contract as the other four
+  middlewares this phase. 14 tests (12 for RBAC itself, 2 exercising the real Route
+  pipeline).
 - Phase 5, part 3: `Middlewares\Authentication` (ReleaseNotes §15 — 16 requirements, the
   single largest and highest-exposure item in the release). Clarity owns the
   authentication *mechanism*; the app owns the user *store*. Every requirement composes
