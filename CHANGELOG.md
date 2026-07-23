@@ -45,6 +45,54 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
   to `composer.json` `require` (PSR-3/PSR-18 compliance, per `Architecture.md` §6).
   `ext-curl` added (used by `Services\HttpClient`). `CrossRepoContracts.md` §1 updated to
   match.
+- Phase 2 (HTTP core): `Services\Request` — instance-based, full accessor API
+  (`method`/`path`/`query`/`input`/`json` with dot-notation/`header`/`cookie`/`file`/`ip`/
+  `userAgent`/`all`), PSR-7 interop via `toPsr7()`/`fromPsr7()` (bridged, not adopted, per
+  `Architecture.md` §6). `json()` lazy-parses the raw body per `CrossRepoContracts.md` §6's
+  "Jsonify did not run" branch; `withJsonBag()` lets a future Jsonify middleware supply the
+  pre-parsed bag instead. Input is stored raw — no blanket escaping at parse time. 18 tests.
+- `Services\Response` — static constructors (`json`/`htm`/`text`/`download`/`redirect`/
+  `noContent`/`stream`) each returning a value object; nothing is echoed or exits until
+  `send()`. `json()` encodes data as-is (no HTML-escaping — the legacy code's escape-then-
+  encode was double/wrong-context escaping). PSR-7 interop via `toPsr7()`. 16 tests.
+- `Services\Route` — registration (`get`/`post`/`put`/`patch`/`delete`/`options`/`group`/
+  `fallback`) now builds a table that `dispatch(Request): Response` matches against once,
+  which is what makes a real 404-vs-405 distinction possible (§22.2) — the previous
+  match-and-call-immediately design structurally couldn't tell "no route matched this path"
+  from "a route matched, wrong method." Named/typed (`{id:int}`, `{slug:alpha}`, `{id:uuid}`)/
+  optional (`{name?}`) parameters, `where()` constraints, nested group prefix+middleware
+  merging, and a middleware pipeline (`__invoke(Request, callable $next): Response`).
+  Controller actions receive route parameters positionally, then `Request` last; return
+  value must be a `Response` or array (auto-converted to JSON, §21.3). Route model binding
+  intentionally not built — explicitly optional per `API_Contracts.md`. 16 tests.
+- `Services\View` — fixed 6-step pipeline (§24.3): resolve, merge shared+local data, run
+  composers, render, apply layout, return `Response`. A view opts into a layout explicitly
+  (`$layout = '...'` in the template, or `render()`'s `$data['layout']`) — no implicit
+  variable injection (§24.4); `View::configure(string $basePath)` replaces the legacy
+  pattern of reading an ambient `PATH[]` global. 10 tests.
+- `Services\Mediator` — registers PHP's error/exception/shutdown handlers. Development
+  renderer covers all 8 §18 elements (class, message, file/line, source excerpt, ordered
+  stack frames, request ID, request summary, previous-exception chain); production renderer
+  hides internals, returns HTTP 500, logs the full exception via a PSR-3 logger, and returns
+  an incident ID. Stays a static facade (`abstract class`, matching `Route`/`View`/`DB`) so
+  `Mediator::handleException($e)` keeps working from `DB.php`/`Session.php`'s existing,
+  not-yet-migrated call sites. 7 tests. Known interim gap: those call sites relied on the
+  old handler's `exit`/`die`; the new one returns a `Response` and does not exit, so in
+  debug mode a DB-layer exception no longer halts the page with a dev dump — `return false`
+  still happens correctly either way. DB.php is Phase 3 scope; left as-is as it already
+  double-logs (its own `logError` plus Mediator) and needs its own rework there regardless.
+- `Middlewares\MetaTag` (was `Services\SeoService`) — relocated and renamed per
+  `GapAnalysis_BuildPlan_26.07.md` item 10; behavior otherwise unchanged. Dropped one dead
+  line (`(new View())->set('seo', ...)`) that called an instance API the new `View` no
+  longer has and was itself the kind of implicit view-data injection `View` now explicitly
+  forbids (§24.4) — `toViewData()` remains public for a caller to pass in explicitly. 6 tests.
+- `resources/tests/Integration/Phase2HttpCoreTest.php` — the Build Plan's actual Phase 2
+  exit criteria ("a request can be routed through middleware to a controller, rendered via
+  View or returned as JSON, with dev and prod exception rendering working end to end"),
+  which no single class's unit suite proves on its own: routes a synthetic `Request` through
+  `Route::dispatch()` → middleware → controller → `View::render()`/array-to-JSON, and
+  separately through the same dispatch-then-catch glue a real `public/index.php` would use,
+  into `Mediator::handleException()` for both debug and production rendering. 5 tests.
 - `LICENSE` (MIT).
 - `README.md` with status, PHP floor, and testing instructions.
 - `.gitattributes` `export-ignore` rules for `/resources`, `/CLAUDE.md`, and the dotfiles

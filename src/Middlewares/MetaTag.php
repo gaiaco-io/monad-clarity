@@ -1,15 +1,15 @@
 <?php
 
-namespace Gaia\Clarity\Services;
+namespace Gaia\Clarity\Middlewares;
 
 /**
  * Dynamic SEO, Open Graph, Twitter Card, and JSON-LD meta tag service.
  * Invoke from controllers; render once in the layout <head>.
  *
- * @package Gaia\Clarity\Services
+ * @package Gaia\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
-final class SeoService
+final class MetaTag
 {
     private const DESCRIPTION_MAX = 160;
 
@@ -511,15 +511,13 @@ final class SeoService
             $lines[] = '<script type="application/ld+json">' . $json . '</script>';
         }
 
-        $html = implode("\n    ", $lines);
-
-        (new View())->set('seo', self::toViewData());
-
-        return $html;
+        return implode("\n    ", $lines);
     }
 
     /**
-     * Structured data for View::get('seo') or custom partial rendering.
+     * Structured data for a caller to pass into View::render()/share() explicitly, or for
+     * custom partial rendering. Not injected automatically — View has no implicit variable
+     * injection (§24.4), so whoever wants this in a template passes it in themselves.
      *
      * @return array<string, mixed>
      */

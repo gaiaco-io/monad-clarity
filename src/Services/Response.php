@@ -1,162 +1,159 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Gaia\Clarity\Services;
 
-use Gaia\Clarity\Services\Mediator;
+use Closure;
+use InvalidArgumentException;
+use Nyholm\Psr7\Factory\Psr17Factory;
+use Psr\Http\Message\ResponseInterface;
+use RuntimeException;
 
 /**
- * Handles HTTP response from the model through the controller. All data response shall
- * be formatted as JSON.
+ * Outgoing HTTP response. Every static constructor returns a value object — nothing is
+ * echoed or exits here. Route (or application code) calls send() exactly once, at the
+ * end of the request, after middleware and the controller have all had their say.
  *
  * @package Gaia\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
-
-abstract class Response
+final class Response
 {
     /**
-     * Return a JSON response.
-     * 
-     * @example Responses in JSON shall be in the following format:
-     * {
-     *      "status": 200,
-     *      "message": "Success",
-     *      "data": {
-     *          [array of data]
-     *      }
-     * }
-     * 
-     * @param string $status_code
-     * @param string $status_message
-     * @param array $data
-     * @return void
+     * @param array<string, string> $headers
      */
-    public static function json(string $status_code = '200', string $status_message = 'Success', ?array $data = []): void
-    {
-        http_response_code($status_code);
-        header('Content-Type: application/json');
-        echo self::jsonResponse($data, $status_code, $status_message);
-        exit;
+    private function __construct(
+        private readonly int $status,
+        private readonly array $headers,
+        private readonly string $body,
+        private readonly ?Closure $streamCallback = null,
+    ) {
     }
 
     /**
-     * Return a response telling the browser to handle file download.
-     * 
-     * @param string $file_path The path to the file to be downloaded.
-     * @param string $file_name The name of the file to be downloaded.
-     * @param bool $delete_after_download Whether to delete the file after it has been downloaded.
-     * @return void
+     * Encode $data as-is: no HTML-escaping. JSON encoding is already the correct
+     * escaping for the JSON context — HTML-escaping first (a legacy bug here) would
+     * corrupt the data and is meaningless outside an HTML context anyway.
      */
-    public static function download(string $file_path, string $file_name, bool $delete_after_download = false): void
+    public static function json(mixed $data, int $status = 200): self
     {
-        if (is_file($file_path . $file_name)) {
-            header('Content-Disposition: attachment; filename="' . addcslashes($file_name, '"\\') . '"');
-            header('Content-Type: application/octet-stream');
-            header('Content-Length: ' . filesize($file_path . $file_name));
-            readfile($file_path . $file_name);
+        $body = json_encode($data, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
-            if ($delete_after_download) {
-                unlink($file_path . $file_name);
+        return new self($status, ['Content-Type' => 'application/json'], $body);
+    }
+
+    public static function htm(string $html, int $status = 200): self
+    {
+        return new self($status, ['Content-Type' => 'text/html; charset=utf-8'], $html);
+    }
+
+    public static function text(string $text, int $status = 200): self
+    {
+        return new self($status, ['Content-Type' => 'text/plain; charset=utf-8'], $text);
+    }
+
+    public static function download(string $path, ?string $name = null): self
+    {
+        if (!is_file($path)) {
+            throw new RuntimeException(sprintf('Cannot download: file "%s" does not exist.', $path));
+        }
+
+        $filename = $name ?? basename($path);
+        $mimeType = mime_content_type($path) ?: 'application/octet-stream';
+
+        return new self(200, [
+            'Content-Type' => $mimeType,
+            'Content-Length' => (string) filesize($path),
+            'Content-Disposition' => 'attachment; filename="' . addcslashes($filename, '"\\') . '"',
+        ], (string) file_get_contents($path));
+    }
+
+    public static function redirect(string $to, int $status = 302): self
+    {
+        if ($status < 300 || $status > 308) {
+            throw new InvalidArgumentException(sprintf('%d is not a valid redirect status code.', $status));
+        }
+
+        return new self($status, ['Location' => $to], '');
+    }
+
+    public static function noContent(): self
+    {
+        return new self(204, [], '');
+    }
+
+    /**
+     * $callback is invoked at send() time and is expected to echo/flush its own output.
+     */
+    public static function stream(callable $callback): self
+    {
+        return new self(200, [], '', $callback(...));
+    }
+
+    public function status(): int
+    {
+        return $this->status;
+    }
+
+    public function header(string $name): ?string
+    {
+        foreach ($this->headers as $key => $value) {
+            if (strcasecmp($key, $name) === 0) {
+                return $value;
             }
-        } else {
-            Mediator::handleUserMessage('File not found');
         }
+
+        return null;
+    }
+
+    public function withHeader(string $name, string $value): self
+    {
+        $headers = $this->headers;
+        $headers[$name] = $value;
+
+        return new self($this->status, $headers, $this->body, $this->streamCallback);
     }
 
     /**
-     * Validate redirect URL to prevent open redirect vulnerabilities
-     *
-     * @param string $url The URL to validate.
-     * @return bool True if valid, false otherwise.
+     * The response body. For a stream() response this is always '' — content is produced
+     * by the stream callback at send() time, not held in memory beforehand.
      */
-    private static function isValidRedirectUrl(string $url): bool
+    public function content(): string
     {
-        // Allow relative URLs (starting with /)
-        if (strpos($url, '/') === 0 && strpos($url, '//') !== 0) {
-            return true;
-        }
-
-        // Allow absolute URLs only if they match the current host
-        $parsed = parse_url($url);
-        if ($parsed === false) {
-            return false;
-        }
-
-        // If no scheme/host, treat as relative
-        if (!isset($parsed['scheme']) && !isset($parsed['host'])) {
-            return strpos($url, '/') === 0;
-        }
-
-        // For absolute URLs, check if host matches current host
-        $current_host = $_SERVER['HTTP_HOST'] ?? '';
-        if (isset($parsed['host']) && $parsed['host'] === $current_host) {
-            return true;
-        }
-
-        return false;
+        return $this->body;
     }
 
     /**
-     * Redirect to a given URL.
-     * 
-     * @param string $url The URL to redirect to.
-     * @return void
+     * Emit status, headers, and body. Does not exit — the script simply continues (and,
+     * under normal request handling, ends) after this returns.
      */
-    public static function redirect(string $url): void
+    public function send(): void
     {
-        // Validate URL to prevent open redirect vulnerabilities
-        if (!self::isValidRedirectUrl($url)) {
-            Mediator::handleUserMessage('Invalid redirect URL');
+        http_response_code($this->status);
+
+        foreach ($this->headers as $name => $value) {
+            header($name . ': ' . $value);
+        }
+
+        if ($this->streamCallback !== null) {
+            ($this->streamCallback)();
+
             return;
         }
 
-        http_response_code(302);
-        header('Location: ' . $url);
-        exit;
+        echo $this->body;
     }
 
-    /**
-     * Construct a JSON response
-     * 
-     * @param array $data The data to be passed to the JSON response.
-     * @param string $status_code The status code of the response.
-     * @param string $status_message The status message of the response.
-     * @return string
-     */
-    private static function jsonResponse(array $data, string $status_code = '200', string $status_message = 'Success'): string
+    public function toPsr7(): ResponseInterface
     {
-        // Sanitize $data before passing it into the JSON (handles empty arrays fine)
-        $data = self::sanitizeData($data);
+        $factory = new Psr17Factory();
+        $psrResponse = $factory->createResponse($this->status);
 
-        $json_response = [
-            'status' => $status_code,
-            'message' => $status_message,
-            'data' => $data
-        ];
-
-        return json_encode($json_response);
-    }
-
-    /**
-     * Sanitize the data before passing it into the JSON response.
-     * 
-     * @param array $data The data to be sanitized.
-     * @return array
-     */
-    private static function sanitizeData(array $data): array
-    {
-        $sanitized = [];
-
-        foreach ($data as $key => $value) {
-            if (is_string($value)) {
-                $sanitized[$key] = htmlspecialchars(stripslashes(trim($value)), ENT_QUOTES, 'UTF-8');
-            } elseif (is_array($value)) {
-                $sanitized[$key] = self::sanitizeData($value);
-            } else {
-                $sanitized[$key] = $value;
-            }
+        foreach ($this->headers as $name => $value) {
+            $psrResponse = $psrResponse->withHeader($name, $value);
         }
 
-        return $sanitized;
+        return $psrResponse->withBody($factory->createStream($this->body));
     }
 }

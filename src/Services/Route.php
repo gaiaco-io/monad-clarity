@@ -1,244 +1,331 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Gaia\Clarity\Services;
 
-use Closure;
-use Gaia\Clarity\Services\Request;
+use InvalidArgumentException;
 
 /**
- * Route service class. The HTTP methods handler in this class respects the standard
- * definition of HTTP methods:
- * - POST: Storing resources on the server. All HTML forms MUST be submitted using the POST method.
- * - GET: Retrieving resources from the server.
- * - PUT: Updating resources on the server - NOT IMPLEMENTED AT THE MOMENT
- * - DELETE: Deleting resources from the server. - NOT IMPLEMENTED AT THE MOMENT
+ * Route registration and dispatch. Registration (get/post/.../group) builds a table;
+ * dispatch() matches the current request against that table exactly once, which is what
+ * makes a real 404-vs-405 distinction possible (§22.2) — a match-and-call-immediately
+ * router structurally cannot tell "no route matched this path" from "a route matched
+ * this path but not this method," because it never sees the routes it didn't try yet.
  *
- * The Route service class also handles URI parameters in the following structure:
- * - /user/{id}
- * - /user/{id}/{role_id}
- * - /user/{id}/role/{role_id}
- *
- * There are no imposed limits on the number of URI parameters. Each parameter is
- * uniquely identified -- hence; do not use duplicate parameter names -- and automatically
- * extracted from the URI and passed to the action callable.
+ * Named parameters: `{id}` (any non-slash segment), `{id:int}` (`\d+`), `{slug:alpha}`
+ * (`[A-Za-z]+`), `{id:uuid}`, and `{name?}` / `{id:int?}` for optional. `->where()`
+ * overrides the pattern for a specific parameter.
  *
  * @package Gaia\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
-
-abstract class Route
+final class Route
 {
-    /**
-     * Track if any route has been matched in this request.
-     * 
-     * @var bool
-     */
-    private static bool $routeMatched = false;
+    private const TYPE_PATTERNS = [
+        'int' => '\d+',
+        'alpha' => '[A-Za-z]+',
+        'uuid' => '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
+    ];
+
+    private const DEFAULT_PATTERN = '[^/]+';
 
     /**
-     * Check if a route was matched in this request.
-     * 
-     * @return bool
+     * @var list<array{
+     *     method: string,
+     *     pattern: string,
+     *     action: callable|array,
+     *     name: ?string,
+     *     middleware: list<string>,
+     *     wheres: array<string, string>,
+     * }>
      */
-    public static function hasMatched(): bool
+    private static array $routes = [];
+
+    /** @var list<array{prefix: string, middleware: list<string>}> */
+    private static array $groupStack = [];
+
+    /** @var callable|array|null */
+    private static $fallback = null;
+
+    private function __construct(private readonly int $index)
     {
-        return self::$routeMatched;
+    }
+
+    public static function get(string $uri, callable|array $action): self
+    {
+        return self::register('GET', $uri, $action);
+    }
+
+    public static function post(string $uri, callable|array $action): self
+    {
+        return self::register('POST', $uri, $action);
+    }
+
+    public static function put(string $uri, callable|array $action): self
+    {
+        return self::register('PUT', $uri, $action);
+    }
+
+    public static function patch(string $uri, callable|array $action): self
+    {
+        return self::register('PATCH', $uri, $action);
+    }
+
+    public static function delete(string $uri, callable|array $action): self
+    {
+        return self::register('DELETE', $uri, $action);
+    }
+
+    public static function options(string $uri, callable|array $action): self
+    {
+        return self::register('OPTIONS', $uri, $action);
     }
 
     /**
-     * Reset route matched flag (useful for testing).
-     * 
-     * @return void
+     * @param array{prefix?: string, middleware?: string|list<string>} $attributes
      */
-    public static function resetMatched(): void
+    public static function group(array $attributes, callable $callback): void
     {
-        self::$routeMatched = false;
-    }
+        $parentPrefix = self::$groupStack === [] ? '' : end(self::$groupStack)['prefix'];
+        $parentMiddleware = self::$groupStack === [] ? [] : end(self::$groupStack)['middleware'];
 
-    /**
-     * Handle POST requests.
-     * 
-     * @param string $uri The URI to handle.
-     * @param array|callable|Closure $action The action to handle.
-     * @return void
-     */
-    public static function post(string $uri, array|callable|Closure $action): void
-    {
-        if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            return; // Silently return if method doesn't match
-        }
+        self::$groupStack[] = [
+            'prefix' => rtrim($parentPrefix . '/' . trim((string) ($attributes['prefix'] ?? ''), '/'), '/'),
+            'middleware' => [...$parentMiddleware, ...(array) ($attributes['middleware'] ?? [])],
+        ];
 
-        // If a route has already been matched, don't process further routes
-        if (self::$routeMatched) {
-            return;
-        }
-
-        $parameters = self::extractUriParameters($uri, $_SERVER['REQUEST_URI']);
-
-        if ($parameters !== null) {
-            self::$routeMatched = true;
-            (new Request())->assign($_POST);
-            call_user_func_array($action, $parameters);
+        try {
+            $callback();
+        } finally {
+            array_pop(self::$groupStack);
         }
     }
 
-    /**
-     * Handle GET requests.
-     * 
-     * @param string $uri The URI to handle.
-     * @param array|callable|Closure $action The action to handle.
-     * @return void
-     */
-    public static function get(string $uri, array|callable|Closure $action): void
+    public static function fallback(callable|array $action): void
     {
-        if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
-            return; // Silently return if method doesn't match
-        }
+        self::$fallback = $action;
+    }
 
-        // If a route has already been matched, don't process further routes
-        if (self::$routeMatched) {
-            return;
-        }
+    public function name(string $name): self
+    {
+        self::$routes[$this->index]['name'] = $name;
 
-        $request_uri = $_SERVER['REQUEST_URI'] ?? '';
-        $parameters = self::extractUriParameters($uri, $request_uri);
+        return $this;
+    }
 
-        if ($parameters !== null) {
-            self::$routeMatched = true;
-            try {
-                call_user_func_array($action, $parameters);
-            } catch (\Throwable $e) {
-                throw $e;
+    public function middleware(string|array $middleware): self
+    {
+        self::$routes[$this->index]['middleware'] = [
+            ...self::$routes[$this->index]['middleware'],
+            ...(array) $middleware,
+        ];
+
+        return $this;
+    }
+
+    public function where(string $parameter, string $pattern): self
+    {
+        self::$routes[$this->index]['wheres'][$parameter] = $pattern;
+
+        return $this;
+    }
+
+    /**
+     * Match $request against the registered routes and invoke the winning action (running
+     * its middleware pipeline first). Returns 405 if some route matched the path but not
+     * the method, 404 if no route matched the path at all (falling back to fallback() if set).
+     */
+    public static function dispatch(Request $request): Response
+    {
+        $path = $request->path();
+        $method = $request->method();
+        $pathMatchedSomeMethod = false;
+
+        foreach (self::$routes as $route) {
+            $parameters = self::matchPattern($route['pattern'], $route['wheres'], $path);
+
+            if ($parameters === null) {
+                continue;
             }
-        }
-    }
 
-    /**
-     * Handle PUT requests.
-     * 
-     * @param string $uri The URI to handle.
-     * @param array|callable|Closure $action The action to handle.
-     * @return void
-     */
-    public static function put(string $uri, array|callable|Closure $action): void
-    {
-        if ($_SERVER['REQUEST_METHOD'] !== 'PUT') {
-            return; // Silently return if method doesn't match
-        }
+            $pathMatchedSomeMethod = true;
 
-        // If a route has already been matched, don't process further routes
-        if (self::$routeMatched) {
-            return;
-        }
+            if ($route['method'] !== $method) {
+                continue;
+            }
 
-        $parameters = self::extractUriParameters($uri, $_SERVER['REQUEST_URI']);
-
-        if ($parameters !== null) {
-            self::$routeMatched = true;
-            call_user_func_array($action, $parameters);
-        }
-    }
-
-    /**
-     * Handle DELETE requests.
-     * 
-     * @param string $uri The URI to handle.
-     * @param array|callable|Closure $action The action to handle.
-     * @return void
-     */
-    public static function delete(string $uri, array|callable|Closure $action): void
-    {
-        if ($_SERVER['REQUEST_METHOD'] !== 'DELETE') {
-            return; // Silently return if method doesn't match
-        }
-
-        // If a route has already been matched, don't process further routes
-        if (self::$routeMatched) {
-            return;
-        }
-
-        $parameters = self::extractUriParameters($uri, $_SERVER['REQUEST_URI']);
-
-        if ($parameters !== null) {
-            self::$routeMatched = true;
-            call_user_func_array($action, $parameters);
-        }
-    }
-
-    /**
-     * Sanitize URI parameter value
-     *
-     * @param string $value The parameter value to sanitize.
-     * @return string The sanitized parameter value.
-     */
-    private static function sanitizeUriParameter(string $value): string
-    {
-        // Remove any potentially dangerous characters, keep alphanumeric, hyphens, underscores, and dots
-        // This prevents path traversal and injection attacks
-        return preg_replace('/[^a-zA-Z0-9\-_.]/', '', $value);
-    }
-
-    /**
-     * Extracts URI parameters from the given URI string.
-     *
-     * @param string $pattern The URI pattern to match against.
-     * @param string $request_uri The request URI to extract parameters from.
-     * @return array|null An array of URI parameter values, or null if the pattern does not match.
-     */
-    private static function extractUriParameters(string $pattern, string $request_uri): ?array
-    {
-        $pattern = trim($pattern, '/');
-        $request_uri = trim(strtok($request_uri, '?'), '/');
-
-        $pattern_parts = $pattern === '' ? [] : explode('/', $pattern);
-        $uri_parts = $request_uri === '' ? [] : explode('/', $request_uri);
-
-        // Determine the minimum number of URI segments required (non-optional parts)
-        $required_segments = 0;
-        foreach ($pattern_parts as $part) {
-            if (preg_match('/^\{(.+)\}$/', $part, $matches)) {
-                $param = $matches[1];
-                $is_optional = substr($param, -1) === '?';
-                if (!$is_optional) {
-                    $required_segments++;
+            return self::runPipeline(
+                $route['middleware'],
+                $request,
+                function (Request $request) use ($route, $parameters) {
+                    return self::toResponse(
+                        self::invoke($route['action'], [...array_values($parameters), $request])
+                    );
                 }
-            } else {
-                $required_segments++;
-            }
+            );
         }
 
-        if (count($uri_parts) < $required_segments || count($uri_parts) > count($pattern_parts)) {
+        if ($pathMatchedSomeMethod) {
+            return Response::text('Method Not Allowed', 405);
+        }
+
+        if (self::$fallback !== null) {
+            return self::toResponse(self::invoke(self::$fallback, [$request]));
+        }
+
+        return Response::text('Not Found', 404);
+    }
+
+    /**
+     * Remove every registered route, group, and fallback. For test isolation between
+     * requests — registration is otherwise process-lifetime static state.
+     */
+    public static function reset(): void
+    {
+        self::$routes = [];
+        self::$groupStack = [];
+        self::$fallback = null;
+    }
+
+    private static function register(string $method, string $uri, callable|array $action): self
+    {
+        $group = self::$groupStack === [] ? ['prefix' => '', 'middleware' => []] : end(self::$groupStack);
+        $pattern = rtrim($group['prefix'] . '/' . trim($uri, '/'), '/');
+
+        self::$routes[] = [
+            'method' => $method,
+            'pattern' => $pattern === '' ? '/' : $pattern,
+            'action' => $action,
+            'name' => null,
+            'middleware' => $group['middleware'],
+            'wheres' => [],
+        ];
+
+        return new self(array_key_last(self::$routes));
+    }
+
+    /**
+     * @param array<string, string> $wheres
+     * @return array<string, string>|null Matched parameter values keyed by name, or null.
+     */
+    private static function matchPattern(string $pattern, array $wheres, string $path): ?array
+    {
+        $regex = self::compilePattern($pattern, $wheres);
+
+        // PREG_UNMATCHED_AS_NULL guarantees every named group is present in $matches —
+        // including an optional parameter that didn't participate — as null rather than
+        // being silently omitted. Without it, a missing trailing optional parameter would
+        // shift every argument after it (including the trailing Request) out of position.
+        if (preg_match($regex, $path, $matches, PREG_UNMATCHED_AS_NULL) !== 1) {
             return null;
         }
 
         $parameters = [];
-        $uri_index = 0;
 
-        foreach ($pattern_parts as $part) {
-            if (preg_match('/^\{(.+)\}$/', $part, $matches)) {
-                $param = $matches[1];
-                $is_optional = substr($param, -1) === '?';
-
-                if (isset($uri_parts[$uri_index])) {
-                    $parameters[] = self::sanitizeUriParameter($uri_parts[$uri_index]);
-                    $uri_index++;
-                } elseif ($is_optional) {
-                    $parameters[] = null;
-                } else {
-                    return null;
-                }
-            } else {
-                if (!isset($uri_parts[$uri_index]) || $part !== $uri_parts[$uri_index]) {
-                    return null;
-                }
-                $uri_index++;
+        foreach ($matches as $key => $value) {
+            if (is_string($key)) {
+                $parameters[$key] = $value;
             }
         }
 
-        if ($uri_index !== count($uri_parts)) {
-            return null;
+        return $parameters;
+    }
+
+    /**
+     * The separating slash before an optional segment must be part of that segment's own
+     * optional group — otherwise the pattern still demands the same number of slashes as
+     * segments, and a path that legitimately omits a trailing optional parameter (fewer
+     * slashes) simply never matches at all.
+     *
+     * @param array<string, string> $wheres
+     */
+    private static function compilePattern(string $pattern, array $wheres): string
+    {
+        $segments = $pattern === '/' ? [] : explode('/', trim($pattern, '/'));
+        $regex = '';
+
+        foreach ($segments as $segment) {
+            [$optional, $segmentRegex] = self::compileSegment($segment, $wheres);
+            $regex .= $optional ? '(?:/' . $segmentRegex . ')?' : '/' . $segmentRegex;
         }
 
-        return $parameters;
+        return '#^' . ($regex === '' ? '/' : $regex) . '$#';
+    }
+
+    /**
+     * @param array<string, string> $wheres
+     * @return array{0: bool, 1: string} Whether the segment is optional, and its regex.
+     */
+    private static function compileSegment(string $segment, array $wheres): array
+    {
+        if (!preg_match('/^\{(.+)\}$/', $segment, $matches)) {
+            return [false, preg_quote($segment, '#')];
+        }
+
+        $definition = $matches[1];
+        $optional = str_ends_with($definition, '?');
+        $definition = $optional ? substr($definition, 0, -1) : $definition;
+
+        [$name, $type] = str_contains($definition, ':')
+            ? explode(':', $definition, 2)
+            : [$definition, null];
+
+        $constraint = $wheres[$name] ?? ($type !== null ? self::TYPE_PATTERNS[$type] ?? null : null) ?? self::DEFAULT_PATTERN;
+
+        return [$optional, '(?P<' . $name . '>' . $constraint . ')'];
+    }
+
+    /**
+     * @param callable|array $action
+     * @return Response|array|string
+     */
+    private static function invoke(callable|array $action, array $arguments): mixed
+    {
+        if (!is_callable($action)) {
+            throw new InvalidArgumentException('Route action is not callable.');
+        }
+
+        return call_user_func_array($action, $arguments);
+    }
+
+    /**
+     * Build the middleware chain innermost-out, so the last middleware registered runs
+     * closest to $destination. Every layer — including $destination — receives whatever
+     * Request the layer before it passed to $next(), so a middleware that calls
+     * $next($request->withSomething(...)) actually reaches the controller.
+     *
+     * @param list<string> $middlewareNames
+     */
+    private static function runPipeline(array $middlewareNames, Request $request, callable $destination): Response
+    {
+        $pipeline = array_reduce(
+            array_reverse($middlewareNames),
+            static function (callable $next, string $middlewareName): callable {
+                return static function (Request $request) use ($middlewareName, $next): Response {
+                    $middleware = is_callable($middlewareName) ? $middlewareName : new $middlewareName();
+
+                    return $middleware($request, $next);
+                };
+            },
+            static fn (Request $request): Response => $destination($request)
+        );
+
+        return $pipeline($request);
+    }
+
+    private static function toResponse(mixed $result): Response
+    {
+        if ($result instanceof Response) {
+            return $result;
+        }
+
+        if (is_array($result)) {
+            return Response::json($result);
+        }
+
+        throw new InvalidArgumentException(
+            sprintf('Route action must return a Response or array, got %s.', get_debug_type($result))
+        );
     }
 }
