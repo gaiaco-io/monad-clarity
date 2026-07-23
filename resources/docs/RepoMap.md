@@ -19,14 +19,14 @@ developer forever — never updated via Composer again (only `gaia/monad-clarity
 │   │       ├── css
 │   │       │   └── styles.css
 │   │       └── js
-│   ├── controllers
-│   ├── models
+│   ├── Controllers          <!-- capitalised to match `namespace App\Controllers;` — PSR-4 -->
+│   ├── Models               <!-- capitalised to match `namespace App\Models;` — PSR-4 -->
 │   ├── routes
 │   │   ├── api.php
 │   │   ├── cli.php
 │   │   └── web.php
-│   ├── middlewares          <!-- extends Gaia\Clarity\Middlewares\* -->
-│   ├── services
+│   ├── Middlewares          <!-- extends Gaia\Clarity\Middlewares\*; capitalised, PSR-4 -->
+│   ├── Services             <!-- capitalised to match `namespace App\Services;` — PSR-4 -->
 │   └── views
 │       ├── Errors
 │       │   └── 404.php
@@ -187,5 +187,12 @@ Never modified by application developers.
   any tagged 1.0.0 release.
 - `Services\Console.php` is the stable kernel entry point (`CrossRepoContracts.md` §2–3);
   `src/Console/*` command classes are internal and may be reorganised freely in minor releases.
-- `app/middlewares` in the skeleton and `src/Middlewares` in Clarity are two different things:
+- `app/Middlewares` in the skeleton and `src/Middlewares` in Clarity are two different things:
   the skeleton's are thin developer-owned extensions of the Clarity engines.
+- Every `App\*`-namespaced skeleton directory (`Controllers`, `Models`, `Services`,
+  `Middlewares`) is capitalised to match its namespace segment exactly — PSR-4 resolves
+  paths case-sensitively, so a lowercase directory paired with a capitalised namespace
+  autoloads correctly by coincidence on a case-insensitive filesystem (macOS, Windows) and
+  fails on a case-sensitive one (Linux — most CI and production hosts). `routes/` and
+  `views/` stay lowercase since neither is PSR-4-autoloaded (route files are `require`d
+  directly; views are resolved by `View`'s own path logic).

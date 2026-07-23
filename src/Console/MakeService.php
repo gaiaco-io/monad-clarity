@@ -7,7 +7,11 @@ namespace Gaia\Clarity\Console;
 use Gaia\Clarity\Services\Console;
 
 /**
- * `php mitosis make:service Billing` — writes app/services/{Name}.php from a template.
+ * `php mitosis make:service Billing` — writes app/Services/{Name}.php from a template.
+ *
+ * The directory is capitalised to match the template's own `namespace App\Services;` —
+ * PSR-4 requires the on-disk path to match the namespace segment's case exactly (see
+ * MakeController's docblock for the full rationale).
  *
  * @package Gaia\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -26,7 +30,7 @@ final class MakeService implements Command
             return 1;
         }
 
-        $path = getcwd() . '/app/services/' . $name . '.php';
+        $path = getcwd() . '/app/Services/' . $name . '.php';
 
         if (!self::writeGeneratedFile($path, self::template($name))) {
             Console::error(sprintf('Service already exists: %s', $path));

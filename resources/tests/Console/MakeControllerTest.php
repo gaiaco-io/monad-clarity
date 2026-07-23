@@ -47,7 +47,7 @@ final class MakeControllerTest extends TestCase
     {
         $exitCode = (new MakeController())(Arguments::parse(['UserController']));
 
-        $path = $this->projectRoot . '/app/controllers/UserController.php';
+        $path = $this->projectRoot . '/app/Controllers/UserController.php';
 
         self::assertSame(0, $exitCode);
         self::assertFileExists($path);

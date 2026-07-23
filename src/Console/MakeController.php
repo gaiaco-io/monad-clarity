@@ -7,9 +7,15 @@ namespace Gaia\Clarity\Console;
 use Gaia\Clarity\Services\Console;
 
 /**
- * `php mitosis make:controller UserController` — writes app/controllers/{Name}.php from
+ * `php mitosis make:controller UserController` — writes app/Controllers/{Name}.php from
  * a template. Paths are relative to the current working directory, matching the fixed
  * skeleton tree in RepoMap.md (commands run from the application's project root).
+ *
+ * The directory is capitalised to match the template's own `namespace App\Controllers;`
+ * — PSR-4 requires the on-disk path to match the namespace segment's case exactly, so a
+ * lowercase `app/controllers/` directory would silently fail to autoload on any
+ * case-sensitive filesystem (Linux, most CI/production hosts) despite working by
+ * coincidence in local development on a case-insensitive one (macOS, Windows).
  *
  * @package Gaia\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -28,7 +34,7 @@ final class MakeController implements Command
             return 1;
         }
 
-        $path = getcwd() . '/app/controllers/' . $name . '.php';
+        $path = getcwd() . '/app/Controllers/' . $name . '.php';
 
         if (!self::writeGeneratedFile($path, self::template($name))) {
             Console::error(sprintf('Controller already exists: %s', $path));

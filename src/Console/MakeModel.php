@@ -7,7 +7,11 @@ namespace Gaia\Clarity\Console;
 use Gaia\Clarity\Services\Console;
 
 /**
- * `php mitosis make:model User` — writes app/models/{Name}.php from a template.
+ * `php mitosis make:model User` — writes app/Models/{Name}.php from a template.
+ *
+ * The directory is capitalised to match the template's own `namespace App\Models;` —
+ * PSR-4 requires the on-disk path to match the namespace segment's case exactly (see
+ * MakeController's docblock for the full rationale).
  *
  * @package Gaia\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -26,7 +30,7 @@ final class MakeModel implements Command
             return 1;
         }
 
-        $path = getcwd() . '/app/models/' . $name . '.php';
+        $path = getcwd() . '/app/Models/' . $name . '.php';
 
         if (!self::writeGeneratedFile($path, self::template($name))) {
             Console::error(sprintf('Model already exists: %s', $path));

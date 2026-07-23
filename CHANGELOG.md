@@ -6,6 +6,22 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 
 ## [Unreleased]
 
+### Fixed
+- `make:controller`/`make:model`/`make:service` wrote to lowercase `app/controllers/`,
+  `app/models/`, `app/services/`, while their own generated templates declare
+  `namespace App\Controllers;`/`App\Models;`/`App\Services;` (capitalised). PSR-4
+  resolves paths case-sensitively, so the mismatch worked by coincidence in local
+  development on a case-insensitive filesystem (macOS, Windows) and silently failed to
+  autoload on any case-sensitive one (Linux — most CI and production hosts). Found while
+  running Phase 8's acceptance-gate smoke test of every `mitosis` command against a real
+  skeleton checkout on a case-sensitive-adjacent setup. Fixed by capitalising all three
+  target directories to match their templates' namespaces exactly; updated the three
+  corresponding tests, which had been asserting the buggy (but internally self-consistent)
+  lowercase path rather than validating actual PSR-4 compatibility. `RepoMap.md`'s tree
+  diagram corrected to match, with a note on which skeleton directories are
+  PSR-4-sensitive (`Controllers`/`Models`/`Services`/`Middlewares`) versus not
+  (`routes`/`views`, neither autoloaded by namespace).
+
 ### Documentation
 - `API_Contracts.md`'s `Middlewares\MetaTag` entry now documents its two ambient,
   app-owned dependencies: a global `APP` constant (`name`/`base_url` keys) and six

@@ -47,7 +47,7 @@ final class MakeServiceTest extends TestCase
     {
         $exitCode = (new MakeService())(Arguments::parse(['Billing']));
 
-        $path = $this->projectRoot . '/app/services/Billing.php';
+        $path = $this->projectRoot . '/app/Services/Billing.php';
 
         self::assertSame(0, $exitCode);
         self::assertFileExists($path);

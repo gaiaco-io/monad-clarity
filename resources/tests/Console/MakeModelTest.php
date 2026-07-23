@@ -47,7 +47,7 @@ final class MakeModelTest extends TestCase
     {
         $exitCode = (new MakeModel())(Arguments::parse(['User']));
 
-        $path = $this->projectRoot . '/app/models/User.php';
+        $path = $this->projectRoot . '/app/Models/User.php';
 
         self::assertSame(0, $exitCode);
         self::assertFileExists($path);
