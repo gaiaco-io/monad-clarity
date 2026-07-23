@@ -28,7 +28,9 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
   at a nonexistent root-level directory.
 - Added `require`: `php: >=8.2`, `nesbot/carbon`, `ramsey/uuid` (the latter was already an
   undeclared implicit dependency of `Services\DB` and `Services\Files`).
-- Added `require-dev`: `phpunit/phpunit`, `fakerphp/faker` per `TestingStrategy.md`.
+- Added `require-dev`: `phpunit/phpunit ^11.0`, `fakerphp/faker` per `TestingStrategy.md`.
+  PHPUnit pinned to `^11.0` rather than latest (`^13`) — 13.x requires PHP `>=8.4`, which
+  would break CI against the documented `>=8.2` floor and the 8.2/8.3 matrix.
 - Added `autoload-dev` PSR-4 mapping `Gaia\\Clarity\\Tests\\` to `resources/tests/`.
 
 ### Removed
