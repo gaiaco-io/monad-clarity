@@ -17,6 +17,11 @@ anything listed here changes only under semver-major.
 - Skeleton `composer.json` requires `"gaia/monad-clarity": "^1.0"` and maps `"App\\": "app/"`.
 - Clarity `composer.json` maps `"Gaia\\Clarity\\": "src/"`, requires `"php": ">=8.2"`,
   bundles `nesbot/carbon` and `ramsey/uuid`, and carries PHPUnit + FakerPHP as dev dependencies.
+- Also required (PSR interface compliance, per `Architecture.md` §6): `psr/log` (Logger,
+  PSR-3) and `psr/http-client` + `psr/http-message` + `psr/http-factory` + `nyholm/psr7`
+  (HttpClient, PSR-18 — `nyholm/psr7` supplies the concrete PSR-7 Request/Response objects
+  PSR-18 operates on; Clarity does not hand-roll its own). `ext-curl` and `ext-openssl` are
+  required extensions (`HttpClient` and `Utils\Encryption` respectively).
 - `resources/` and `CLAUDE.md` in the Clarity repo are committed to GitHub but excluded from
   the Packagist dist via `.gitattributes` `export-ignore`.
 

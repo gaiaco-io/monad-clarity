@@ -23,6 +23,28 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
   and forged signed URLs, wrong-key/tampered HMAC verification, rehash-on-cost-change for
   `Hash`, and a regression guard for `ConstantTime` against a naive early-exit comparator.
 - `ext-openssl` added to `composer.json` `require` (used by `Utils\Encryption`).
+- Phase 1 (foundations, continued): `Services\Event` — tiny synchronous dispatcher with six
+  stable built-in event names (`login.success`, `login.failed`, `payment.completed` (reserved
+  until Checkout ships), `user.registered`, `file.uploaded`, `migration.completed`) and
+  `listen()`/`dispatch()`/`hasListeners()`/`forget()`; not restricted to the built-ins,
+  per `API_Contracts.md`. 7 tests.
+- `Middlewares\Logger` — PSR-3 compliant (`Psr\Log\AbstractLogger`), one instance per
+  destination file. Covers all 11 §14 requirements: log levels, context arrays with `{placeholder}`
+  interpolation, `request_id`/`user_id` promoted to top-level fields, channel label,
+  timezone-aware ISO-8601 timestamps, size-based rotation, `Utils\Redactor` redaction of
+  context values, optional JSON-line output, and structured exception description when
+  `context['exception']` is a `Throwable`. 10 tests.
+- `Services\HttpClient` — cURL-backed, PSR-18 compliant (`Psr\Http\Client\ClientInterface`)
+  directly (not bridged — see `Architecture.md` §6 Decision #2), using `nyholm/psr7` for
+  concrete PSR-7 Request/Response objects. Ergonomic `get`/`post`/`put`/`patch`/`delete`/
+  `postJson` helpers on top of `sendRequest()`. Throws `HttpClientException` (implements
+  `Psr\Http\Client\NetworkExceptionInterface`) on transport-level failure. 9 tests against a
+  local PHP built-in server fixture (`resources/tests/fixtures/http-echo-server.php`) — no
+  dependency on the real internet or a third-party service.
+- `psr/log`, `psr/http-client`, `psr/http-message`, `psr/http-factory`, `nyholm/psr7` added
+  to `composer.json` `require` (PSR-3/PSR-18 compliance, per `Architecture.md` §6).
+  `ext-curl` added (used by `Services\HttpClient`). `CrossRepoContracts.md` §1 updated to
+  match.
 - `LICENSE` (MIT).
 - `README.md` with status, PHP floor, and testing instructions.
 - `.gitattributes` `export-ignore` rules for `/resources`, `/CLAUDE.md`, and the dotfiles

@@ -22,9 +22,15 @@
     "minimum-stability": "stable",
     "require": {
         "php": ">=8.2",
+        "ext-curl": "*",
         "ext-openssl": "*",
         "nesbot/carbon": "^3.13",
-        "ramsey/uuid": "^4.9"
+        "ramsey/uuid": "^4.9",
+        "psr/log": "^3.0",
+        "psr/http-client": "^1.0",
+        "psr/http-message": "^2.0",
+        "psr/http-factory": "^1.1",
+        "nyholm/psr7": "^1.8"
     },
     "require-dev": {
         "fakerphp/faker": "^1.24",
