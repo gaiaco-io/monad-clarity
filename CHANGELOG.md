@@ -7,6 +7,53 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 5, part 1: `Services\Session` and `Middlewares\Csrf`.
+  `Services\Session` is a full rewrite of the DB-backed session store (`sessions` table,
+  DDL.sql) as a static facade matching `DB`/`Route`/`View`'s convention. Fixed a real bug
+  in the code it replaces: the legacy `start()` never populated `expire_at`, which is
+  `NOT NULL` in the frozen DDL — every insert would have violated that constraint against
+  a real MySQL server (SQLite is more permissive, which is exactly why the bug went
+  unnoticed). `resolve()` treats an expired session, a revoked one, and a token that
+  never existed identically (null) — the caller cannot distinguish why, by design.
+  `regenerate()` rotates a session's token in place (anti-fixation, e.g. on login) while
+  preserving its id/user_id/payload. `revoke()` marks a row invalid without deleting it
+  (audit trail survives); `destroy()` hard-deletes; `purgeExpired()` is a maintenance
+  operation for a scheduled task, not the request path. Deliberately does not touch
+  superglobals, cookies, or the HTTP layer — `start()`/`regenerate()` return a plaintext
+  token; delivering it as the `mid` cookie (`Session::COOKIE_NAME`) on the outgoing
+  Response is the caller's job (Authentication, Csrf) — this keeps Session a pure,
+  independently testable data layer. 12 tests, adversarial rather than happy-path:
+  expired rejection, revoked rejection, guest (null `user_id`) sessions, digest lookup,
+  regeneration invalidating the prior token, purge counting exactly the rows it should.
+  `Middlewares\Csrf` (ReleaseNotes §13) is the first of six new pipeline middlewares this
+  phase — `__invoke(Request, callable $next): Response`, matching Route's existing
+  pipeline contract. Session-backed requests store the token in the session payload
+  (rotated via `Session::write()`); session-less requests (a public/anonymous form) get
+  an HMAC-signed `{random}.{timestamp}.{hmac}` token (`Utils\HMAC`, `Utils\ConstantTime`).
+  Not `final` — per `CrossRepoContracts.md` §5, Clarity middlewares are designed for
+  `app/middlewares/` subclasses with a zero-argument constructor (Route resolves a string
+  middleware via `new $class()`); `requiresValidation()`/`isExcluded()`/
+  `originIsTrusted()`/`reject()` are `protected` extension points, deliberately chosen to
+  expose configuration behavior without touching the token-comparison internals.
+  **Honest scoping, not a shortcut**: the session-less HMAC token proves the token was
+  minted by this app and hasn't exceeded its TTL, but is NOT bound to any browser/cookie
+  — a token harvested from the attacker's own visit is validly signed and would replay
+  successfully if Origin/Referer were silently permissive. A true signed-double-submit-
+  cookie scheme would close this independent of Origin/Referer, but requires
+  request-scoped coordination between this middleware and whatever calls `tokenFor()`
+  from a view (a `Response::withCookie()` API doesn't exist yet, deliberately deferred
+  rather than half-built alongside this). So for the session-less path specifically, the
+  Origin/Referer check is the actual line of defense, and — unlike the session-backed
+  path, which has a server-stored secret to fall back on — at least one of Origin/Referer
+  is now *required* to be present for a session-less request; absent both, the request
+  is rejected rather than allowed through on silence. Also fixed a concrete bug caught by
+  testing against `mitosis serve`'s own default port: comparing `Origin` via
+  `parse_url(..., PHP_URL_HOST)` against the raw `Host` header silently drops the port,
+  so `http://127.0.0.1:8000` was being compared against `127.0.0.1` and rejected as
+  cross-origin on the single most common local-dev scenario. Fixed by comparing
+  host:port authority on both sides. 18 tests, including both of the above.
+  Legacy `Services\CsrfService` (wrong namespace, called APIs that no longer exist on the
+  rewritten `Session`/`Mediator`/`Request`) removed — fully superseded.
 - Phase 4 complete: the `mitosis` CLI. `Services\Console::run(array $argv): int` is the
   frozen kernel contract (`CrossRepoContracts.md` §2–3) — argv parsing (via the new
   `Console\Arguments` value object), built-in command registry, `Console::register(string
