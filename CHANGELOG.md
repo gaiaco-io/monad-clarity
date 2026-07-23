@@ -7,6 +7,26 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 3 (data layer, part 2): `Services\Migration` — orchestrates migration files
+  (`GapAnalysis_BuildPlan_26.07.md` §12; create/drop database/table/index are Schema's
+  job, used directly from a migration's `up()`/`down()`). A migration file returns an
+  object with `up()`/`down()`; applied migrations are tracked in `clarity_migrations`
+  (not one of the two setup-owned tables in `CrossRepoContracts.md` §8 — internal
+  bookkeeping, free to change). `migrate()`/`rollback(steps)`/`status()`/`runSqlScript()`/
+  `runSeed()`/`exportDdl()`. Export reproduces the live schema as idempotent
+  `CREATE TABLE IF NOT EXISTS` statements on SQLite and MySQL (both expose the original
+  DDL text natively); PostgreSQL has no such facility, so its export reconstructs columns
+  from `information_schema` only — primary keys/unique constraints/indexes are NOT
+  captured, documented as a known limitation rather than silently incomplete. 11 tests,
+  including exporting then re-running the export against the same already-migrated
+  database to prove idempotency (§12.8's actual requirement).
+  Two real bugs caught before landing: `runSqlScript()` called a `splitStatements()`
+  helper that was never written (straightforward miss, caught immediately by the test);
+  more substantively, SQLite's `sqlite_master.sql` does **not** preserve the `IF NOT
+  EXISTS` clause from the original `CREATE TABLE` statement (it stores canonical
+  structure, not literal submitted DDL) — re-running the "idempotent" SQLite export
+  against its own source database threw "table already exists" until `IF NOT EXISTS`
+  was explicitly re-injected, the same fix already needed for MySQL's `SHOW CREATE TABLE`.
 - Phase 3 (data layer, part 1): `Services\Schema` — PDO dialect abstraction over MySQL
   (default), PostgreSQL, and SQLite (`GapAnalysis_BuildPlan_26.07.md` §10). `Blueprint`
   (`Services\Schema\Blueprint`) builds a dialect-agnostic column/key description;
