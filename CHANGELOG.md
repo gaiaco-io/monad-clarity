@@ -7,6 +7,26 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 5, part 2: `Middlewares\RateLimiter` (ReleaseNotes §28). Fixed-window counter
+  backed by `Services\Cache` — works with any of its three drivers, so the limit holds
+  across a multi-node deployment whenever Cache is DB- or Redis-backed. Required call
+  sites aren't all full-request middleware: login/password-reset rate-limit a specific
+  identifier (an email), not a whole route, so `attempt(string $key): bool` is public and
+  directly callable from Authentication's login flow, independent of `__invoke()`'s
+  per-request pipeline use for public API/LLM/webhook routes. `resolveKey()` (defaults to
+  the caller's IP) and `rejectionResponse()` (429 + `Retry-After`) are `protected`
+  extension points per the same non-`final` contract as Csrf.
+  Cache keys are SHA-256-hashed before use rather than concatenated raw — a raw IPv6
+  address contains `:`, one of PSR-16's reserved key characters, which would otherwise
+  throw on the exact input type this middleware exists to rate-limit.
+  Documented rather than silently accepted: `hit()` is read-then-write (PSR-16 has no
+  atomic increment), so concurrent requests against the same key can each read the same
+  count and all pass — a deterrent, not a hard guarantee, worth calling out explicitly
+  since its highest-stakes consumer is login throttling. Fixed-window boundary bursts
+  (up to 2x the limit straddling a window edge) are the same kind of accepted, documented
+  gap; closing either needs a different algorithm §28 doesn't ask for. 12 tests, including
+  one that would fail loudly (a thrown `CacheInvalidArgumentException`) if the hashing
+  fix above were reverted.
 - Phase 5, part 1: `Services\Session` and `Middlewares\Csrf`.
   `Services\Session` is a full rewrite of the DB-backed session store (`sessions` table,
   DDL.sql) as a static facade matching `DB`/`Route`/`View`'s convention. Fixed a real bug
