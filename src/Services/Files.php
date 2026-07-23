@@ -1,226 +1,215 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Gaia\Clarity\Services;
 
-use Gaia\Clarity\Services\DB;
-use Ramsey\Uuid\Uuid;
+use finfo;
+use InvalidArgumentException;
+use Psr\Http\Message\UploadedFileInterface;
+use RuntimeException;
 
 /**
- * Uploader class for handling file uploads.
+ * File upload handling and storage, with pluggable adapters (filesystem default at
+ * `/storage/userfiles`, S3 optional) — a pure storage service with no database coupling.
+ * Any metadata an application wants to persist about a stored file (owner, parent
+ * record, ordering, ...) is the application's own table and concern, not Clarity's; no
+ * table for this is defined in `DDL.sql`, unlike `sessions`/`caches`.
+ *
+ * MIME type is always detected from file content (`fileinfo`), never from the
+ * client-supplied `Content-Type` — that header is exactly as trustworthy as a filename
+ * extension, i.e. not at all (ReleaseNotes §19.2.3). An uploaded file must pass both the
+ * extension allowlist AND a content-sniffed MIME type consistent with that extension.
+ *
+ * The S3 adapter accepts any object exposing putObject/deleteObject/doesObjectExist —
+ * the real `Aws\S3\S3Client` method shapes — rather than depending on aws/aws-sdk-php,
+ * so using the real SDK needs no adapter translation, and tests can use a plain fake.
  *
  * @package Gaia\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
-
 final class Files
 {
-    private array $files = [];
+    public const ADAPTER_FILESYSTEM = 'filesystem';
+    public const ADAPTER_S3 = 's3';
 
-    // Allowed MIME types (can be extended)
-    private const ALLOWED_MIME_TYPES = [
-        'image/jpeg',
-        'image/png',
-        'image/gif',
-        'image/webp',
-        'application/pdf',
-        'application/msword',
-        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'application/vnd.ms-excel',
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'text/plain',
-        'text/csv'
+    private const DEFAULT_MAX_SIZE_BYTES = 10_485_760;
+
+    /** @var array<string, list<string>> extension => content-sniffed MIME types it may be */
+    private const DEFAULT_ALLOWED_EXTENSIONS = [
+        'jpg' => ['image/jpeg'],
+        'jpeg' => ['image/jpeg'],
+        'png' => ['image/png'],
+        'gif' => ['image/gif'],
+        'webp' => ['image/webp'],
+        'pdf' => ['application/pdf'],
+        'txt' => ['text/plain'],
+        'csv' => ['text/plain', 'text/csv'],
+        'doc' => ['application/msword'],
+        'docx' => ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/zip'],
+        'xls' => ['application/vnd.ms-excel'],
+        'xlsx' => ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/zip'],
     ];
 
-    // Maximum file size in bytes (default: 10MB)
-    private const MAX_FILE_SIZE = 10485760;
+    /**
+     * @param array<string, list<string>> $allowedExtensions
+     */
+    public function __construct(
+        private readonly string $adapter,
+        private readonly ?string $basePath = null,
+        private readonly ?object $s3Client = null,
+        private readonly ?string $s3Bucket = null,
+        private readonly array $allowedExtensions = self::DEFAULT_ALLOWED_EXTENSIONS,
+        private readonly int $maxSizeBytes = self::DEFAULT_MAX_SIZE_BYTES,
+    ) {
+        if (!in_array($adapter, [self::ADAPTER_FILESYSTEM, self::ADAPTER_S3], true)) {
+            throw new InvalidArgumentException(sprintf('Unknown storage adapter "%s".', $adapter));
+        }
+
+        if ($adapter === self::ADAPTER_FILESYSTEM && $basePath === null) {
+            throw new InvalidArgumentException('Filesystem adapter requires $basePath.');
+        }
+
+        if ($adapter === self::ADAPTER_S3 && ($s3Client === null || $s3Bucket === null)) {
+            throw new InvalidArgumentException('S3 adapter requires $s3Client and $s3Bucket.');
+        }
+    }
 
     /**
-     * Validate file type
-     *
-     * @param string $mime_type The MIME type to validate.
-     * @return bool True if valid, false otherwise.
+     * @return array{path: string, mimeType: string, size: int, public: bool}
      */
-    private function isValidMimeType(string $mime_type): bool
+    public function store(UploadedFileInterface $file, bool $public = true, ?string $directory = null): array
     {
-        return in_array($mime_type, self::ALLOWED_MIME_TYPES, true);
+        self::assertUploadOk($file);
+
+        $contents = self::readContents($file);
+        $mimeType = (new finfo(FILEINFO_MIME_TYPE))->buffer($contents) ?: 'application/octet-stream';
+        $extension = self::extensionOf((string) $file->getClientFilename());
+
+        $this->assertAllowedExtensionAndMime($extension, $mimeType);
+        $this->assertWithinSizeLimit($file->getSize());
+
+        $path = ($directory !== null ? trim($directory, '/') . '/' : '') . self::generateSafeName($extension);
+
+        match ($this->adapter) {
+            self::ADAPTER_FILESYSTEM => $this->storeToFilesystem($file, $path, $public),
+            self::ADAPTER_S3 => $this->storeToS3($contents, $path, $mimeType, $public),
+        };
+
+        return ['path' => $path, 'mimeType' => $mimeType, 'size' => strlen($contents), 'public' => $public];
     }
 
     /**
-     * Validate file size
-     *
-     * @param int $size The file size in bytes.
-     * @return bool True if valid, false otherwise.
+     * @param list<UploadedFileInterface> $files
+     * @return list<array{path: string, mimeType: string, size: int, public: bool}>
      */
-    private function isValidFileSize(int $size): bool
+    public function storeMultiple(array $files, bool $public = true, ?string $directory = null): array
     {
-        return $size > 0 && $size <= self::MAX_FILE_SIZE;
+        return array_map(fn (UploadedFileInterface $file) => $this->store($file, $public, $directory), $files);
     }
 
-    /**
-     * Sanitize filename to prevent path traversal
-     *
-     * @param string $filename The filename to sanitize.
-     * @return string The sanitized filename.
-     */
-    private function sanitizeFilename(string $filename): string
+    public function delete(string $path): bool
     {
-        // Remove path traversal attempts and dangerous characters
-        $filename = basename($filename);
-        $filename = preg_replace('/[^a-zA-Z0-9._-]/', '_', $filename);
-        return $filename;
+        return match ($this->adapter) {
+            self::ADAPTER_FILESYSTEM => self::deleteFromFilesystem($this->absolutePath($path)),
+            self::ADAPTER_S3 => $this->deleteFromS3($path),
+        };
     }
 
-    public function store(array $files, mixed $parent_id): void
+    public function exists(string $path): bool
     {
-        if (!empty($files)) {
-            $this->removeEmptyUploads($files);
+        return match ($this->adapter) {
+            self::ADAPTER_FILESYSTEM => is_file($this->absolutePath($path)),
+            self::ADAPTER_S3 => (bool) $this->s3Client->doesObjectExist($this->s3Bucket, $path),
+        };
+    }
 
-            if (!empty($this->files['tmp_name'])) {
-                $this->storeFileMetaData($parent_id);
-                $this->moveUploadedFile();
-            }
+    private function storeToFilesystem(UploadedFileInterface $file, string $relativePath, bool $public): void
+    {
+        $absolutePath = $this->absolutePath($relativePath);
+        $directory = dirname($absolutePath);
+
+        if (!is_dir($directory) && !mkdir($directory, 0775, true) && !is_dir($directory)) {
+            throw new RuntimeException(sprintf('Cannot create storage directory "%s".', $directory));
+        }
+
+        // moveTo() is upload-aware: move_uploaded_file() for a real HTTP upload (the
+        // atomic-enough move that function exists for), or a stream copy + rename
+        // otherwise — e.g. a file built directly from a stream, as in tests.
+        $file->moveTo($absolutePath);
+        chmod($absolutePath, $public ? 0644 : 0600);
+    }
+
+    private function storeToS3(string $contents, string $path, string $mimeType, bool $public): void
+    {
+        $this->s3Client->putObject([
+            'Bucket' => $this->s3Bucket,
+            'Key' => $path,
+            'Body' => $contents,
+            'ContentType' => $mimeType,
+            'ACL' => $public ? 'public-read' : 'private',
+        ]);
+    }
+
+    private static function deleteFromFilesystem(string $absolutePath): bool
+    {
+        return !is_file($absolutePath) || unlink($absolutePath);
+    }
+
+    private function deleteFromS3(string $path): bool
+    {
+        $this->s3Client->deleteObject(['Bucket' => $this->s3Bucket, 'Key' => $path]);
+
+        return true;
+    }
+
+    private function absolutePath(string $relativePath): string
+    {
+        return rtrim((string) $this->basePath, '/') . '/' . ltrim($relativePath, '/');
+    }
+
+    private static function readContents(UploadedFileInterface $file): string
+    {
+        $stream = $file->getStream();
+        $stream->rewind();
+
+        return $stream->getContents();
+    }
+
+    private static function assertUploadOk(UploadedFileInterface $file): void
+    {
+        if ($file->getError() !== UPLOAD_ERR_OK) {
+            throw new RuntimeException(sprintf('Upload failed with error code %d.', $file->getError()));
         }
     }
 
-    public function unlinkFileByParentId(mixed $parent_id): void
+    private static function extensionOf(string $filename): string
     {
-        if (is_array($parent_id)) {
-            $sql = 'SELECT filename FROM files WHERE parent_id IN (' . implode(',', array_fill(0, count($parent_id), '?')) . ');';
-            $stmt = DB::run($sql, array_values($parent_id));
-            $files_to_unlink = $stmt !== null ? $stmt->fetchAll() : [];
+        return strtolower(pathinfo($filename, PATHINFO_EXTENSION));
+    }
 
-            foreach ($files_to_unlink as $file) {
-                if (file_exists(PATH['upload'] . $file['filename'])) {
-                    unlink(PATH['upload'] . $file['filename']);
-                }
-            }
+    private function assertAllowedExtensionAndMime(string $extension, string $mimeType): void
+    {
+        if (!isset($this->allowedExtensions[$extension])) {
+            throw new InvalidArgumentException(sprintf('File extension ".%s" is not allowed.', $extension));
+        }
 
-            $sql = 'DELETE FROM files WHERE parent_id IN (' . implode(',', array_fill(0, count($parent_id), '?')) . ');';
-            DB::run($sql, array_values($parent_id));
-        } else {
-            $sql = 'SELECT filename FROM files WHERE parent_id = :parent_id;';
-            $stmt = DB::run($sql, ['parent_id' => $parent_id]);
-            $files_to_unlink = $stmt !== null ? $stmt->fetchAll() : [];
-
-            foreach ($files_to_unlink as $file) {
-                if (file_exists(PATH['upload'] . $file['filename'])) {
-                    unlink(PATH['upload'] . $file['filename']);
-                }
-            }
-
-            $sql = 'DELETE FROM files WHERE parent_id = :parent_id;';
-            DB::run($sql, ['parent_id' => $parent_id]);
+        if (!in_array($mimeType, $this->allowedExtensions[$extension], true)) {
+            throw new InvalidArgumentException(
+                sprintf('File content (detected as "%s") does not match its ".%s" extension.', $mimeType, $extension)
+            );
         }
     }
 
-    public function unlinkFileByFilename(mixed $filename): void
+    private function assertWithinSizeLimit(?int $size): void
     {
-        if (is_array($filename)) {
-            foreach ($filename as $file) {
-                $sanitized_file = $this->sanitizeFilename($file);
-                $file_path = PATH['upload'] . $sanitized_file;
-                if (file_exists($file_path) && strpos(realpath($file_path), realpath(PATH['upload'])) === 0) {
-                    unlink($file_path);
-                }
-            }
-        } else {
-            $sanitized_file = $this->sanitizeFilename($filename);
-            $file_path = PATH['upload'] . $sanitized_file;
-            if (file_exists($file_path) && strpos(realpath($file_path), realpath(PATH['upload'])) === 0) {
-                unlink($file_path);
-            }
+        if ($size === null || $size <= 0 || $size > $this->maxSizeBytes) {
+            throw new InvalidArgumentException(sprintf('File size must be between 1 and %d bytes.', $this->maxSizeBytes));
         }
     }
 
-    public function getFileListByParentId(mixed $parent_id): array
+    private static function generateSafeName(string $extension): string
     {
-        $sql = 'SELECT id, is_primary, sequence, filename, original_filename ';
-        $sql .= 'FROM files WHERE parent_id = :parent_id ORDER BY sequence ASC, created DESC;';
-        $stmt = DB::run($sql, ['parent_id' => $parent_id]);
-        return $stmt !== null ? $stmt->fetchAll() : [];
-    }
-
-    private function storeFileMetaData(mixed $parent_id): void
-    {
-        if (is_array($this->files['tmp_name'])) {
-            for ($i = 0; $i < count($this->files['tmp_name']); $i++) {
-                DB::insert('files', [
-                    'id' => Uuid::uuid4()->toString(),
-                    'parent_id' => $parent_id,
-                    'mime_type' => $this->files['type'][$i],
-                    'filename' => $this->files['new_name'][$i],
-                    'original_filename' => $this->files['name'][$i]
-                ]);
-            }
-        } else {
-            DB::insert('files', [
-                'id' => Uuid::uuid4()->toString(),
-                'parent_id' => $parent_id,
-                'mime_type' => $this->files['type'],
-                'filename' => $this->files['new_name'],
-                'original_filename' => $this->files['name']
-            ]);
-        }
-    }
-
-    private function moveUploadedFile(): void
-    {
-        if (is_array($this->files['tmp_name'])) {
-            for ($i = 0; $i < count($this->files['tmp_name']); $i++) {
-                move_uploaded_file($this->files['tmp_name'][$i], PATH['upload'] . '/' . $this->files['new_name'][$i]);
-            }
-        } else {
-            move_uploaded_file($this->files['tmp_name'], PATH['upload'] . '/' . $this->files['new_name']);
-        }
-    }
-
-    private function removeEmptyUploads(array $files): void
-    {
-        if (is_array($files['tmp_name'])) {
-            $n = 0;
-
-            for ($i = 0; $i < count($files); $i++) {
-                if ($files['error'][$i] === UPLOAD_ERR_OK) {
-                    // Validate file before processing
-                    if (!$this->isValidMimeType($files['type'][$i])) {
-                        continue; // Skip invalid file types
-                    }
-                    if (!$this->isValidFileSize($files['size'][$i])) {
-                        continue; // Skip files that are too large
-                    }
-
-                    $sanitized_name = $this->sanitizeFilename($files['name'][$i]);
-                    $this->files['name'][$n] = $sanitized_name;
-                    $this->files['full_path'][$n] = $files['full_path'][$i] ?? '';
-                    $this->files['extension'][$n] = strtolower(end(explode('.', $sanitized_name)));
-                    $this->files['new_name'][$n] = sha1($sanitized_name) . '.' . $this->files['extension'][$n];
-                    $this->files['type'][$n] = $files['type'][$i];
-                    $this->files['size'][$n] = $files['size'][$i];
-                    $this->files['tmp_name'][$n] = $files['tmp_name'][$i];
-                    $this->files['error'][$n] = $files['error'][$i];
-                    $n++;
-                }
-            }
-        } else {
-            if ($files['error'] === UPLOAD_ERR_OK) {
-                // Validate file before processing
-                if (!$this->isValidMimeType($files['type'])) {
-                    return; // Skip invalid file type
-                }
-                if (!$this->isValidFileSize($files['size'])) {
-                    return; // Skip file that is too large
-                }
-
-                $sanitized_name = $this->sanitizeFilename($files['name']);
-                $this->files['name'] = $sanitized_name;
-                $this->files['full_path'] = $files['full_path'] ?? '';
-                $this->files['extension'] = strtolower(end(explode('.', $sanitized_name)));
-                $this->files['new_name'] = sha1($sanitized_name) . '.' . $this->files['extension'];
-                $this->files['type'] = $files['type'];
-                $this->files['size'] = $files['size'];
-                $this->files['tmp_name'] = $files['tmp_name'];
-                $this->files['error'] = $files['error'];
-            }
-        }
+        return bin2hex(random_bytes(16)) . ($extension !== '' ? '.' . $extension : '');
     }
 }

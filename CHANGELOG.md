@@ -7,6 +7,31 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- `Services\Files` catch-up (Phase 2's own text never listed it, though Phase 5's text
+  references "retrofit Phase 2's Files" — a gap in the Build Plan document itself; done
+  now before Phase 4). Rewritten as a pure storage service: `store()`/`storeMultiple()`
+  take a `Psr\Http\Message\UploadedFileInterface` (matching `Request::file()`'s return
+  type from Phase 2) and return `['path','mimeType','size','public']`. MIME type is
+  always detected from file content (`ext-fileinfo`), never the client-supplied
+  `Content-Type` — an uploaded file must pass both the extension allowlist and a
+  content-sniffed MIME type consistent with that extension. Filesystem adapter (default,
+  `moveTo()` — upload-aware, atomic) and S3 adapter (duck-typed against
+  `Aws\S3\S3Client`'s real `putObject`/`deleteObject`/`doesObjectExist` shapes, no SDK
+  dependency). 17 tests.
+  **Dropped the database coupling entirely**: the legacy class had its own
+  `files`/`unlinkFileByParentId()`/`getFileListByParentId()` tied to a specific
+  `parent_id`/`is_primary`/`sequence` schema — that table isn't in `DDL.sql` or owned by
+  any Clarity document; it was leftover business modelling from a specific prior
+  application, same shape of issue as `DB`'s hardcoded connection-context names. Per
+  `API_Contracts.md`'s own one-line description ("storage adapters... deletion,
+  public/private visibility" — no database mention at all), Files is storage-only; an
+  application's own metadata table, with whatever columns its domain needs, is its own
+  concern. Also fixed a real correctness bug in the dropped code: safe filenames were
+  generated via `sha1($originalFilename)`, meaning two uploads of a same-named file
+  collided and silently overwrote each other; replaced with `random_bytes`-based names.
+- `ext-fileinfo` added to `composer.json` `require` and CI's extension list;
+  `DeploymentTopology.md` §1 updated to document it (was missing even though
+  content-based MIME detection has always been a §19 requirement).
 - Phase 3 (data layer, part 3 — Phase 3 complete): `Services\Cache` — PSR-16
   (`Psr\SimpleCache\CacheInterface`), three drivers in one class bound at construction
   (`Cache::DRIVER_FILE`/`DRIVER_DATABASE`/`DRIVER_REDIS`), per `ReleaseNotes_26.07.md`

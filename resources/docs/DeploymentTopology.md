@@ -11,7 +11,9 @@ this repo's.
 - PHP `>=8.2` (see `Architecture.md` §3).
 - Required extensions (verified at runtime by `php mitosis health`, §8.11): `pdo`,
   `pdo_mysql` (default DB driver), `mbstring`, `json`, `curl` (HttpClient), `openssl` and/or
-  `sodium` (Encryption, SignedURL), `redis` (only if the Redis cache adapter is in use).
+  `sodium` (Encryption, SignedURL), `fileinfo` (Files — content-based MIME detection,
+  never the client-supplied `Content-Type`), `redis` (only if the Redis cache adapter is
+  in use).
 - `ext-redis` and PostgreSQL/SQLite PDO drivers are optional, feature-gated by config — Clarity
   must not hard-require them at the package level (`composer.json` `suggest`, not `require`).
 
