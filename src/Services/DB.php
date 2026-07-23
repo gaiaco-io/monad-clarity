@@ -1,294 +1,253 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Gaia\Clarity\Services;
 
+use InvalidArgumentException;
 use PDO;
-use PDOException;
 use PDOStatement;
 use Ramsey\Uuid\Uuid;
 
 /**
- * Database abstraction layer with support for multi-database contexts.
- * Supports both single DB (backward compatible) and multi-DB (context-aware) applications.
+ * PDO-based query and connection layer, with named-context support for applications
+ * that talk to more than one database. Dialect-specific DDL (CREATE/ALTER TABLE
+ * differences between MySQL/PostgreSQL/SQLite) belongs to Services\Schema, not here —
+ * DB only ever runs parameterised SQL a caller (or Schema/Migration) hands it.
  *
- * Contexts supported:
- * - 'app' or null: App-specific database (default, backward compatible)
- * - 'kerberos' or 'session': Kerberos database (for sessions, auth)
- * - 'shared': Shared Core database (for CRM data)
- * - 'subscription': Subscription database (for plan entitlements)
+ * PDO is configured with ERRMODE_EXCEPTION, and DB does not fight that: PDOException
+ * propagates rather than being caught and turned into a bool/null return. A caller that
+ * wants to handle a specific failure catches PDOException itself; anything uncaught
+ * reaches Mediator's global exception handler. DB has no dependency on Mediator.
  *
  * @package Gaia\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
-
 abstract class DB
 {
-    // Connection pool for multi-database support
-    private static array $connections = [];
-    private static ?PDO $pdo = null; // Default connection for backward compatibility
-    private static ?PDOStatement $stmt = null;
-    private static string $last_insert_id = '';
-    private static int $row_count = 0;
-    private static ?string $last_error = null;
-    private static ?string $current_context = null;
+    public const ID_TYPE_INT = 1;
+    public const ID_TYPE_UUID = 2;
 
-    const ID_TYPE_INT = 1;
-    const ID_TYPE_UUID = 2;
+    private const DEFAULT_CONTEXT = 'default';
 
-    private static array $db_options = [
+    private const BASE_OPTIONS = [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         PDO::ATTR_EMULATE_PREPARES => false,
     ];
 
-    /**
-     * Private clone method prevents cloning of the instance.
-     */
-    private function __clone() {}
+    /** @var array<string, array{dsn: string, username: ?string, password: ?string, options: array<int, mixed>}> */
+    private static array $configs = [];
+
+    /** @var array<string, PDO> */
+    private static array $connections = [];
+
+    private static ?PDOStatement $lastStatement = null;
+    private static string $lastInsertId = '';
+    private static int $lastRowCount = 0;
 
     /**
-     * Connect to database. Supports both single DB (backward compatible) and multi-DB (context-aware).
-     * 
-     * If context is provided, uses context-aware connection pool.
-     * If no context, uses default connection (backward compatible).
+     * Register connection configuration for a named context. The "default" context
+     * (or omitting $context entirely elsewhere) is used when no context is specified.
      *
-     * @param array $options Optional PDO options.
-     * @param string|null $context Database context ('app', 'kerberos', 'session', 'shared', 'subscription')
-     * @return PDO The PDO connection instance.
+     * @param array{dsn: string, username?: ?string, password?: ?string, options?: array<int, mixed>} $config
      */
-    public static function connect(array $options = [PDO::ATTR_CURSOR => PDO::CURSOR_FWDONLY], ?string $context = null): PDO
+    public static function configure(string $context, array $config): void
     {
-        if (!empty($options)) {
-            self::$db_options = array_merge(self::$db_options, $options);
-        }
+        self::$configs[$context] = [
+            'dsn' => $config['dsn'],
+            'username' => $config['username'] ?? null,
+            'password' => $config['password'] ?? null,
+            'options' => $config['options'] ?? [],
+        ];
+    }
 
-        // Normalize context
-        if ($context === 'session') {
-            $context = 'kerberos';
-        }
-        if ($context === null || $context === 'app') {
-            $context = 'default';
-        }
+    /**
+     * Register an already-open PDO connection under a context directly — for tests
+     * (in-memory SQLite) or an application that constructs its own PDO instance.
+     */
+    public static function useConnection(PDO $pdo, string $context = self::DEFAULT_CONTEXT): void
+    {
+        self::$connections[$context] = $pdo;
+    }
 
-        // Use context-aware connection if context is specified
-        if ($context !== 'default') {
-            if (!isset(self::$connections[$context])) {
-                try {
-                    $config = self::getDBConfig($context);
-                    $dsn = self::buildDsnFromConfig($config);
-                    self::$connections[$context] = new PDO(
-                        $dsn,
-                        $config['username'],
-                        $config['password'],
-                        self::$db_options
-                    );
-                } catch (PDOException $e) {
-                    self::handlePdoException($e);
-                    throw $e;
-                }
-            }
+    public static function connect(?string $context = null): PDO
+    {
+        $context ??= self::DEFAULT_CONTEXT;
+
+        if (isset(self::$connections[$context])) {
             return self::$connections[$context];
         }
 
-        // Default connection for backward compatibility
-        if (self::$pdo === null) {
-            try {
-                $dsn = self::buildDsn();
-                self::$pdo = new PDO(
-                    $dsn,
-                    DB['username'],
-                    DB['password'],
-                    self::$db_options
-                );
-            } catch (PDOException $e) {
-                self::handlePdoException($e);
-                throw $e;
-            }
+        if (!isset(self::$configs[$context])) {
+            throw new InvalidArgumentException(
+                sprintf('No database configuration registered for context "%s".', $context)
+            );
         }
 
-        return self::$pdo;
+        $config = self::$configs[$context];
+
+        return self::$connections[$context] = new PDO(
+            $config['dsn'],
+            $config['username'],
+            $config['password'],
+            [...self::BASE_OPTIONS, ...$config['options']]
+        );
+    }
+
+    public static function disconnect(?string $context = null): void
+    {
+        unset(self::$connections[$context ?? self::DEFAULT_CONTEXT]);
+    }
+
+    public static function beginTransaction(?string $context = null): bool
+    {
+        return self::connect($context)->beginTransaction();
+    }
+
+    public static function commit(?string $context = null): bool
+    {
+        return self::connect($context)->commit();
+    }
+
+    public static function rollBack(?string $context = null): bool
+    {
+        return self::connect($context)->rollBack();
     }
 
     /**
-     * Explicitly disconnect from the database.
-     * 
-     * @param string|null $context Database context to disconnect. If null, disconnects default connection.
-     * @return bool True if the disconnection was successful, false otherwise.
+     * @param list<mixed> $params
      */
-    public static function disconnect(?string $context = null): bool
+    public static function run(string $query, array $params = [], ?string $context = null): PDOStatement
     {
-        try {
-            if ($context === null || $context === 'app' || $context === 'default') {
-                if (self::$pdo !== null) {
-                    unset(self::$pdo);
-                    self::$pdo = null;
-                }
-            } else {
-                if ($context === 'session') {
-                    $context = 'kerberos';
-                }
-                if (isset(self::$connections[$context])) {
-                    unset(self::$connections[$context]);
-                }
-            }
+        $statement = self::connect($context)->prepare($query);
+        $statement->execute($params);
 
-            return true;
-        } catch (PDOException $e) {
-            \Gaia\Clarity\Services\Mediator::handleException($e);
-            return false;
-        }
+        self::$lastStatement = $statement;
+        self::$lastRowCount = $statement->rowCount();
+
+        return $statement;
     }
 
-    /**
-     * Begin a transaction
-     */
-    public function begin(): bool
+    public static function fetch(int $fetchMode = PDO::FETCH_ASSOC): array
     {
-        try {
-            self::$pdo->beginTransaction();
-            return true;
-        } catch (PDOException $e) {
-            \Gaia\Clarity\Services\Mediator::handleException($e);
-            return false;
-        }
-    }
-
-    /**
-     * Commit a transaction
-     */
-    public function commit(): bool
-    {
-        try {
-            self::$pdo->commit();
-            return true;
-        } catch (PDOException $e) {
-            \Gaia\Clarity\Services\Mediator::handleException($e);
-            return false;
-        }
-    }
-
-    /**
-     * Roll back a transaction
-     */
-    public function rollBack(): bool
-    {
-        try {
-            self::$pdo->rollBack();
-            return true;
-        } catch (PDOException $e) {
-            \Gaia\Clarity\Services\Mediator::handleException($e);
-            return false;
-        }
-    }
-
-    /**
-     * Validate table name to prevent SQL injection
-     *
-     * @param string $table The table name to validate.
-     * @return void
-     * @throws \InvalidArgumentException If table name is invalid.
-     */
-    private static function validateTableName(string $table): void
-    {
-        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $table)) {
-            throw new \InvalidArgumentException("Invalid table name: {$table}");
-        }
-    }
-
-    /**
-     * Determine if stack traces should be displayed (development mode)
-     */
-    private static function isDebugMode(): bool
-    {
-        $env = defined('ENV_MODE') ? ENV_MODE : (getenv('ENV_MODE') ?: '');
-        return $env === '0' || $env === 'development';
-    }
-
-    /**
-     * Log database errors to the error log directory
-     */
-    private static function logError(string $message): void
-    {
-        $log_dir = defined('PATH') && isset(PATH['error_log'])
-            ? PATH['error_log']
-            : dirname(__DIR__, 2) . '/storage/logs/error/';
-
-        if (!is_dir($log_dir)) {
-            @mkdir($log_dir, 0775, true);
+        if (self::$lastStatement === null) {
+            return [];
         }
 
-        $log_file = rtrim($log_dir, '/') . '/db.log';
-        $timestamp = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
-        @file_put_contents($log_file, "[{$timestamp}] {$message}\n", FILE_APPEND);
+        $row = self::$lastStatement->fetch($fetchMode);
+
+        return $row === false ? [] : $row;
+    }
+
+    public static function fetchAll(int $fetchMode = PDO::FETCH_ASSOC): array
+    {
+        return self::$lastStatement?->fetchAll($fetchMode) ?? [];
     }
 
     /**
-     * Centralized PDO exception handler
+     * @param array<string, mixed> $data
+     * @return string The inserted row's ID (generated UUID, or the driver's lastInsertId).
      */
-    private static function handlePdoException(PDOException $e): void
+    public static function insert(string $table, array $data, int $idType = self::ID_TYPE_UUID, ?string $context = null): string
     {
-        self::$stmt = null;
-        self::$last_error = $e->getMessage();
-        self::logError($e->getMessage());
+        self::assertIdentifier($table);
 
-        if (self::isDebugMode()) {
-            Mediator::handleException($e);
-        }
-    }
-
-    /**
-     * Insert statement facade
-     *
-     * @param string $table The table name.
-     * @param array $data The data to insert.
-     * @param int $id_type The ID type.
-     * @param string|null $context Database context for multi-DB support.
-     * @return string|false The inserted ID or false on failure.
-     */
-    public static function insert(string $table, array $data, int $id_type = self::ID_TYPE_UUID, ?string $context = null): string|false
-    {
-        self::validateTableName($table);
-
-        if ($id_type === self::ID_TYPE_UUID) {
+        if ($idType === self::ID_TYPE_UUID && !array_key_exists('id', $data)) {
             $data['id'] = Uuid::uuid4()->toString();
         }
 
-        if (!self::run(
-            '
-            INSERT INTO ' . $table . ' (' . implode(', ', array_keys($data)) . ')
-            VALUES (' . implode(', ', array_fill(0, count($data), '?')) . ')',
+        foreach (array_keys($data) as $column) {
+            self::assertIdentifier((string) $column);
+        }
+
+        self::run(
+            sprintf(
+                'INSERT INTO %s (%s) VALUES (%s)',
+                $table,
+                implode(', ', array_keys($data)),
+                implode(', ', array_fill(0, count($data), '?'))
+            ),
             array_values($data),
             $context
-        )) {
-            return false;
-        }
+        );
 
-        $pdo = self::connect([], $context);
-        if ($id_type == self::ID_TYPE_INT) {
-            self::$last_insert_id = $pdo->lastInsertId();
-        } else {
-            self::$last_insert_id = $data['id'];
-        }
+        self::$lastInsertId = $idType === self::ID_TYPE_INT
+            ? self::connect($context)->lastInsertId()
+            : (string) $data['id'];
 
-        return self::$last_insert_id;
+        return self::$lastInsertId;
     }
 
     /**
-     * Build WHERE clause from array conditions with support for advanced operators.
+     * @param array<string, mixed> $data
+     * @param array<string, mixed> $where See buildWhereClause() for supported operator formats.
+     * @return int Number of rows updated.
+     */
+    public static function update(string $table, array $data, array $where = [], ?string $context = null): int
+    {
+        self::assertIdentifier($table);
+
+        $set = [];
+
+        foreach (array_keys($data) as $column) {
+            self::assertIdentifier((string) $column);
+            $set[] = "{$column} = ?";
+        }
+
+        $whereBuilt = self::buildWhereClause($where);
+
+        $statement = self::run(
+            sprintf('UPDATE %s SET %s %s', $table, implode(', ', $set), $whereBuilt['clause']),
+            [...array_values($data), ...$whereBuilt['params']],
+            $context
+        );
+
+        return $statement->rowCount();
+    }
+
+    /**
+     * @param array<string, mixed> $where See buildWhereClause() for supported operator formats.
+     * @return int Number of rows deleted.
+     */
+    public static function delete(string $table, array $where = [], ?string $context = null): int
+    {
+        self::assertIdentifier($table);
+
+        $whereBuilt = self::buildWhereClause($where);
+
+        $statement = self::run(
+            sprintf('DELETE FROM %s %s', $table, $whereBuilt['clause']),
+            $whereBuilt['params'],
+            $context
+        );
+
+        return $statement->rowCount();
+    }
+
+    public static function lastInsertId(): string
+    {
+        return self::$lastInsertId;
+    }
+
+    public static function rowCount(): int
+    {
+        return self::$lastRowCount;
+    }
+
+    /**
+     * Build a WHERE clause from array conditions with support for common operators.
      *
      * Supported formats:
-     * - Simple equality: ['id' => '123'] → WHERE id = ?
-     * - Operators: ['age' => ['>', 18]] → WHERE age > ?
-     * - IN: ['id' => ['IN', [1, 2, 3]]] → WHERE id IN (?, ?, ?)
-     * - NOT IN: ['id' => ['NOT IN', [1, 2, 3]]] → WHERE id NOT IN (?, ?, ?)
-     * - LIKE: ['name' => ['LIKE', '%value%']] → WHERE name LIKE ?
-     * - BETWEEN: ['age' => ['BETWEEN', [18, 65]]] → WHERE age BETWEEN ? AND ?
-     * - IS NULL: ['deleted' => ['IS', 'NULL']] → WHERE deleted IS NULL
-     * - IS NOT NULL: ['deleted' => ['IS NOT', 'NULL']] → WHERE deleted IS NOT NULL
-     * - Multiple conditions: ['id' => '123', 'status' => 'active'] → WHERE id = ? AND status = ?
+     * - Simple equality: ['id' => '123'] -> WHERE id = ?
+     * - Operators: ['age' => ['>', 18]] -> WHERE age > ?
+     * - IN / NOT IN: ['id' => ['IN', [1, 2, 3]]]
+     * - LIKE: ['name' => ['LIKE', '%value%']]
+     * - BETWEEN: ['age' => ['BETWEEN', [18, 65]]]
+     * - IS NULL / IS NOT NULL: ['deleted_at' => ['IS', 'NULL']]
      *
-     * @param array $where Array of WHERE conditions.
-     * @return array Returns ['clause' => string, 'params' => array]
+     * @param array<string, mixed> $where
+     * @return array{clause: string, params: list<mixed>}
      */
     private static function buildWhereClause(array $where): array
     {
@@ -296,333 +255,114 @@ abstract class DB
         $params = [];
 
         foreach ($where as $column => $value) {
-            // Validate column name to prevent SQL injection
-            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $column)) {
-                throw new \InvalidArgumentException("Invalid column name: {$column}");
-            }
+            self::assertIdentifier((string) $column);
 
-            // Handle operator-based conditions
-            if (is_array($value) && count($value) >= 2) {
-                $operator = strtoupper(trim($value[0]));
-                $operatorValue = $value[1];
-
-                switch ($operator) {
-                    case 'IN':
-                        if (!is_array($operatorValue) || empty($operatorValue)) {
-                            throw new \InvalidArgumentException("IN operator requires a non-empty array");
-                        }
-                        $placeholders = implode(', ', array_fill(0, count($operatorValue), '?'));
-                        $conditions[] = "{$column} IN ({$placeholders})";
-                        $params = array_merge($params, $operatorValue);
-                        break;
-
-                    case 'NOT IN':
-                        if (!is_array($operatorValue) || empty($operatorValue)) {
-                            throw new \InvalidArgumentException("NOT IN operator requires a non-empty array");
-                        }
-                        $placeholders = implode(', ', array_fill(0, count($operatorValue), '?'));
-                        $conditions[] = "{$column} NOT IN ({$placeholders})";
-                        $params = array_merge($params, $operatorValue);
-                        break;
-
-                    case 'BETWEEN':
-                        if (!is_array($operatorValue) || count($operatorValue) !== 2) {
-                            throw new \InvalidArgumentException("BETWEEN operator requires an array with exactly 2 values");
-                        }
-                        $conditions[] = "{$column} BETWEEN ? AND ?";
-                        $params = array_merge($params, $operatorValue);
-                        break;
-
-                    case 'IS':
-                        if (strtoupper($operatorValue) === 'NULL') {
-                            $conditions[] = "{$column} IS NULL";
-                        } else {
-                            throw new \InvalidArgumentException("IS operator only supports NULL value");
-                        }
-                        break;
-
-                    case 'IS NOT':
-                        if (strtoupper($operatorValue) === 'NULL') {
-                            $conditions[] = "{$column} IS NOT NULL";
-                        } else {
-                            throw new \InvalidArgumentException("IS NOT operator only supports NULL value");
-                        }
-                        break;
-
-                    case 'LIKE':
-                        $conditions[] = "{$column} LIKE ?";
-                        $params[] = $operatorValue;
-                        break;
-
-                    case '>':
-                    case '<':
-                    case '>=':
-                    case '<=':
-                    case '!=':
-                    case '<>':
-                        $conditions[] = "{$column} {$operator} ?";
-                        $params[] = $operatorValue;
-                        break;
-
-                    default:
-                        throw new \InvalidArgumentException("Unsupported operator: {$operator}");
-                }
-            } else {
-                // Simple equality
+            if (!is_array($value) || count($value) < 2) {
                 $conditions[] = "{$column} = ?";
                 $params[] = $value;
+
+                continue;
+            }
+
+            $operator = strtoupper(trim((string) $value[0]));
+            $operatorValue = $value[1];
+
+            switch ($operator) {
+                case 'IN':
+                case 'NOT IN':
+                    self::appendInClause($conditions, $params, $column, $operator, $operatorValue);
+                    break;
+                case 'BETWEEN':
+                    self::appendBetweenClause($conditions, $params, $column, $operatorValue);
+                    break;
+                case 'IS':
+                    self::appendIsNullClause($conditions, $column, $operatorValue, not: false);
+                    break;
+                case 'IS NOT':
+                    self::appendIsNullClause($conditions, $column, $operatorValue, not: true);
+                    break;
+                case 'LIKE':
+                    $conditions[] = "{$column} LIKE ?";
+                    $params[] = $operatorValue;
+                    break;
+                case '>':
+                case '<':
+                case '>=':
+                case '<=':
+                case '!=':
+                case '<>':
+                    $conditions[] = "{$column} {$operator} ?";
+                    $params[] = $operatorValue;
+                    break;
+                default:
+                    throw new InvalidArgumentException("Unsupported operator: {$operator}");
             }
         }
 
         return [
-            'clause' => !empty($conditions) ? 'WHERE ' . implode(' AND ', $conditions) : '',
-            'params' => $params
+            'clause' => $conditions !== [] ? 'WHERE ' . implode(' AND ', $conditions) : '',
+            'params' => $params,
         ];
     }
 
     /**
-     * Update statement facade
-     *
-     * @param string $table The table name.
-     * @param array $data The data to update.
-     * @param array|null $where Array of WHERE conditions. See buildWhereClause() for supported formats.
-     * @param string|null $context Database context for multi-DB support.
-     * @return bool True on success, false on failure.
+     * @param list<string> $conditions
+     * @param list<mixed> $params
      */
-    public static function update(string $table, array $data, ?array $where = null, ?string $context = null): bool
+    private static function appendInClause(array &$conditions, array &$params, string $column, string $operator, mixed $value): void
     {
-        self::validateTableName($table);
-        $set = [];
-
-        foreach ($data as $key => $value) {
-            // Validate column name to prevent SQL injection
-            if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $key)) {
-                throw new \InvalidArgumentException("Invalid column name: {$key}");
-            }
-            $set[] = $key . ' = ?';
+        if (!is_array($value) || $value === []) {
+            throw new InvalidArgumentException("{$operator} operator requires a non-empty array");
         }
 
-        $whereClause = '';
-        $whereParams = [];
-
-        if ($where !== null && !empty($where)) {
-            $whereResult = self::buildWhereClause($where);
-            $whereClause = $whereResult['clause'];
-            $whereParams = $whereResult['params'];
-        }
-
-        if (!self::run(
-            '
-            UPDATE ' . $table . '
-            SET ' . implode(', ', $set) . '
-            ' . $whereClause . ';',
-            array_merge(array_values($data), $whereParams),
-            $context
-        )) {
-            return false;
-        }
-
-        return true;
+        $placeholders = implode(', ', array_fill(0, count($value), '?'));
+        $conditions[] = "{$column} {$operator} ({$placeholders})";
+        array_push($params, ...array_values($value));
     }
 
     /**
-     * Delete statement facade
-     *
-     * @param string $table The table name.
-     * @param array|null $where Array of WHERE conditions. See buildWhereClause() for supported formats.
-     * @param string|null $context Database context for multi-DB support.
-     * @return bool True on success, false on failure.
+     * @param list<string> $conditions
+     * @param list<mixed> $params
      */
-    public static function delete(string $table, ?array $where = null, ?string $context = null): bool
+    private static function appendBetweenClause(array &$conditions, array &$params, string $column, mixed $value): void
     {
-        self::validateTableName($table);
-        $whereClause = '';
-        $whereParams = [];
-
-        if ($where !== null && !empty($where)) {
-            $whereResult = self::buildWhereClause($where);
-            $whereClause = $whereResult['clause'];
-            $whereParams = $whereResult['params'];
+        if (!is_array($value) || count($value) !== 2) {
+            throw new InvalidArgumentException('BETWEEN operator requires an array with exactly 2 values');
         }
 
-        if (!self::run(
-            'DELETE FROM ' . $table . '
-            ' . $whereClause . ';',
-            $whereParams,
-            $context
-        )) {
-            return false;
-        }
-
-        return true;
+        $conditions[] = "{$column} BETWEEN ? AND ?";
+        array_push($params, ...array_values($value));
     }
 
     /**
-     * Execute a query and return the PDOStatement object.
-     * Supports context-aware database selection for multi-DB applications.
-     *
-     * @param string $query The SQL query to execute.
-     * @param array $params The parameters to bind to the query.
-     * @param string|null $context Database context ('app', 'kerberos', 'session', 'shared', 'subscription'). 
-     *                             If null, uses default connection (backward compatible).
-     * @return PDOStatement|null The result set or null on failure.
+     * @param list<string> $conditions
      */
-    public static function run(string $query, array $params = [], ?string $context = null): PDOStatement|null
+    private static function appendIsNullClause(array &$conditions, string $column, mixed $value, bool $not): void
     {
-        try {
-            $pdo = self::connect([], $context);
-            self::$current_context = $context;
+        if (strtoupper((string) $value) !== 'NULL') {
+            throw new InvalidArgumentException(($not ? 'IS NOT' : 'IS') . ' operator only supports NULL value');
+        }
 
-            self::$stmt = $pdo->prepare($query);
-            self::$stmt->execute($params);
-            self::$row_count = self::$stmt->rowCount();
-            return self::$stmt;
-        } catch (PDOException $e) {
-            self::handlePdoException($e);
-            return null;
+        $conditions[] = "{$column} IS " . ($not ? 'NOT NULL' : 'NULL');
+    }
+
+    private static function assertIdentifier(string $identifier): void
+    {
+        if (!preg_match('/^[a-zA-Z_][a-zA-Z0-9_]*$/', $identifier)) {
+            throw new InvalidArgumentException(sprintf('Invalid identifier: "%s".', $identifier));
         }
     }
 
     /**
-     * Fetch a row from the result set.
-     *
-     * @param int $fetch_mode The fetch mode to use.
-     * @return array Empty array if no query executed or no rows available, otherwise the fetched row.
+     * Clear all configuration and connections. For test isolation between requests —
+     * process-lifetime static state otherwise.
      */
-    public static function fetch(int $fetch_mode = PDO::FETCH_ASSOC): array
+    public static function reset(): void
     {
-        if (self::$stmt === null) {
-            return [];
-        }
-
-        try {
-            $result = self::$stmt->fetch($fetch_mode);
-            return $result !== false ? $result : [];
-        } catch (PDOException $e) {
-            self::handlePdoException($e);
-            return [];
-        }
-    }
-
-    /**
-     * Fetch all rows from the result set.
-     *
-     * @param int $fetch_mode The fetch mode to use.
-     * @return array Empty array if no query executed or no rows available, otherwise all fetched rows.
-     */
-    public static function fetchAll(int $fetch_mode = PDO::FETCH_ASSOC): array
-    {
-        if (self::$stmt === null) {
-            return [];
-        }
-
-        try {
-            $result = self::$stmt->fetchAll($fetch_mode);
-            return $result !== false ? $result : [];
-        } catch (PDOException $e) {
-            self::handlePdoException($e);
-            return [];
-        }
-    }
-
-    /**
-     * Get the last inserted ID.
-     *
-     * @return string The last inserted ID.
-     */
-    public function getLastInsertId(): string
-    {
-        return self::$last_insert_id;
-    }
-
-    /**
-     * Get the number of rows affected by the last query.
-     *
-     * @return int The number of rows affected.
-     */
-    public function getRowCount(): int
-    {
-        return self::$row_count;
-    }
-
-    /**
-     * Get the last database error message (if any).
-     */
-    public static function getLastError(): ?string
-    {
-        return self::$last_error;
-    }
-
-    /**
-     * Build DSN with optional port + charset (backward compatible, uses DB constant)
-     */
-    private static function buildDsn(): string
-    {
-        $driver = DB['driver'] ?? 'mysql';
-        $host = DB['host'] ?? '127.0.0.1';
-        $port = DB['port'] ?? '';
-        $database = DB['database'] ?? '';
-        $charset = DB['charset'] ?? 'utf8mb4';
-
-        if ($database === '') {
-            throw new \InvalidArgumentException('Database name is not configured. Set DB_DATABASE in .env.');
-        }
-
-        return self::buildDsnFromConfig([
-            'driver' => $driver,
-            'host' => $host,
-            'port' => $port,
-            'database' => $database,
-            'charset' => $charset
-        ]);
-    }
-
-    /**
-     * Build DSN from configuration array
-     */
-    private static function buildDsnFromConfig(array $config): string
-    {
-        $driver = $config['driver'] ?? 'mysql';
-        $host = $config['host'] ?? '127.0.0.1';
-        $port = $config['port'] ?? '';
-        $database = $config['database'] ?? '';
-        $charset = $config['charset'] ?? 'utf8mb4';
-
-        if ($database === '') {
-            throw new \InvalidArgumentException('Database name is not configured in database config.');
-        }
-
-        $segments = [
-            "{$driver}:host={$host}"
-        ];
-
-        if (!empty($port)) {
-            $segments[] = "port={$port}";
-        }
-
-        $segments[] = "dbname={$database}";
-
-        if (!empty($charset) && strtolower($driver) === 'mysql') {
-            $segments[] = "charset={$charset}";
-        }
-
-        return implode(';', $segments);
-    }
-
-    /**
-     * Get database configuration for a specific context.
-     * Uses getDBConfig() function from config/database.php
-     *
-     * @param string $context Database context
-     * @return array Database configuration array
-     */
-    private static function getDBConfig(string $context): array
-    {
-        if (function_exists('getDBConfig')) {
-            return getDBConfig($context);
-        }
-
-        // Fallback if getDBConfig is not available
-        throw new \RuntimeException('getDBConfig() function not found. Ensure config/database.php is loaded.');
+        self::$configs = [];
+        self::$connections = [];
+        self::$lastStatement = null;
+        self::$lastInsertId = '';
+        self::$lastRowCount = 0;
     }
 }

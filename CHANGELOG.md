@@ -7,6 +7,26 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 3 (data layer, part 1): `Services\Schema` — PDO dialect abstraction over MySQL
+  (default), PostgreSQL, and SQLite (`GapAnalysis_BuildPlan_26.07.md` §10). `Blueprint`
+  (`Services\Schema\Blueprint`) builds a dialect-agnostic column/key description;
+  `id()`/`autoIncrementId()` give UUID-default primary keys with the configurable integer
+  option per `Architecture.md` §9. `createTable`/`alterTable`/`dropTable`/`dropColumn`/
+  `createIndex`/`dropIndex`/`createDatabase`/`dropDatabase`/`hasTable`/`hasColumn`.
+  Documented, deliberate dialect gaps rather than silent degradation: `datetime(...,
+  autoUpdate: true)` (MySQL `ON UPDATE CURRENT_TIMESTAMP`) has no PostgreSQL/SQLite
+  equivalent without a trigger, which Schema does not generate; SQLite has no
+  CREATE/DROP DATABASE; PostgreSQL's `CREATE DATABASE` has no `IF NOT EXISTS`. 14 tests,
+  including reproducing the frozen `sessions`/`caches` DDL (`DDL.sql`, `CrossRepoContracts.md`
+  §8) from the same `Blueprint` definition on both MySQL (compiled-SQL assertions, via
+  reflection on the pure compiler — no MySQL server in CI) and SQLite (executed for real).
+  A real bug this caught: `hasTable()`/`hasColumn()` left their probe `PDOStatement`'s
+  cursor open, which then made SQLite report "table is locked" on a subsequent DDL
+  statement against the same table — fixed with explicit `closeCursor()`.
+- `ext-pdo`, `ext-pdo_mysql` added to `composer.json` `require` (DeploymentTopology.md §1:
+  pdo_mysql is the required default driver); `ext-pdo_sqlite` added to `require-dev` (used
+  only by Clarity's own test suite, never required to consume the library); `ext-pdo_pgsql`,
+  `ext-redis` documented under `suggest`. CI's PHP extension list updated to match.
 - Phase 1 (foundations): the seven `Gaia\Clarity\Utils` security helpers per
   `GapAnalysis_BuildPlan_26.07.md` §29 —
   `ConstantTime` (timing-safe string comparison via `hash_equals`),
@@ -105,6 +125,26 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 - Initialised git repository; GitHub repo `gaiaco-io/monad-clarity` (public).
 
 ### Changed
+- `Services\DB` (Phase 3): remains the query/connection layer, dialect concerns now
+  delegated to `Schema` per the Build Plan. `configure(string $context, array $config)`
+  replaces reading the ambient `DB[...]` global constant and a `getDBConfig()` global
+  function — DB has no config service of its own, so the application supplies connection
+  config explicitly, same pattern as `View`/`Mediator`/`Logger`. Contexts are now generic
+  strings the application defines; dropped the hardcoded `'kerberos'`/`'session'`/`'shared'`/
+  `'subscription'` names, which were leftover from a specific prior application, not a
+  documented Clarity concept. Fixed `begin()`/`commit()`/`rollBack()`/`getLastInsertId()`/
+  `getRowCount()` being declared as instance methods on an `abstract class` — uncallable,
+  since an abstract class can't be instantiated; now static (`beginTransaction()` etc.).
+  **Breaking for internal callers:** PDO is configured with `ERRMODE_EXCEPTION`, and DB no
+  longer fights that — `PDOException` now propagates instead of being caught internally
+  and turned into a `false`/`null` return (which also silently dropped every error since
+  DB no longer knows about Mediator/`ENV_MODE`). `insert()` returns the row's ID (was
+  `string|false`); `update()`/`delete()` return the affected row count (were `bool`).
+  Reaches `Session.php`/`CsrfService.php`/`Files.php`'s existing `DB::insert()`/`update()`
+  call sites — none inspect the old return value today, so nothing breaks now, but their
+  own upgrades (Phase 5 for Session/Csrf; Files still pending, see below) inherit the new
+  throw-on-failure/row-count contract. Same shape of interim gap as `Services\Mediator`'s
+  entry above.
 - Restructured source tree under `src/` (`src/Services/`, `src/Utils/`) per `RepoMap.md` and
   `Architecture.md` §2. Previously classes lived at repo root (`Services/`, `Middlewares/`,
   `Utils/`), which does not match the documented PSR-4 root.

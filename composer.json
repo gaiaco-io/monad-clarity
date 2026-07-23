@@ -24,6 +24,8 @@
         "php": ">=8.2",
         "ext-curl": "*",
         "ext-openssl": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
         "nesbot/carbon": "^3.13",
         "ramsey/uuid": "^4.9",
         "psr/log": "^3.0",
@@ -33,8 +35,14 @@
         "nyholm/psr7": "^1.8"
     },
     "require-dev": {
+        "ext-pdo_sqlite": "*",
         "fakerphp/faker": "^1.24",
         "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "ext-pdo_pgsql": "PostgreSQL dialect support for Services\\Schema/Migration.",
+        "ext-pdo_sqlite": "SQLite dialect support for Services\\Schema/Migration.",
+        "ext-redis": "Redis cache driver for Services\\Cache."
     },
     "scripts": {
         "test": "phpunit",
