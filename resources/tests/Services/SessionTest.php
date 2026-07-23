@@ -115,6 +115,38 @@ final class SessionTest extends TestCase
         self::assertSame(['foo' => 'bar'], $row['payload']);
     }
 
+    public function testAssignUserPromotesAGuestSessionWithoutLosingItsPayload(): void
+    {
+        $session = Session::start(null, '127.0.0.1', 'PHPUnit/1.0', ['cart' => ['sku-1']]);
+
+        Session::assignUser($session['id'], 'user-1');
+
+        $row = Session::resolve($session['token']);
+        self::assertSame('user-1', $row['user_id']);
+        self::assertSame(['cart' => ['sku-1']], $row['payload']);
+    }
+
+    public function testAssignUserCanClearUserIdBackToGuestOnLogout(): void
+    {
+        $session = Session::start('user-1', '127.0.0.1', 'PHPUnit/1.0');
+
+        Session::assignUser($session['id'], null);
+
+        self::assertNull(Session::resolve($session['token'])['user_id']);
+    }
+
+    public function testRenewPushesExpiryOutToAFreshFullLifetime(): void
+    {
+        Session::configure(lifetimeSeconds: -1); // start with an already-expired session
+        $session = Session::start('user-1', '127.0.0.1', 'PHPUnit/1.0');
+        self::assertNull(Session::resolve($session['token']));
+
+        Session::configure(lifetimeSeconds: 3600);
+        Session::renew($session['id']);
+
+        self::assertNotNull(Session::resolve($session['token']));
+    }
+
     public function testDestroyRemovesTheRowEntirely(): void
     {
         $session = Session::start('user-1', '127.0.0.1', 'PHPUnit/1.0');

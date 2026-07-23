@@ -7,6 +7,71 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 5, part 3: `Middlewares\Authentication` (ReleaseNotes §15 — 16 requirements, the
+  single largest and highest-exposure item in the release). Clarity owns the
+  authentication *mechanism*; the app owns the user *store*. Every requirement composes
+  primitives already built rather than introducing new ones: password hashing/
+  verification/rehash-detection is `Utils\Hash` directly (no separate "password service"
+  class — Hash already covers this in full); login session regeneration and remember-me
+  are both `Services\Session` (a remember-me token is a long-lived Session row, not a new
+  table); login throttling is `Middlewares\RateLimiter`, required rather than optional
+  per §28.2; authentication events go through `Services\Event`; email verification and
+  password reset are stateless, purpose-tagged HMAC tokens (`Utils\HMAC`), the same
+  pattern as Csrf's session-less path — no new schema for either. Google SSO uses the
+  authorization-code flow over `Services\HttpClient`, verified via Google's own
+  `tokeninfo` endpoint (Google performs the signature verification; this class still
+  checks audience/issuer/expiry itself) rather than hand-rolling JWT/JWKS or adding a new
+  dependency.
+  **The pluggable user resolver (§15.2.15) is the one genuinely new, frozen surface** —
+  duck-typed callables (`findByCredential`/`findById`, each returning
+  `array{id, passwordHash, locked, emailVerifiedAt}|null`), not a formal interface,
+  matching how Migration/Files/Cache already handle app-provided shapes in this codebase.
+  Confirmed with Marshal via AskUserQuestion before implementation, since CrossRepoContracts
+  §5 makes this extension surface semver-frozen once shipped. Both callables are
+  read-only: Authentication never writes to the app's user table. `Event::USER_REGISTERED`
+  is consequently app-fired, not Authentication-fired — user creation is app policy, same
+  as the resolver design implies; noting this explicitly since the Build Plan's phrasing
+  ("wire user registered here") could otherwise read as a dropped requirement rather than
+  the deliberate consequence of the approved resolver design.
+  Not `final`, extended by `app/middlewares/` per the same §5 contract as Csrf/RateLimiter.
+  Three real security defects found and fixed before this was considered done, each
+  driven by a specific adversarial test rather than inspection alone:
+  - **User-enumeration timing oracle.** `attempt()`'s original `$user === null ||
+    !Hash::verify(...)` short-circuited before ever calling `Hash::verify()` for an
+    unknown identifier, while a known identifier with a wrong password paid the full
+    Argon2id cost — a measurable, textbook timing side-channel for enumerating which
+    accounts exist. Fixed by always calling `Hash::verify()` exactly once, against the
+    real hash if found or a fixed lazily-computed dummy hash otherwise, so both paths pay
+    identical KDF cost.
+  - **Account lock bypassable via remember-me.** `attempt()` correctly rejected a locked
+    account; `resumeFromRememberToken()` re-established a session from a valid
+    remember-me token without ever re-checking lock state — an account locked after the
+    token was issued could still resume a full session. Fixed by re-resolving the user
+    via `findById()` and rejecting a locked user before rotating/consuming the token.
+    Then generalized: `login()`, the shared primitive every session-granting path
+    (credential login, remember-me, and Google SSO / anything else built on top) routes
+    through, now enforces the same lock check itself rather than trusting each caller to
+    have checked first — the same invariant-enforced-at-one-entry-point-violated-at-
+    another shape the remember-me bug was a specific instance of.
+  - **A test named for TTL expiry that didn't test it.** `EMAIL_VERIFICATION_TTL_SECONDS`/
+    `PASSWORD_RESET_TTL_SECONDS` were hardcoded, so the original test substituted
+    cross-purpose-token rejection instead — leaving the actual expiry branch on a
+    security-sensitive control completely untested behind a passing, misleadingly-named
+    test. Made both TTLs constructor-injectable (matching Csrf's own TTL, injectable for
+    exactly this reason) and added real `-1`-TTL expiry tests for both token types.
+  Also added to `Services\Session` in support of this: `assignUser()` (promotes a guest
+  session to authenticated, or the reverse, without losing its id/payload — the write
+  Authentication needed that Session didn't yet expose) and `renew()` (pushes a
+  session's expiry back to a fresh full lifetime — a promoted guest session that started
+  seconds from expiring no longer leaves the newly-authenticated session seconds from
+  expiring too). `start()` also gained an optional per-call lifetime override, needed for
+  remember-me sessions (30 days) to coexist with the regular globally-configured session
+  lifetime without reconfiguring Session around each call.
+  35 tests, including a fixture Google OAuth server (`resources/tests/fixtures/
+  google-oauth-server.php`, PHP built-in server, same pattern as HttpClientTest's own
+  fixture) driving every verification-failure scenario — wrong audience, wrong issuer,
+  expired token, failed exchange, missing id_token — by the authorization `code` sent, so
+  Google's real infrastructure is never touched.
 - Phase 5, part 2: `Middlewares\RateLimiter` (ReleaseNotes §28). Fixed-window counter
   backed by `Services\Cache` — works with any of its three drivers, so the limit holds
   across a multi-node deployment whenever Cache is DB- or Redis-backed. Required call

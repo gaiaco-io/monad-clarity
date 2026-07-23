@@ -37,6 +37,9 @@ abstract class Session
 
     /**
      * Create a new session row. $userId null starts a guest/pre-login session.
+     * $lifetimeSecondsOverride bypasses the globally configured lifetime for this one
+     * row — e.g. Middlewares\Authentication's remember-me sessions, which need a much
+     * longer TTL than a regular login session without reconfiguring Session globally.
      *
      * @param array<string, mixed> $payload
      * @return array{id: string, token: string, expireAt: string}
@@ -46,10 +49,11 @@ abstract class Session
         string $ipAddress,
         string $userAgent,
         array $payload = [],
-        ?string $context = null
+        ?string $context = null,
+        ?int $lifetimeSecondsOverride = null,
     ): array {
         $token = CryptographicToken::generate();
-        $expireAt = self::expiryTimestamp();
+        $expireAt = self::expiryTimestamp($lifetimeSecondsOverride);
 
         $id = DB::insert('sessions', [
             'user_id' => $userId,
@@ -127,6 +131,36 @@ abstract class Session
     }
 
     /**
+     * Promote a session from guest to authenticated (or the reverse, on logout) without
+     * losing its id or payload — Middlewares\Authentication calls this alongside
+     * regenerate() when a pre-login guest session already exists at login time, so a
+     * shopping cart or other guest-collected payload survives authentication while the
+     * token still rotates (fixation defense).
+     */
+    public static function assignUser(string $sessionId, ?string $userId, ?string $context = null): void
+    {
+        self::payloadFor($sessionId, $context); // throws if $sessionId doesn't exist
+
+        DB::update('sessions', ['user_id' => $userId], ['id' => $sessionId], $context);
+    }
+
+    /**
+     * Push a session's expiry back out to a fresh full lifetime — for a pre-login guest
+     * session promoted at login time, which would otherwise keep whatever `expire_at`
+     * it was given when it started as a guest (possibly seconds away from expiring).
+     * Returns the new expiry timestamp.
+     */
+    public static function renew(string $sessionId, ?int $lifetimeSecondsOverride = null, ?string $context = null): string
+    {
+        self::payloadFor($sessionId, $context); // throws if $sessionId doesn't exist
+
+        $expireAt = self::expiryTimestamp($lifetimeSecondsOverride);
+        DB::update('sessions', ['expire_at' => $expireAt], ['id' => $sessionId], $context);
+
+        return $expireAt;
+    }
+
+    /**
      * Mark a session revoked without deleting its row — an audit trail survives; the
      * session no longer resolves() as valid.
      */
@@ -180,9 +214,11 @@ abstract class Session
         return (new DateTimeImmutable())->format('Y-m-d H:i:s');
     }
 
-    private static function expiryTimestamp(): string
+    private static function expiryTimestamp(?int $lifetimeSecondsOverride = null): string
     {
-        return (new DateTimeImmutable())->modify('+' . self::$lifetimeSeconds . ' seconds')->format('Y-m-d H:i:s');
+        $lifetimeSeconds = $lifetimeSecondsOverride ?? self::$lifetimeSeconds;
+
+        return (new DateTimeImmutable())->modify('+' . $lifetimeSeconds . ' seconds')->format('Y-m-d H:i:s');
     }
 
     /**
