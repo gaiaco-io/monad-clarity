@@ -183,6 +183,20 @@ JSON-required routes without a JSON body, separate JSON data bag. Full contract 
 Generates meta title/description, canonical link, robots directives, Open Graph tags,
 Twitter/X card tags, JSON-LD structured data, alternate-language links.
 
+Unlike every other Clarity service, MetaTag has no `configure()` call — it reads two
+ambient sources directly, owned by the consuming app, not Clarity:
+- A global `APP` constant with `name`/`base_url` keys (`define('APP', ['name' => ...,
+  'base_url' => ...])`, defined once at boot — e.g. in the skeleton's
+  `config/bootstrap.php`). Used as the title/Open-Graph-URL/JSON-LD fallback when a
+  controller doesn't set `title`/`og_url` explicitly via `MetaTag::set()`.
+- `SEO_DEFAULT_DESCRIPTION`, `SEO_DEFAULT_IMAGE`, `SEO_TWITTER_SITE`, `SEO_LOCALE`,
+  `SEO_ORG_NAME`, `SEO_ORG_LOGO` environment variables, read via `getenv()` — fallback
+  defaults for the corresponding `MetaTag::set()` fields.
+
+Both must be present before `MetaTag::render()` is called from a layout, or fields that
+should have a sensible default (page title, canonical URL, JSON-LD organisation name)
+silently fall back to `'Application'`/empty string instead.
+
 ## Utils — `Gaia\Clarity\Utils\*`
 
 `CryptographicToken` (secure random tokens), `Encryption` (at-rest encryption),

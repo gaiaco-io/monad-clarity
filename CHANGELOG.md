@@ -6,6 +6,18 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 
 ## [Unreleased]
 
+### Documentation
+- `API_Contracts.md`'s `Middlewares\MetaTag` entry now documents its two ambient,
+  app-owned dependencies: a global `APP` constant (`name`/`base_url` keys) and six
+  `SEO_*` environment variables read directly via `getenv()`. Both were already real,
+  pre-existing behaviour (`MetaTagTest.php` itself has defined `APP` manually since
+  MetaTag's introduction) but undocumented anywhere outside that one test file. Surfaced
+  while wiring `gaia/monad-skeleton`'s Phase 7 config/bootstrap.php: the skeleton's
+  Home page 500'd with `Undefined constant APP` until this was traced down and the
+  skeleton's own boot sequence restored the `define('APP', [...])` call. No Clarity code
+  changed — `MetaTag`'s ambient-read design is intentional and app-owned per its own
+  test's comment, not a bug to redesign into a `configure()` call.
+
 ### Added
 - `Services\View::render()` gained an optional `int $status = 200` parameter, forwarded to
   the underlying `Response::htm($content, $status)`. Surfaced while wiring the skeleton
