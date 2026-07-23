@@ -7,6 +7,66 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 4 complete: the `mitosis` CLI. `Services\Console::run(array $argv): int` is the
+  frozen kernel contract (`CrossRepoContracts.md` §2–3) — argv parsing (via the new
+  `Console\Arguments` value object), built-in command registry, `Console::register(string
+  $name, callable|string $handler)` for application-defined commands wired through
+  `app/routes/cli.php` (loaded, if configured via `Console::configure()`, on every
+  `run()` before dispatch — `config/bootstrap.php`'s job, since the frozen `mitosis` stub
+  calls `run($argv)` with no room for extra arguments), `help`/unknown-command output,
+  and styled `success()`/`error()`/`info()` output helpers. `Console\Arguments`'s public
+  methods (`argument()`/`allArguments()`/`option()`/`hasOption()`/`rawTokens()`) are
+  themselves part of that frozen contract — every command, built-in or app-registered,
+  receives one — even though the 15 command classes under `Console\*` are free to
+  reorganise (`RepoMap.md`'s "Key structural notes").
+  All 15 stable command names (`CrossRepoContracts.md` §3) are implemented: four
+  `make:*` generators (`make:controller`/`make:model`/`make:service` write
+  `app/{controllers,models,services}/{Name}.php` from a template; `make:migration` writes
+  a timestamped `database/migrations/{YmdHis}_{slug}.php` returning an anonymous
+  up()/down() object matching what `Services\Migration::migrate()` expects); five
+  data-layer wrappers (`migrate`/`migrate:status`/`migrate:rollback`/`db:seed`/
+  `db:execute`, thin pass-throughs to Phase 3's `Services\Migration`); `setup` (creates
+  the two setup-owned tables from `DDL.sql` — see below); `health` (the deployment
+  acceptance gate, `DeploymentTopology.md` §5: configuration, DB connectivity, writable
+  storage, migration status, PHP extensions — exits non-zero if any check fails); `serve`
+  (PHP's built-in server on `127.0.0.1:8000` by default, rooted at `public/` with
+  `public/router.php` as front controller if present — a development convenience only,
+  never production); `test` (delegates to the project's own `vendor/bin/phpunit`, every
+  argument passed through raw via `rawTokens()` rather than `Console`'s own
+  positional/option parsing — `--filter=Foo` must reach phpunit unchanged, not be
+  swallowed as a Console option); `cache:clear` (empties the file cache driver's
+  directory only — a database/Redis-backed `Cache` is intentionally left untouched,
+  since the command has no way to know which driver an application is configured for,
+  and says so in its own output rather than silently no-op'ing while claiming success);
+  `logs:clear` (truncates every `*.log*` file under `storage/logs` to empty, without
+  deleting the files). `migrate:status` always exits 0, even with pending migrations —
+  it's a purely informational report; `health` is the one documented deployment gate
+  (`DeploymentTopology.md` §5), and having `migrate:status` double as a second gate would
+  make `migrate:status && …` fail unpredictably in scripts for a command whose job is to
+  report, not judge.
+  `setup`'s `sessionsBlueprint()`/`cachesBlueprint()` are the single canonical definition
+  of the two frozen tables — `SchemaTest`'s cross-dialect DDL-shape assertions now
+  exercise these same closures instead of a second, hand-maintained copy that could
+  silently drift from what `setup` actually creates. The `sessions.id` column's
+  `DEFAULT (uuid())` is MySQL-only syntax with no SQLite equivalent and no
+  version-independent PostgreSQL one; since application code always goes through
+  `DB::insert()` (which generates the UUID PHP-side regardless, per `Architecture.md`
+  §9), `setup` applies that default only on the MySQL dialect and omits it elsewhere
+  rather than papering over the gap.
+  `serve` and `test` both split command assembly (`commandLine(): string`, pure and
+  fully tested) from execution (`__invoke()`, a thin `passthru()` wrapper) — `passthru()`
+  blocks until the spawned process exits, so a test that invoked either command for real
+  would either hang forever (`serve`, until its dev server is killed) or recursively
+  re-run this very suite from inside itself (`test`, which wraps the exact `phpunit`
+  binary this suite runs under). Tests exercise `commandLine()` only; `__invoke()` is
+  covered only for its early-exit failure path (missing `vendor/bin/phpunit`).
+  A broken `app/routes/cli.php` (a syntax/runtime error in an app-registered command
+  file) is caught by `run()` and reported through the same `error()` output every other
+  command failure uses, rather than an uncaught exception with a raw stack trace — CLI
+  output is user-facing product surface (CLAUDE.md).
+  56 new tests (kernel dispatch, `Arguments`, all 15 commands) using temp
+  filesystem/in-memory-SQLite fixtures rather than a real project, per
+  `TestingStrategy.md` Tier 5.
 - `Services\Files` catch-up (Phase 2's own text never listed it, though Phase 5's text
   references "retrofit Phase 2's Files" — a gap in the Build Plan document itself; done
   now before Phase 4). Rewritten as a pure storage service: `store()`/`storeMultiple()`

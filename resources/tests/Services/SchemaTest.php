@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Gaia\Clarity\Tests\Services;
 
-use Closure;
+use Gaia\Clarity\Console\Setup;
 use Gaia\Clarity\Services\DB;
 use Gaia\Clarity\Services\Schema;
 use Gaia\Clarity\Services\Schema\Blueprint;
@@ -192,18 +192,19 @@ final class SchemaTest extends TestCase
 
     /**
      * The compatibility surface itself (CrossRepoContracts.md §8): Schema must be able to
-     * define the two setup-owned tables (sessions, caches) from DDL.sql. This asserts the
+     * define the two setup-owned tables (sessions, caches) from DDL.sql. This exercises
+     * Console\Setup::sessionsBlueprint() directly — the canonical definition the real
+     * `setup` command creates these tables from — rather than a second, hand-maintained
+     * copy that could silently drift from what `setup` actually emits. It asserts the
      * MySQL-dialect compiled SQL carries the essential column/nullability/key shape
      * (checked via reflection on the pure compiler — no live MySQL server available in
-     * CI), then proves the *same* Blueprint definition actually works end to end on
+     * CI), then proves the dialect-appropriate definition actually works end to end on
      * SQLite, showing the abstraction holds across dialects rather than just on paper.
      */
     public function testSessionsTableMatchesFrozenDdlShapeAcrossDialects(): void
     {
-        $define = self::sessionsBlueprintCallback();
-
         $blueprintForMysql = new Blueprint();
-        $define($blueprintForMysql);
+        (Setup::sessionsBlueprint('mysql'))($blueprintForMysql);
         $mysqlSql = self::compileCreateTable('mysql', 'sessions', $blueprintForMysql);
 
         self::assertStringContainsString('id CHAR(36) NOT NULL DEFAULT (uuid())', $mysqlSql);
@@ -217,8 +218,9 @@ final class SchemaTest extends TestCase
         self::assertStringContainsString('revoked_at DATETIME NULL', $mysqlSql);
         self::assertStringContainsString('PRIMARY KEY (id)', $mysqlSql);
 
-        // Same Blueprint definition, executed for real on SQLite.
-        Schema::createTable('sessions', $define);
+        // sqlite has no uuid() function — the dialect-appropriate definition omits the
+        // DB-level default entirely (see Setup::sessionsBlueprint()'s doc comment).
+        Schema::createTable('sessions', Setup::sessionsBlueprint('sqlite'));
 
         DB::insert('sessions', [
             'id' => 'session-1',
@@ -241,17 +243,7 @@ final class SchemaTest extends TestCase
 
     public function testCachesTableMatchesFrozenDdlShapeAcrossDialects(): void
     {
-        $define = static function (Blueprint $table) {
-            $table->binary('key_hash', 32);
-            $table->string('cache_key', 512);
-            $table->binary('cache_value');
-            $table->string('encoding', 20, default: 'serialize');
-            $table->datetime('expires_at', nullable: true);
-            $table->datetime('created_at', default: Schema::raw('CURRENT_TIMESTAMP'));
-            $table->datetime('updated_at', default: Schema::raw('CURRENT_TIMESTAMP'), autoUpdate: true);
-            $table->primary('key_hash');
-            $table->index('expires_at');
-        };
+        $define = Setup::cachesBlueprint();
 
         $blueprintForMysql = new Blueprint();
         $define($blueprintForMysql);
@@ -275,28 +267,6 @@ final class SchemaTest extends TestCase
         ], DB::ID_TYPE_INT);
 
         self::assertTrue(Schema::hasTable('caches'));
-    }
-
-    /**
-     * @return Closure(Blueprint): void
-     */
-    private static function sessionsBlueprintCallback(): Closure
-    {
-        return static function (Blueprint $table) {
-            $table->uuid('id', default: Schema::raw('(uuid())'));
-            $table->uuid('user_id', nullable: true);
-            $table->string('digest', 255);
-            $table->string('ip_address', 39);
-            $table->text('user_agent', nullable: true);
-            $table->json('payload');
-            $table->datetime('created_at', default: Schema::raw('CURRENT_TIMESTAMP'));
-            $table->datetime('updated_at', default: Schema::raw('CURRENT_TIMESTAMP'), autoUpdate: true);
-            $table->datetime('expire_at');
-            $table->datetime('revoked_at', nullable: true);
-            $table->primary('id');
-            $table->unique('digest');
-            $table->index('user_id');
-        };
     }
 
     private static function compileCreateTable(string $dialect, string $table, Blueprint $blueprint): string
