@@ -7,6 +7,22 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 1 (foundations): the seven `Gaia\Clarity\Utils` security helpers per
+  `GapAnalysis_BuildPlan_26.07.md` §29 —
+  `ConstantTime` (timing-safe string comparison via `hash_equals`),
+  `HMAC` (sign/verify, `hash_hmac_algos()`-validated algorithm),
+  `CryptographicToken` (`random_bytes`-backed hex/base64url token generation),
+  `Hash` (password hashing — Argon2id where the runtime supports it, bcrypt fallback),
+  `Encryption` (AES-256-GCM at-rest encryption; IV+tag+ciphertext bundled, authenticated,
+  tamper-evident),
+  `SignedURL` (HMAC-signed, expiring URLs — expiry is part of the signed payload, params
+  canonicalized before signing so query-string order can't be forged or matter),
+  `Redactor` (recursive, case/separator-insensitive secret masking for log lines).
+- 49 PHPUnit tests across all seven classes (`resources/tests/Utils/`), including
+  adversarial cases per `TestingStrategy.md` Tier 1: tampered ciphertext/tag/IV, expired
+  and forged signed URLs, wrong-key/tampered HMAC verification, rehash-on-cost-change for
+  `Hash`, and a regression guard for `ConstantTime` against a naive early-exit comparator.
+- `ext-openssl` added to `composer.json` `require` (used by `Utils\Encryption`).
 - `LICENSE` (MIT).
 - `README.md` with status, PHP floor, and testing instructions.
 - `.gitattributes` `export-ignore` rules for `/resources`, `/CLAUDE.md`, and the dotfiles
@@ -37,3 +53,5 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 - `Middlewares/Keylock.php` — declared `namespace Gaia\Kerberos`, did not match the package
   namespace, and was not part of any documented middleware in `RepoMap.md`.
 - `Services/$MYVIMRC` — stray editor artifact, not source code.
+- `Utils/Number.php` — per `GapAnalysis_BuildPlan_26.07.md` §2.4, resolved as dropped;
+  not part of the 26.07 scope, no predecessor in the seven `Utils\*` security helpers.

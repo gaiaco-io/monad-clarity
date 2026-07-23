@@ -22,6 +22,7 @@
     "minimum-stability": "stable",
     "require": {
         "php": ">=8.2",
+        "ext-openssl": "*",
         "nesbot/carbon": "^3.13",
         "ramsey/uuid": "^4.9"
     },
