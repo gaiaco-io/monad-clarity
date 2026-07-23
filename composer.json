@@ -20,6 +20,11 @@
         }
     ],
     "minimum-stability": "stable",
+    "extra": {
+        "branch-alias": {
+            "dev-main": "1.0.x-dev"
+        }
+    },
     "require": {
         "php": ">=8.2",
         "ext-curl": "*",
