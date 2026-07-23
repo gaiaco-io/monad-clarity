@@ -139,4 +139,36 @@ final class HttpClientTest extends TestCase
 
         (new HttpClient(timeoutSeconds: 1))->get(self::uri('/slow'));
     }
+
+    public function testWithTimeoutSecondsActuallyChangesTheEnforcedTimeout(): void
+    {
+        // Constructed with a generous timeout, then narrowed via withTimeoutSeconds() —
+        // proves the clone's mutated value is what curl actually enforces, not just a
+        // copied object that still behaves like the original.
+        $client = (new HttpClient(timeoutSeconds: 30))->withTimeoutSeconds(1);
+
+        $this->expectException(HttpClientException::class);
+
+        $client->get(self::uri('/slow'));
+    }
+
+    public function testWithTimeoutSecondsPreservesASubclassAddedProperty(): void
+    {
+        // LLM adapters call withTimeoutSeconds() on whatever HttpClient they were given,
+        // including test fakes that subclass HttpClient and carry their own state (e.g. a
+        // canned responder). Reconstructing via `new static(...)` would only ever pass
+        // HttpClient's own four constructor parameters, silently dropping that state —
+        // this proves the clone-based implementation carries it through instead.
+        $subclass = new class (99) extends HttpClient {
+            public function __construct(public readonly int $marker)
+            {
+                parent::__construct();
+            }
+        };
+
+        $copy = $subclass->withTimeoutSeconds(5);
+
+        self::assertInstanceOf($subclass::class, $copy);
+        self::assertSame(99, $copy->marker);
+    }
 }

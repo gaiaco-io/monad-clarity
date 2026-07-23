@@ -22,11 +22,31 @@ use Psr\Http\Message\StreamInterface;
 class HttpClient implements ClientInterface
 {
     public function __construct(
-        private readonly int $timeoutSeconds = 30,
+        private int $timeoutSeconds = 30,
         private readonly int $connectTimeoutSeconds = 10,
         private readonly bool $verifySsl = true,
         private readonly int $maxRedirects = 5,
     ) {
+    }
+
+    /**
+     * A copy of this client with a different request timeout — for a caller (e.g. an LLM
+     * adapter) that receives its timeout per-call rather than at construction, since
+     * $timeoutSeconds above is otherwise the only fixed-at-construction property that
+     * ever needs adjusting after the fact.
+     *
+     * Clones and mutates the one non-readonly property rather than reconstructing via
+     * `new static(...)`: reconstruction would only ever pass HttpClient's own four
+     * constructor parameters, silently dropping any state a subclass adds (e.g. a test
+     * fake's injected response) — `clone` copies every property, subclass-added ones
+     * included, so this works correctly no matter what a subclass carries.
+     */
+    public function withTimeoutSeconds(int $timeoutSeconds): static
+    {
+        $clone = clone $this;
+        $clone->timeoutSeconds = $timeoutSeconds;
+
+        return $clone;
     }
 
     /**

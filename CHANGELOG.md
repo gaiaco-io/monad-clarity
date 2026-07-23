@@ -7,6 +7,67 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 6: `Services\LLM` (ReleaseNotes §11) and its four provider adapters —
+  `Services\LLMAdapters\{Anthropic,OpenAI,DeepSeek,Gemini}` — built in the Build Plan's
+  shipping-priority order, not the ReleaseNotes' listing order. The ten-field contract
+  (§11.3) splits cleanly across two immutable value objects in `Services\LLM\`:
+  `LLMRequest` (model, messages, system instruction, temperature, max output tokens,
+  timeout, an optional JSON-Schema `responseSchema` — "structured JSON response" is this
+  field's presence, not a separate redundant boolean) and `LLMResponse` (provider, model
+  echoed back, content, usage, provider request id, plus the full raw decoded body as an
+  escape hatch). `LLMRequest` validates at construction (non-empty model, at least one
+  well-formed message, temperature 0.0–2.0, positive token/timeout counts) so a malformed
+  request never reaches the network.
+  **Dispatch mechanism was a genuine architectural fork, confirmed with Marshal via
+  AskUserQuestion before writing any adapter** — this is a semver-frozen surface once
+  shipped, same significance as Authentication's user-resolver decision last phase.
+  Chose construct-the-adapter (`new LLMAdapters\Anthropic(apiKey: ..., httpClient: ...)`,
+  each adapter constructed directly with its own credentials) over a static facade with
+  runtime provider dispatch and a global credential registry — the latter would have been
+  the only static-global-state pattern among every provider-pluggable component built
+  this release (Files' S3 client and Cache's Redis handle are both instance-based), and
+  LLM has no natural one-per-application-lifecycle instance the way DB/Session/Route do.
+  `provider` is consequently response provenance (which adapter actually served this),
+  not a dispatch key. `Services\LLM` itself is a thin abstract base holding only what's
+  genuinely shared across all four adapters — response-status and JSON-body-decoding
+  helpers — not a rigid template method, since each provider's translation differs enough
+  (Anthropic's `system` is a top-level field; OpenAI/DeepSeek/Gemini fold it into the
+  message list or a `systemInstruction` object; Gemini's assistant role is "model", not
+  "assistant") that forcing a shared shape would fight the translation rather than help
+  it, per Architecture.md §7's own rationale for the one-file-per-adapter split.
+  Structured JSON output (§11.3.8) is where that split earns its keep — each provider's
+  mechanism is genuinely different: OpenAI's `response_format: json_schema` and Gemini's
+  `responseSchema`/`responseMimeType` are both server-enforced schema-constrained
+  decoding; Anthropic has no such mode, so structured output is obtained via Anthropic's
+  own documented pattern of forcing a synthetic tool whose `input_schema` is the caller's
+  schema and reading the resulting `tool_use` block back out; DeepSeek only offers
+  `response_format: json_object` ("valid JSON, no schema enforcement"), so its adapter
+  additionally appends the schema as an explicit instruction to the system message,
+  best-effort rather than guaranteed.
+  Tier 4 per TestingStrategy.md: every adapter test mocks `HttpClient` via a shared
+  `FakeHttpClient` test fixture (`resources/tests/Services/LLMAdapters/FakeHttpClient.php`)
+  — no live provider API calls. **These 44 adapter/value-object tests prove internal
+  consistency only** (that each adapter's request-building and response-parsing agree
+  with each other), not that the wire formats match the real, live provider APIs — an
+  inherent limit of the no-live-calls policy, not a gap in the tests. Flagged in code as
+  the top item for a live smoke test before production reliance, specifically OpenAI's
+  `max_tokens` parameter (some newer OpenAI model families reject it in favour of
+  `max_completion_tokens`, and this couldn't be verified without a live key).
+  **Also fixed a real bug in `HttpClient` (Phase 2, previously shipped) surfaced while
+  wiring the adapters' per-request timeout:** the new `withTimeoutSeconds(int): static`
+  method (LLM's `timeoutSeconds` field is per-request; `HttpClient`'s timeout was
+  previously construction-time only) initially reconstructed via `new static(...)`,
+  passing only `HttpClient`'s own four constructor parameters — which silently drops any
+  state a subclass adds, exactly the shape the `FakeHttpClient` test fixture needed to
+  carry (its canned responder). Confirmed empirically before fixing. Changed to clone the
+  instance and mutate the one now-non-readonly `$timeoutSeconds` property instead — clone
+  preserves subclass-added properties automatically, since assigning a value to a
+  readonly property is only barred, not copying one via clone. Regression tests added
+  directly to `HttpClientTest` (a live-timeout-actually-changes test against the local
+  fixture server, and a subclass-state-preservation test), not just exercised indirectly
+  through the adapters. Additive, semver-minor.
+  Deliberately excludes (§11.4): agents, tool orchestration, vector databases, memory,
+  prompt pipelines, automatic cross-provider retries.
 - Phase 5, part 6: `Middlewares\Jsonify` (ReleaseNotes §31). Parses a JSON request body
   into `Request`'s separate JSON data bag before the controller sees it, for any
   body-carrying method (POST/PUT/PATCH/DELETE, §31.2.4), not just POST. Uses the exact
