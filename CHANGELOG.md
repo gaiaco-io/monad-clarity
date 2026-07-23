@@ -7,6 +7,13 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- `Services\View::render()` gained an optional `int $status = 200` parameter, forwarded to
+  the underlying `Response::htm($content, $status)`. Surfaced while wiring the skeleton
+  repo's Phase 7 work: `Route::dispatch()`'s built-in 404 fallback needs to render a
+  styled `Errors/404` view at actual HTTP status 404, and `View::render()` had no way to
+  express a non-200 status — every rendered view, error pages included, came back 200.
+  Additive, semver-minor. `View::render('Errors/404', status: 404)` is the intended call
+  shape from an `app/routes/*.php` `Route::fallback(...)` registration.
 - Phase 6: `Services\LLM` (ReleaseNotes §11) and its four provider adapters —
   `Services\LLMAdapters\{Anthropic,OpenAI,DeepSeek,Gemini}` — built in the Build Plan's
   shipping-priority order, not the ReleaseNotes' listing order. The ten-field contract

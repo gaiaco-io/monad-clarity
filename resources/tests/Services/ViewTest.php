@@ -32,6 +32,19 @@ final class ViewTest extends TestCase
         self::assertStringContainsString('Hello, Marshal!', $response->content());
     }
 
+    public function testRenderDefaultsToStatus200(): void
+    {
+        self::assertSame(200, View::render('hello', ['name' => 'Marshal'])->status());
+    }
+
+    public function testRenderAcceptsAnExplicitStatusForNon200Pages(): void
+    {
+        $response = View::render('hello', ['name' => 'Marshal'], status: 404);
+
+        self::assertSame(404, $response->status());
+        self::assertStringContainsString('Hello, Marshal!', $response->content());
+    }
+
     public function testSharedDataIsAvailableToEveryView(): void
     {
         View::share('name', 'Shared Name');

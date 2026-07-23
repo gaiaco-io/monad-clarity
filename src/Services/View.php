@@ -67,7 +67,7 @@ abstract class View
     /**
      * @param array<string, mixed> $data
      */
-    public static function render(string $view, array $data = []): Response
+    public static function render(string $view, array $data = [], int $status = 200): Response
     {
         $path = self::resolvePath($view);
 
@@ -87,7 +87,7 @@ abstract class View
             [$content] = self::renderFile(self::resolvePath($layout), [...$merged, 'content' => $content]);
         }
 
-        return Response::htm($content);
+        return Response::htm($content, $status);
     }
 
     /**
