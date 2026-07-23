@@ -4,17 +4,13 @@ Core library of the Monad Framework — an MVC-based PHP framework for solo deve
 teams. Clarity provides the middlewares, services, and console tooling that
 [`gaia/monad-skeleton`](https://github.com/gaiaco-io/monad-skeleton) applications run on.
 
-**Status:** pre-release, under active development toward the 26.07 / `1.0.0` build. Not yet
-published to Packagist — see `resources/docs/GapAnalysis_BuildPlan_26.07.md` for the current
-build phase.
+**Status:** `1.0.0`, the initial 26.07 release.
 
 ## Requirements
 
 - PHP `>=8.2`
 
 ## Installation
-
-Not yet published. Once tagged `1.0.0`:
 
 ```bash
 composer create-project gaia/monad-skeleton NewApp

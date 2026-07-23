@@ -6,6 +6,15 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-24
+
+Initial 26.07 release. `create-project gaia/monad-skeleton` produces a working
+application: `php mitosis setup && php mitosis serve` renders the Home view, all 15
+`mitosis` commands function, `php mitosis health` passes all five checks, and the full
+test suite is green. Everything below shipped as part of this release — see the phase
+history in this same file (and `resources/docs/GapAnalysis_BuildPlan_26.07.md`) for the
+detailed build order and the real bugs caught and fixed along the way.
+
 ### Fixed
 - `make:controller`/`make:model`/`make:service` wrote to lowercase `app/controllers/`,
   `app/models/`, `app/services/`, while their own generated templates declare
