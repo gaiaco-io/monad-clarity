@@ -7,6 +7,67 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 ## [Unreleased]
 
 ### Added
+- Phase 5, part 6: `Middlewares\Jsonify` (ReleaseNotes §31). Parses a JSON request body
+  into `Request`'s separate JSON data bag before the controller sees it, for any
+  body-carrying method (POST/PUT/PATCH/DELETE, §31.2.4), not just POST. Uses the exact
+  same `json_decode()` flags/defaults `Request`'s own lazy-parsing path does
+  (`JSON_THROW_ON_ERROR | JSON_BIGINT_AS_STRING`, associative arrays, a 512-deep default)
+  so `Request::json()` behaves identically whether or not Jsonify ran
+  (`CrossRepoContracts.md` §6). Configurable: `requireJsonContentType` (415 when off-spec,
+  §31.2.13), `requireObjectTopLevel` (400 unless the body is a `{...}`, §31.2.3),
+  `maxBodyBytes` (400 over limit), `maxDepth`. Media-type matching accepts
+  `application/json`, the `charset` parameter, and any `+json` vendor suffix
+  (`application/vnd.api+json`), case-insensitively (media types are case-insensitive per
+  RFC 9110 §8.3.1 — an initial version compared the raw header verbatim, which would have
+  415'd a conforming client that sent `Application/JSON`). Not `final`, extended by
+  `app/middlewares/` per the same §5 contract as the rest of this phase;
+  `badRequestResponse()`/`unsupportedMediaTypeResponse()` are `protected` extension
+  points. 18 tests.
+  **Caught a real bug this exposed in `Request` (Phase 2, previously shipped):**
+  `$decodedJson` was typed `?array`, so any request whose body was a *valid* top-level
+  JSON scalar (`"hello"`, `42`, `false` — all legal per §31.2.1-2, and per `Request::json()`'s
+  own docblock) threw a `TypeError` on assignment inside `decodeJson()`, rather than
+  returning the scalar. Confirmed empirically before fixing. Widened `$decodedJson` and
+  the `$jsonBag` constructor param to `mixed`, and added a separate `hasJsonBag` flag so a
+  literal JSON `null` body (a valid bag Jsonify might set) is distinguishable from
+  "Jsonify never ran" — a bare `$jsonBag !== null` check would have collapsed those two
+  cases. Also added `Request::rawBody()` (previously private state with no accessor) so
+  Jsonify can inspect the exact captured body for its own media-type/size checks without
+  re-reading `php://input`, which isn't reliably re-readable across every SAPI. 6
+  regression tests added to `RequestTest`.
+  **Also retrofitted the two Phase 5 event-wiring items the Build Plan calls out as
+  outstanding once their owning services exist:** `Services\Files::store()` now dispatches
+  `Event::FILE_UPLOADED` with the same `{path, mimeType, size, public}` shape it returns,
+  and `Services\Migration::migrate()` dispatches `Event::MIGRATION_COMPLETED` (payload:
+  `{migration: <name>}`) once per newly-applied migration file, immediately after each is
+  recorded in `clarity_migrations`. Both event constants already existed on `Event`
+  (§27.2.5-6) but nothing dispatched them until now.
+- Phase 5, part 5: `Middlewares\CORS` (ReleaseNotes §30). CORS is browser-enforced, not a
+  server-side authorization boundary: a non-preflight request from a disallowed origin
+  still reaches the controller (curl/mobile/server-to-server callers send no meaningful
+  Origin at all, and CORS was never meant to gate them) but gets no `Access-Control-*`
+  headers, so a browser blocks client-side JS from reading the response. Rejection
+  happens where it actually matters — an `OPTIONS` preflight, whose entire purpose is to
+  ask permission, gets an explicit 403 for a disallowed origin rather than ever reaching
+  the controller (§30.2.10). Wildcard origin (`*`) is spec-correctly refused to ever pair
+  with `supportsCredentials: true` (the CORS spec forbids the combination) — with
+  credentials on, `*` in `$allowedOrigins` simply never matches, so every origin needs
+  explicit listing. `Access-Control-Expose-Headers` only appears when configured.
+  Route-level override and per-environment config (§30.2.8-9) need no dedicated API:
+  every option is plain constructor config with no global state, so a differently-configured
+  instance per route/group, or per-environment at app boot, is just a second `new CORS(...)`.
+  Not `final`, extended by `app/middlewares/`; `isAllowedOrigin()`/`rejectionResponse()`
+  are `protected` extension points. 17 tests.
+  **`Vary: Origin` (§30.2.11) was initially only added on the allowed-origin path.** A
+  request from a disallowed origin (or a rejected preflight) got a response with no ACAO
+  *and* no `Vary`, which a shared cache could store and then wrongly replay to a different,
+  actually-allowed origin — the standard CORS cache-poisoning gap. Fixed so `Vary: Origin`
+  is added on every path where the response could plausibly differ by origin — allowed,
+  disallowed, and rejected-preflight alike — merging into any existing `Vary` value rather
+  than overwriting it. The one case that still skips it deliberately: a static
+  allow-all config (`allowedOrigins: ['*']` with credentials off) always emits the
+  identical `Access-Control-Allow-Origin: *` no matter the request's Origin, so there is
+  nothing for a cache to vary on.
 - Phase 5, part 4: `Middlewares\RBAC` (ReleaseNotes §16). Same split as Authentication:
   Clarity owns the permission *check*, the app owns the role/permission *data* — no new
   schema. `$permissionsForUser` (duck-typed callable) is expected to already union

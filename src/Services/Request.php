@@ -20,7 +20,7 @@ use Psr\Http\Message\UploadedFileInterface;
  */
 final class Request
 {
-    private ?array $decodedJson = null;
+    private mixed $decodedJson = null;
     private bool $jsonDecoded = false;
 
     /**
@@ -29,9 +29,15 @@ final class Request
      * @param array<string, string> $server
      * @param array<string, string> $cookies
      * @param array<string, UploadedFileInterface|list<UploadedFileInterface>> $files
-     * @param array<string, mixed>|null $jsonBag Pre-parsed JSON data bag, set by the
-     *     Jsonify middleware when it ran. Null means Jsonify did not run — json() then
-     *     lazy-parses $rawBody itself, per CrossRepoContracts.md §6.
+     * @param mixed $jsonBag Pre-parsed JSON data bag, set by the Jsonify middleware
+     *     when it ran — can be any decoded JSON value (§31.2.1-2: a bare string,
+     *     number, bool, or null is as valid a JSON body as an object/array), so this is
+     *     deliberately `mixed`, not `?array`; whether Jsonify ran at all is tracked
+     *     separately by $hasJsonBag; `null` is not itself a distinguishing sentinel,
+     *     since a JSON body of literal `null` must be representable too.
+     * @param bool $hasJsonBag Whether $jsonBag was actually set by Jsonify. False means
+     *     Jsonify did not run — json() then lazy-parses $rawBody itself, per
+     *     CrossRepoContracts.md §6.
      */
     private function __construct(
         private readonly string $method,
@@ -42,7 +48,8 @@ final class Request
         private readonly array $cookies,
         private readonly array $files,
         private readonly string $rawBody,
-        private readonly ?array $jsonBag = null,
+        private readonly mixed $jsonBag = null,
+        private readonly bool $hasJsonBag = false,
         private readonly int $jsonMaxDepth = 512,
     ) {
     }
@@ -180,6 +187,17 @@ final class Request
     }
 
     /**
+     * The raw request body, exactly as captured — before any JSON decoding. Middlewares
+     * that need to inspect or re-parse the body themselves (Jsonify: media-type
+     * detection, size limits, its own configured decode depth) read it from here rather
+     * than re-reading `php://input`, which is not reliably re-readable across every SAPI.
+     */
+    public function rawBody(): string
+    {
+        return $this->rawBody;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function all(): array
@@ -230,9 +248,10 @@ final class Request
 
     /**
      * Return a copy of this request carrying a pre-parsed JSON data bag, as set by the
-     * Jsonify middleware once it runs (Phase 5). Not part of the stable API surface yet.
+     * Middlewares\Jsonify middleware once it runs. $bag may be any decoded JSON value —
+     * including a bare string/number/bool, or literal null — per §31.2.1-2.
      */
-    public function withJsonBag(?array $bag): self
+    public function withJsonBag(mixed $bag): self
     {
         return new self(
             $this->method,
@@ -244,13 +263,14 @@ final class Request
             $this->files,
             $this->rawBody,
             $bag,
+            true,
             $this->jsonMaxDepth,
         );
     }
 
     private function decodeJson(): mixed
     {
-        if ($this->jsonBag !== null) {
+        if ($this->hasJsonBag) {
             return $this->jsonBag;
         }
 

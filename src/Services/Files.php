@@ -96,7 +96,11 @@ final class Files
             self::ADAPTER_S3 => $this->storeToS3($contents, $path, $mimeType, $public),
         };
 
-        return ['path' => $path, 'mimeType' => $mimeType, 'size' => strlen($contents), 'public' => $public];
+        $stored = ['path' => $path, 'mimeType' => $mimeType, 'size' => strlen($contents), 'public' => $public];
+
+        Event::dispatch(Event::FILE_UPLOADED, $stored);
+
+        return $stored;
     }
 
     /**

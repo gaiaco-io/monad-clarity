@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Gaia\Clarity\Tests\Services;
 
+use Gaia\Clarity\Services\Event;
 use Gaia\Clarity\Services\Files;
 use InvalidArgumentException;
 use Nyholm\Psr7\Stream;
@@ -20,6 +21,8 @@ final class FilesTest extends TestCase
     #[After]
     public function cleanUp(): void
     {
+        Event::forget();
+
         if (!isset($this->storageDirectory) || !is_dir($this->storageDirectory)) {
             return;
         }
@@ -194,6 +197,19 @@ final class FilesTest extends TestCase
         self::assertArrayHasKey($result['path'], $s3->objects);
         self::assertSame('hello s3', $s3->objects[$result['path']]['Body']);
         self::assertSame('private', $s3->objects[$result['path']]['ACL']);
+    }
+
+    public function testStoreDispatchesFileUploadedEventWithTheStoredMetadata(): void
+    {
+        $files = $this->filesystemAdapter();
+        $dispatched = null;
+        Event::listen(Event::FILE_UPLOADED, function (array $payload) use (&$dispatched) {
+            $dispatched = $payload;
+        });
+
+        $result = $files->store(self::uploadedTextFile('hello world', 'note.txt'));
+
+        self::assertSame($result, $dispatched);
     }
 
     public function testS3AdapterDeleteAndExists(): void

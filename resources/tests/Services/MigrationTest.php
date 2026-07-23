@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Gaia\Clarity\Tests\Services;
 
 use Gaia\Clarity\Services\DB;
+use Gaia\Clarity\Services\Event;
 use Gaia\Clarity\Services\Migration;
 use Gaia\Clarity\Services\Schema;
 use InvalidArgumentException;
@@ -31,6 +32,7 @@ final class MigrationTest extends TestCase
     public function resetDB(): void
     {
         DB::reset();
+        Event::forget();
     }
 
     public function testMigrateAppliesAllPendingMigrationsInOrder(): void
@@ -94,6 +96,21 @@ final class MigrationTest extends TestCase
         self::assertSame(['20260101000100_add_price_to_widgets'], $rolledBack);
         self::assertTrue(Schema::hasTable('widgets'));
         self::assertFalse(Schema::hasColumn('widgets', 'price'));
+    }
+
+    public function testMigrateDispatchesMigrationCompletedEventForEachNewlyAppliedMigration(): void
+    {
+        $dispatched = [];
+        Event::listen(Event::MIGRATION_COMPLETED, function (array $payload) use (&$dispatched) {
+            $dispatched[] = $payload['migration'];
+        });
+
+        Migration::migrate(self::MIGRATIONS_PATH);
+
+        self::assertSame([
+            '20260101000000_create_widgets_table',
+            '20260101000100_add_price_to_widgets',
+        ], $dispatched);
     }
 
     public function testLoadingAnInvalidMigrationFileThrows(): void

@@ -67,6 +67,8 @@ abstract class Migration
                 'applied_at' => (new DateTimeImmutable())->format('Y-m-d H:i:s'),
             ], DB::ID_TYPE_INT, $context);
 
+            Event::dispatch(Event::MIGRATION_COMPLETED, ['migration' => $name]);
+
             $newlyApplied[] = $name;
         }
 

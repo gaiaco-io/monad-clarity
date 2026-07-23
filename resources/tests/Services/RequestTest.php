@@ -122,12 +122,65 @@ final class RequestTest extends TestCase
         self::assertSame([1, 2, 3], $request->json());
     }
 
+    /**
+     * A JSON array decodes to a PHP array either way, so the test above never actually
+     * exercises a body whose top-level value is a bare scalar — a real, previously
+     * undetected bug: $decodedJson was typed `?array`, so decodeJson() assigning a
+     * decoded string/int/bool to it threw a TypeError, for any request whose body was a
+     * valid top-level JSON scalar rather than an object or array.
+     */
+    public function testJsonAcceptsABareTopLevelString(): void
+    {
+        $request = Request::fromArrays(rawBody: '"hello"');
+
+        self::assertSame('hello', $request->json());
+    }
+
+    public function testJsonAcceptsABareTopLevelNumber(): void
+    {
+        $request = Request::fromArrays(rawBody: '42');
+
+        self::assertSame(42, $request->json());
+    }
+
+    public function testJsonAcceptsABareTopLevelBoolean(): void
+    {
+        $request = Request::fromArrays(rawBody: 'false');
+
+        self::assertFalse($request->json());
+    }
+
+    public function testWithJsonBagAcceptsABareScalarValue(): void
+    {
+        $request = Request::fromArrays(rawBody: 'irrelevant, bag preempts it')->withJsonBag('hello');
+
+        self::assertSame('hello', $request->json());
+    }
+
+    public function testWithJsonBagOfLiteralNullPreemptsLazyParsingEntirely(): void
+    {
+        // If a null $jsonBag were indistinguishable from "no bag was ever set" (the
+        // pre-fix design, where the bag itself doubled as its own presence flag), this
+        // would fall through to lazy-parsing the malformed raw body below and throw —
+        // proving hasJsonBag is checked first, independent of what $jsonBag holds.
+        $request = Request::fromArrays(rawBody: '{not valid json')->withJsonBag(null);
+
+        self::assertNull($request->json());
+    }
+
     public function testWithJsonBagPreemptsLazyParsingOfRawBody(): void
     {
         $request = Request::fromArrays(rawBody: 'not json at all')
             ->withJsonBag(['from' => 'jsonify']);
 
         self::assertSame('jsonify', $request->json('from'));
+    }
+
+    public function testRawBodyReturnsTheExactCapturedBody(): void
+    {
+        $request = Request::fromArrays(rawBody: '{"raw":true}');
+
+        self::assertSame('{"raw":true}', $request->rawBody());
     }
 
     public function testFileReturnsUploadedFileInterfaceForSingleUpload(): void
