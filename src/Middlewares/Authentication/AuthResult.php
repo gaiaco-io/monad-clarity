@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares\Authentication;
+namespace Monad\Clarity\Middlewares\Authentication;
 
 /**
  * The outcome of Authentication::attempt()/login(). An immutable value object rather
@@ -10,7 +10,7 @@ namespace Gaia\Clarity\Middlewares\Authentication;
  * credentials — Middlewares\Authentication's FAILURE_* constants), and a successful one
  * carries the new session plus whether the stored password hash should be upgraded.
  *
- * @package Gaia\Clarity\Middlewares\Authentication
+ * @package Monad\Clarity\Middlewares\Authentication
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class AuthResult

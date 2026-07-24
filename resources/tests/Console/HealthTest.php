@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Console;
+namespace Monad\Clarity\Tests\Console;
 
-use Gaia\Clarity\Console\Arguments;
-use Gaia\Clarity\Console\Health;
-use Gaia\Clarity\Services\DB;
+use Monad\Clarity\Console\Arguments;
+use Monad\Clarity\Console\Health;
+use Monad\Clarity\Services\DB;
 use PDO;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;

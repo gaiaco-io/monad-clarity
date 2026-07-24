@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
 use DateTimeImmutable;
 use DateTimeZone;
-use Gaia\Clarity\Utils\Redactor;
+use Monad\Clarity\Utils\Redactor;
 use Psr\Log\AbstractLogger;
 use Psr\Log\InvalidArgumentException;
 use Psr\Log\LogLevel;
@@ -19,7 +19,7 @@ use Throwable;
  * The application wires up one instance per destination — `app.log`, `db.log`,
  * `timeline.log` — each with its own channel label and path (see `DeploymentTopology.md`).
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class Logger extends AbstractLogger

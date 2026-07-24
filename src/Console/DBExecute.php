@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\Migration;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\Migration;
 
 /**
  * `php mitosis db:execute database/migrations/20260711_fix_user_table.sql` — runs a raw
  * .sql file via Services\Migration::runSqlScript().
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class DBExecute implements Command

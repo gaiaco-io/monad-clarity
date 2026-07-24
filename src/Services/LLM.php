@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
-use Gaia\Clarity\Services\LLM\LLMException;
-use Gaia\Clarity\Services\LLM\LLMRequest;
-use Gaia\Clarity\Services\LLM\LLMResponse;
+use Monad\Clarity\Services\LLM\LLMException;
+use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\LLMResponse;
 use JsonException;
 use Psr\Http\Message\ResponseInterface;
 
@@ -28,7 +28,7 @@ use Psr\Http\Message\ResponseInterface;
  * Deliberately excludes (§11.4): agents, tool orchestration, vector databases, memory,
  * prompt pipelines, automatic retries across providers.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class LLM

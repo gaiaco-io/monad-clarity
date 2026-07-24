@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use Closure;
 use InvalidArgumentException;
@@ -15,7 +15,7 @@ use RuntimeException;
  * echoed or exits here. Route (or application code) calls send() exactly once, at the
  * end of the request, after middleware and the controller have all had their say.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Response

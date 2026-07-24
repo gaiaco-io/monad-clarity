@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Schema\Blueprint;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Schema\Blueprint;
 use InvalidArgumentException;
 use PDO;
 use PDOException;

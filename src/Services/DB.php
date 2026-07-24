@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use InvalidArgumentException;
 use PDO;
@@ -20,7 +20,7 @@ use Ramsey\Uuid\Uuid;
  * wants to handle a specific failure catches PDOException itself; anything uncaught
  * reaches Mediator's global exception handler. DB has no dependency on Mediator.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class DB

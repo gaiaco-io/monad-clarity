@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
 use Closure;
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Schema\Blueprint;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Schema\Blueprint;
 
 /**
  * `php mitosis setup` — creates the two setup-owned tables (`sessions`, `caches`) from
@@ -16,7 +16,7 @@ use Gaia\Clarity\Services\Schema\Blueprint;
  * cross-dialect DDL assertions exercise these same closures rather than a second,
  * hand-maintained copy that could silently drift from what this command actually emits.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Setup implements Command

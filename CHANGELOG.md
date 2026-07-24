@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to `gaia/monad-clarity` are documented in this file. Format follows
+All notable changes to `monad/clarity` are documented in this file. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project adheres to
 [Semantic Versioning](https://semver.org/).
 
@@ -8,12 +8,17 @@ All notable changes to `gaia/monad-clarity` are documented in this file. Format 
 
 ## [1.0.0] - 2026-07-24
 
-Initial 26.07 release. `create-project gaia/monad-skeleton` produces a working
+Initial 26.07 release. `create-project monad/skeleton` produces a working
 application: `php mitosis setup && php mitosis serve` renders the Home view, all 15
 `mitosis` commands function, `php mitosis health` passes all five checks, and the full
 test suite is green. Everything below shipped as part of this release — see the phase
 history in this same file (and `resources/docs/GapAnalysis_BuildPlan_26.07.md`) for the
 detailed build order and the real bugs caught and fixed along the way.
+
+**Package renamed from `gaia/monad-clarity` to `monad/clarity`** (PHP namespace
+`Gaia\Clarity\*` → `Monad\Clarity\*`) before this tag was pushed — the `gaia` vendor name
+was already claimed on Packagist. No functional change; every class, method, and public
+API signature is identical, only the vendor/namespace prefix moved.
 
 ### Fixed
 - `make:controller`/`make:model`/`make:service` wrote to lowercase `app/controllers/`,
@@ -37,7 +42,7 @@ detailed build order and the real bugs caught and fixed along the way.
   `SEO_*` environment variables read directly via `getenv()`. Both were already real,
   pre-existing behaviour (`MetaTagTest.php` itself has defined `APP` manually since
   MetaTag's introduction) but undocumented anywhere outside that one test file. Surfaced
-  while wiring `gaia/monad-skeleton`'s Phase 7 config/bootstrap.php: the skeleton's
+  while wiring `monad/skeleton`'s Phase 7 config/bootstrap.php: the skeleton's
   Home page 500'd with `Undefined constant APP` until this was traced down and the
   skeleton's own boot sequence restored the `define('APP', [...])` call. No Clarity code
   changed — `MetaTag`'s ambient-read design is intentional and app-owned per its own
@@ -478,7 +483,7 @@ detailed build order and the real bugs caught and fixed along the way.
   pdo_mysql is the required default driver); `ext-pdo_sqlite` added to `require-dev` (used
   only by Clarity's own test suite, never required to consume the library); `ext-pdo_pgsql`,
   `ext-redis` documented under `suggest`. CI's PHP extension list updated to match.
-- Phase 1 (foundations): the seven `Gaia\Clarity\Utils` security helpers per
+- Phase 1 (foundations): the seven `Monad\Clarity\Utils` security helpers per
   `GapAnalysis_BuildPlan_26.07.md` §29 —
   `ConstantTime` (timing-safe string comparison via `hash_equals`),
   `HMAC` (sign/verify, `hash_hmac_algos()`-validated algorithm),
@@ -599,8 +604,8 @@ detailed build order and the real bugs caught and fixed along the way.
 - Restructured source tree under `src/` (`src/Services/`, `src/Utils/`) per `RepoMap.md` and
   `Architecture.md` §2. Previously classes lived at repo root (`Services/`, `Middlewares/`,
   `Utils/`), which does not match the documented PSR-4 root.
-- `composer.json` PSR-4 autoload corrected from `"Gaia\\Clarity\\Services\\": "Services/"` to
-  `"Gaia\\Clarity\\": "src/"` per `Architecture.md` §2 and `CrossRepoContracts.md` §1. The
+- `composer.json` PSR-4 autoload corrected from `"Monad\\Clarity\\Services\\": "Services/"` to
+  `"Monad\\Clarity\\": "src/"` per `Architecture.md` §2 and `CrossRepoContracts.md` §1. The
   previous mapping did not autoload `Middlewares\*` or `Utils\*` at all, and pointed `Services\*`
   at a nonexistent root-level directory.
 - Added `require`: `php: >=8.2`, `nesbot/carbon`, `ramsey/uuid` (the latter was already an
@@ -608,7 +613,7 @@ detailed build order and the real bugs caught and fixed along the way.
 - Added `require-dev`: `phpunit/phpunit ^11.0`, `fakerphp/faker` per `TestingStrategy.md`.
   PHPUnit pinned to `^11.0` rather than latest (`^13`) — 13.x requires PHP `>=8.4`, which
   would break CI against the documented `>=8.2` floor and the 8.2/8.3 matrix.
-- Added `autoload-dev` PSR-4 mapping `Gaia\\Clarity\\Tests\\` to `resources/tests/`.
+- Added `autoload-dev` PSR-4 mapping `Monad\\Clarity\\Tests\\` to `resources/tests/`.
 
 ### Removed
 - `Middlewares/Keylock.php` — declared `namespace Gaia\Kerberos`, did not match the package

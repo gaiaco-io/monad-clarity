@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis serve` — runs PHP's built-in server bound to 127.0.0.1:8000 (`--port=N`
@@ -16,7 +16,7 @@ use Gaia\Clarity\Services\Console;
  * the server process is killed, so tests exercise the assembled command string instead
  * of ever invoking this for real.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Serve implements Command

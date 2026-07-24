@@ -4,10 +4,10 @@
 This document is the source of truth for WHAT ships. Build sequence lives in
 `GapAnalysis_BuildPlan_26.07.md`; cross-repo boundaries live in `CrossRepoContracts.md`.
 
-1. `gaia/monad-skeleton` under MIT license available on Packagist
-2. `gaia/monad-clarity` under MIT license available on Packagist
-3. Install Monad Framework with `composer create-project gaia/monad-skeleton NewApp`
-4. `composer.json` contains `gaia/monad-clarity` as dependency
+1. `monad/skeleton` under MIT license available on Packagist
+2. `monad/clarity` under MIT license available on Packagist
+3. Install Monad Framework with `composer create-project monad/skeleton NewApp`
+4. `composer.json` contains `monad/clarity` as dependency
 5. Included Composer packages:
     1. Carbon (bundled dependency)
     2. ramsey/uuid (bundled dependency)
@@ -16,7 +16,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
 6. Included Node packages:
     1. TailwindCSS 4
     2. jQuery
-7. Update Clarity with `composer update gaia/monad-clarity`
+7. Update Clarity with `composer update monad/clarity`
 8. CLI tooling `mitosis`. Examples:
     1. `php mitosis make:controller UserController`
     2. `php mitosis make:model User`
@@ -33,11 +33,11 @@ This document is the source of truth for WHAT ships. Build sequence lives in
     13. `php mitosis cache:clear`
     14. `php mitosis logs:clear`
 9. DEFERRED — NOT IN 26.07 Clarity Checkout Service:
-    1. Namespace: `Gaia\Clarity\Services\Checkout`
+    1. Namespace: `Monad\Clarity\Services\Checkout`
     2. Abstraction layer and headless application for various payment gateways to simplify common operations between the merchant's site and the payment gateway
     3. Supports Fiuu, iPay88, BillPlz, Adyen, Airwallex, HitPay, Xendit as a wrapper to payment gateway's existing SDK / API
     4. Each wrapper shall be its own class object and namespace; i.e.
-    `Gaia\Clarity\Services\CheckoutAdapters\StripeCheckout`, `Gaia\Clarity\Services\CheckoutAdapters\StripeConnectExpress`, `Gaia\Clarity\Services\CheckoutAdapters\Fiuu`, etc.
+    `Monad\Clarity\Services\CheckoutAdapters\StripeCheckout`, `Monad\Clarity\Services\CheckoutAdapters\StripeConnectExpress`, `Monad\Clarity\Services\CheckoutAdapters\Fiuu`, etc.
     5. Supports custom checkout page and payment gateway hosted checkout page
     6. Requirements:
         1. Checkout / authorisation with payment gateway
@@ -51,18 +51,18 @@ This document is the source of truth for WHAT ships. Build sequence lives in
             1. Transaction records
             2. Immutable transaction status records (insert only) with failure reason column
 10. Clarity Schema Service:
-    1. Namespace: `Gaia\Clarity\Services\Schema`
+    1. Namespace: `Monad\Clarity\Services\Schema`
     2. Database abstraction layer with default support for MySQL
     3. Available built-in support for PostgreSQL and SQLite
     4. Uses PDO as the baseline driver
     5. Defaults to using UUID for primary keys, with configurable option to use integer
 11. Clarity LLM Service:
-    1. Namespace: `Gaia\Clarity\Services\LLM` for the service stub and facade
+    1. Namespace: `Monad\Clarity\Services\LLM` for the service stub and facade
     2. Supports:
-        1. OpenAI, namespaced as `Gaia\Clarity\Services\LLMAdapters\OpenAI`
-        2. Anthropic, namespaced as `Gaia\Clarity\Services\LLMAdapters\Anthropic`
-        3. DeepSeek, namespaced as `Gaia\Clarity\Services\LLMAdapters\DeepSeek`
-        4. Gemini, namespaced as `Gaia\Clarity\Services\LLMAdapters\Gemini`
+        1. OpenAI, namespaced as `Monad\Clarity\Services\LLMAdapters\OpenAI`
+        2. Anthropic, namespaced as `Monad\Clarity\Services\LLMAdapters\Anthropic`
+        3. DeepSeek, namespaced as `Monad\Clarity\Services\LLMAdapters\DeepSeek`
+        4. Gemini, namespaced as `Monad\Clarity\Services\LLMAdapters\Gemini`
     3. Requirements:
         1. Provider
         2. Model
@@ -76,7 +76,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         10. Provider request ID
     4. Does not include: agents, tool orchestration, vector databases, memory, prompt pipelines, automatic retries across providers
 12. Clarity Migration Service:
-    1. Namespace `Gaia\Clarity\Services\Migration`
+    1. Namespace `Monad\Clarity\Services\Migration`
     2. Database migration services executed from the CLI using `mitosis`. Requirements:
         1. Create/drop database
         2. Create/alter/drop table
@@ -87,7 +87,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         7. Check migration status of a given migration file
         8. Import/export DB dump as DDL. Dumped DDL statements should be idempotent
 13. Monad middleware CSRF Service:
-    1. Namespace `Gaia\Clarity\Middlewares\Csrf`
+    1. Namespace `Monad\Clarity\Middlewares\Csrf`
     2. Requirements:
         1. Session token storage
         2. Database-backed session token storage using Monad's `sessions` table
@@ -99,7 +99,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         8. Configurable exclusions for webhook and stateless API routes
         9. For session-less forms, use HMAC-hashed token
 14. Monad middleware Logger Service:
-    1. Namespace `Gaia\Clarity\Middlewares\Logger`
+    1. Namespace `Monad\Clarity\Middlewares\Logger`
     2. Requirements:
         1. Log levels
         2. Context arrays
@@ -116,7 +116,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
             2. `/storage/logs/error/db.log` for db level runtime errors
             3. `/storage/logs/event/timeline.log` for critical business or audit events
 15. Monad middleware Authentication Service:
-    1. Namespace `Gaia\Clarity\Middlewares\Authentication`
+    1. Namespace `Monad\Clarity\Middlewares\Authentication`
     2. Requirements:
         1. Authentication service
         2. Credential authenticator service
@@ -135,7 +135,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         15. Pluggable user resolver
         16. Google SSO
 16. Monad middleware RBAC Service:
-    1. Namespace `Gaia\Clarity\Middlewares\RBAC`
+    1. Namespace `Monad\Clarity\Middlewares\RBAC`
     2. Requirements:
         1. user → role → permission check
         2. user → direct permission check
@@ -143,7 +143,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         4. Route guards
         5. Service-level checks
 17. Clarity Session Service:
-    1. Namespace `Gaia\Clarity\Services\Session`
+    1. Namespace `Monad\Clarity\Services\Session`
     2. Includes built-in `sessions` table created during `composer create-project` command, bind `php mitosis setup` command. `user_id` is nullable to support guest / pre-login sessions (including pre-authentication CSRF token storage). `sessions` table shall be defined as:
 
     ```sql
@@ -165,7 +165,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
     ```
 
 18. Clarity Mediator Service:
-    1. Namespace `Gaia\Clarity\Services\Mediator`
+    1. Namespace `Monad\Clarity\Services\Mediator`
     2. Requirements:
         1. Register error handler
         2. Register exception handler
@@ -185,7 +185,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
             3. Record the full exception with Logger service
             4. Return a request or incident ID
 19. Clarity Files Service
-    1. Namespace `Gaia\Clarity\Services\Files`
+    1. Namespace `Monad\Clarity\Services\Files`
     2. Requirements:
         1. Single upload
         2. Multiple uploads
@@ -199,7 +199,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         10. File deletion
         11. Public/private visibility
 20. Clarity Request Service
-    1. Namespace `Gaia\Clarity\Services\Request`
+    1. Namespace `Monad\Clarity\Services\Request`
     2. Requirements:
         1. Parse input
         2. Normalise input where explicitly requested
@@ -220,7 +220,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
             11. `$request->all();`
         7. Compatible with PSR-7
 21. Clarity Response Service
-    1. Namespace `Gaia\Clarity\Services\Response`
+    1. Namespace `Monad\Clarity\Services\Response`
     2. Response object should expose:
         1. `Response::json()`
         2. `Response::htm()`
@@ -231,7 +231,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         7. `Response::stream()`
     3. Returning plain PHP array should be possible, but the router should convert it predictably into a JSON response
 22. Clarity Route Service
-    1. Namespace `Gaia\Clarity\Services\Route`
+    1. Namespace `Monad\Clarity\Services\Route`
     2. Supports:
         1. HTTP methods
         2. Named routes
@@ -245,7 +245,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         10. Fallback route
         11. 404 and 405 distinction
 23. Monad MetaTag Middleware
-    1. Namespace `Gaia\Clarity\Middlewares\MetaTag`
+    1. Namespace `Monad\Clarity\Middlewares\MetaTag`
     2. Generates:
         1. Meta title
         2. Meta description
@@ -256,7 +256,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         7. JSON-LD structured data
         8. Alternate language links
 24. Clarity View Service
-    1. Namespace `Gaia\Clarity\Services\View`
+    1. Namespace `Monad\Clarity\Services\View`
     2. Exposes:
         1. `View::render('users/view', ['user' => $user]);`
         2. `View::share('appName', config('app.name'));`
@@ -273,11 +273,11 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         1. Runtime magic
         2. Implicit variable injection
 25. Clarity HttpClient Service
-    1. Namespace `Gaia\Clarity\Services\HttpClient`
+    1. Namespace `Monad\Clarity\Services\HttpClient`
     2. Abstract HTTP client layer to handle cURL and its responses
     3. Compatible with PSR-18
 26. Clarity Cache Service
-    1. Namespace `Gaia\Clarity\Services\Cache`
+    1. Namespace `Monad\Clarity\Services\Cache`
     2. Supports:
         1. File cache. Stores in `/storage/cache`
         2. Database cache. Stores in `caches` table created during `composer create-project` command, bind `php mitosis setup` command
@@ -305,7 +305,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
 
     5. `key_hash` is the SHA-256 of `cache_key`. `expires_at` NULL means never expires (maps PSR-16 `ttl: null`).
 27. Clarity Event Service
-    1. Namespace `Gaia\Clarity\Services\Event`
+    1. Namespace `Monad\Clarity\Services\Event`
     2. A tiny synchronous event dispatcher to decouple:
         1. Successful login
         2. Failed login
@@ -314,7 +314,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         5. File uploaded
         6. Migration completed
 28. Monad Rate Limiting Middleware
-    1. Namespace `Gaia\Clarity\Middlewares\RateLimiter`
+    1. Namespace `Monad\Clarity\Middlewares\RateLimiter`
     2. Required for:
         1. Login
         2. Password reset
@@ -323,16 +323,16 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         5. DEFERRED — Checkout creation
         6. Webhook abuse protection
 29. Clarity security helpers
-    1. Cryptographically secure tokens (`Gaia\Clarity\Utils\CryptographicToken`)
-    2. Encryption at rest (`Gaia\Clarity\Utils\Encryption`)
-    3. Signed URLs (`Gaia\Clarity\Utils\SignedURL`)
-    4. HMAC verification (`Gaia\Clarity\Utils\HMAC`)
-    5. Password hashing (`Gaia\Clarity\Utils\Hash`)
-    6. Secret redaction (`Gaia\Clarity\Utils\Redactor`)
-    7. Constant-time comparisons (`Gaia\Clarity\Utils\ConstantTime`)
+    1. Cryptographically secure tokens (`Monad\Clarity\Utils\CryptographicToken`)
+    2. Encryption at rest (`Monad\Clarity\Utils\Encryption`)
+    3. Signed URLs (`Monad\Clarity\Utils\SignedURL`)
+    4. HMAC verification (`Monad\Clarity\Utils\HMAC`)
+    5. Password hashing (`Monad\Clarity\Utils\Hash`)
+    6. Secret redaction (`Monad\Clarity\Utils\Redactor`)
+    7. Constant-time comparisons (`Monad\Clarity\Utils\ConstantTime`)
 30. Clarity middleware CORS
     1. Controls whether browser-based code loaded from one origin may access a resource hosted at another origin
-    2. Namespace `Gaia\Clarity\Middlewares\CORS`
+    2. Namespace `Monad\Clarity\Middlewares\CORS`
     3. Requirements:
         1. Configurable allowed origins
         2. Configurable allowed HTTP methods
@@ -347,7 +347,7 @@ This document is the source of truth for WHAT ships. Build sequence lives in
         11. Correct `Vary` response headers
 31. Clarity middleware Jsonify
     1. Converts a valid JSON HTTP request body into structured request data before it reaches the controller
-    2. Namespace `Gaia\Clarity\Middlewares\Jsonify`
+    2. Namespace `Monad\Clarity\Middlewares\Jsonify`
     3. Requirements:
         1. Parser accepts every valid JSON value
         2. `Request::json()` may return any decoded value

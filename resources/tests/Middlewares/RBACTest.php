@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Middlewares\RBAC;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
-use Gaia\Clarity\Services\Route;
+use Monad\Clarity\Middlewares\RBAC;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
+use Monad\Clarity\Services\Route;
 use LogicException;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;

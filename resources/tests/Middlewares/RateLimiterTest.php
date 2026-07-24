@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Middlewares\RateLimiter;
-use Gaia\Clarity\Services\Cache;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Middlewares\RateLimiter;
+use Monad\Clarity\Services\Cache;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use DateInterval;
 use DateTimeImmutable;
@@ -24,7 +24,7 @@ use Psr\SimpleCache\CacheInterface;
  * exercised in tests with a plain fake — DeploymentTopology.md §1 is explicit that
  * ext-redis must not be a hard package-level requirement.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Cache implements CacheInterface

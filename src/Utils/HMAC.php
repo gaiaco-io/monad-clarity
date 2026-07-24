@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 use InvalidArgumentException;
 
@@ -10,7 +10,7 @@ use InvalidArgumentException;
  * HMAC signing and verification, for session-less integrity checks (e.g. CSRF tokens
  * before a session exists, signed URL payloads).
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class HMAC

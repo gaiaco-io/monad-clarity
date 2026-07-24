@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares\Authentication;
+namespace Monad\Clarity\Middlewares\Authentication;
 
 use RuntimeException;
 
@@ -11,7 +11,7 @@ use RuntimeException;
  * token exchange/verification failing outright (misconfiguration, network failure,
  * a rejected id_token), rather than a normal "wrong password" outcome.
  *
- * @package Gaia\Clarity\Middlewares\Authentication
+ * @package Monad\Clarity\Middlewares\Authentication
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class AuthenticationException extends RuntimeException

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
 use DateTimeZone;
-use Gaia\Clarity\Middlewares\Logger;
+use Monad\Clarity\Middlewares\Logger;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\InvalidArgumentException;

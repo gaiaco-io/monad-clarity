@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Console;
+namespace Monad\Clarity\Tests\Console;
 
-use Gaia\Clarity\Console\Arguments;
-use Gaia\Clarity\Console\MakeModel;
+use Monad\Clarity\Console\Arguments;
+use Monad\Clarity\Console\MakeModel;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 

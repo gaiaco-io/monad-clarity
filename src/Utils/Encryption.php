@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 use InvalidArgumentException;
 use RuntimeException;
@@ -12,7 +12,7 @@ use RuntimeException;
  * random IV and authentication tag, so tampering is detected rather than silently
  * decrypted into garbage.
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Encryption

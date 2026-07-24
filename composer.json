@@ -1,16 +1,16 @@
 {
-    "name": "gaia/monad-clarity",
+    "name": "monad/clarity",
     "description": "Core library of the Monad Framework",
     "type": "library",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Gaia\\Clarity\\": "src/"
+            "Monad\\Clarity\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Gaia\\Clarity\\Tests\\": "resources/tests/"
+            "Monad\\Clarity\\Tests\\": "resources/tests/"
         }
     },
     "authors": [

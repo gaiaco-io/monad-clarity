@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Console;
+namespace Monad\Clarity\Tests\Console;
 
-use Gaia\Clarity\Console\Arguments;
+use Monad\Clarity\Console\Arguments;
 use PHPUnit\Framework\TestCase;
 
 final class ArgumentsTest extends TestCase

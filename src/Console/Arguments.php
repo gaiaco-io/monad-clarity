@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
 /**
  * Parsed argv tokens handed to every command's __invoke(). This is part of the frozen
@@ -11,7 +11,7 @@ namespace Gaia\Clarity\Console;
  * an Arguments instance, so its public method signatures are semver-locked even though
  * the Console\* namespace itself is free to reorganise.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Arguments

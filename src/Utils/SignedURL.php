@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 /**
  * Expiring, tamper-evident URLs (e.g. temporary file download links, unsubscribe links)
  * signed with HMAC. The expiry is part of the signed payload, so it cannot be extended
  * by an attacker who only controls the query string.
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class SignedURL

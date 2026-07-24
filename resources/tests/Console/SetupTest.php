@@ -2,12 +2,12 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Console;
+namespace Monad\Clarity\Tests\Console;
 
-use Gaia\Clarity\Console\Arguments;
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Schema;
+use Monad\Clarity\Console\Arguments;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Schema;
 use PDO;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;

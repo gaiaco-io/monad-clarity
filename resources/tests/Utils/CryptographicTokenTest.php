@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Utils;
+namespace Monad\Clarity\Tests\Utils;
 
-use Gaia\Clarity\Utils\CryptographicToken;
+use Monad\Clarity\Utils\CryptographicToken;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 

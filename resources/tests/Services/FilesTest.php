@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Services\Event;
-use Gaia\Clarity\Services\Files;
+use Monad\Clarity\Services\Event;
+use Monad\Clarity\Services\Files;
 use InvalidArgumentException;
 use Nyholm\Psr7\Stream;
 use Nyholm\Psr7\UploadedFile;

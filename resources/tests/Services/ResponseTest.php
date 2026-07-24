@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Services\Response;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use InvalidArgumentException;
 
@@ -17,7 +17,7 @@ use InvalidArgumentException;
  * (`[A-Za-z]+`), `{id:uuid}`, and `{name?}` / `{id:int?}` for optional. `->where()`
  * overrides the pattern for a specific parameter.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Route

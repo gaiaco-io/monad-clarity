@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Console\Arguments;
-use Gaia\Clarity\Console\Command;
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Console\Arguments;
+use Monad\Clarity\Console\Command;
+use Monad\Clarity\Services\Console;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 
@@ -121,7 +121,7 @@ final class ConsoleTest extends TestCase
         $routesFile = sys_get_temp_dir() . '/clarity-cli-routes-' . bin2hex(random_bytes(8)) . '.php';
         file_put_contents(
             $routesFile,
-            '<?php Gaia\Clarity\Services\Console::register("from-routes", fn () => 0);'
+            '<?php Monad\Clarity\Services\Console::register("from-routes", fn () => 0);'
         );
 
         Console::configure($routesFile);

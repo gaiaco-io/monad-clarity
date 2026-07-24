@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 /**
  * Recursively masks sensitive values (passwords, tokens, API keys) out of arrays
  * before they reach a log line. Used by Middlewares\Logger and anything else that
  * might otherwise write secrets to disk.
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Redactor

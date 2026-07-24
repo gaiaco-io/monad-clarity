@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 use JsonException;
 
 /**
@@ -25,7 +25,7 @@ use JsonException;
  * zero-argument constructor supplying the app's actual config. `badRequestResponse()`
  * and `unsupportedMediaTypeResponse()` are `protected` extension points.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class Jsonify

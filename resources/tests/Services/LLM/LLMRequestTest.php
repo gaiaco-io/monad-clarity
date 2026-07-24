@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services\LLM;
+namespace Monad\Clarity\Tests\Services\LLM;
 
-use Gaia\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\LLMRequest;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 

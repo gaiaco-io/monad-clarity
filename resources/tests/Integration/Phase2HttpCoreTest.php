@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Integration;
+namespace Monad\Clarity\Tests\Integration;
 
-use Gaia\Clarity\Services\Mediator;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
-use Gaia\Clarity\Services\Route;
-use Gaia\Clarity\Services\View;
+use Monad\Clarity\Services\Mediator;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
+use Monad\Clarity\Services\Route;
+use Monad\Clarity\Services\View;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;

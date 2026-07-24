@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use CurlHandle;
 use Nyholm\Psr7\Request;
@@ -16,7 +16,7 @@ use Psr\Http\Message\StreamInterface;
  * cURL-backed, PSR-18 compliant HTTP client. Used internally by the LLM adapters and
  * Authentication's Google SSO; also available directly to application code.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class HttpClient implements ClientInterface

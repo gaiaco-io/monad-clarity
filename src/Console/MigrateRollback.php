@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\Migration;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\Migration;
 
 /**
  * `php mitosis migrate:rollback` — rolls back the most recently applied migration
  * (`--steps=N` to roll back further).
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MigrateRollback implements Command

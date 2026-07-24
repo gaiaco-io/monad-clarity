@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services\LLMAdapters;
+namespace Monad\Clarity\Tests\Services\LLMAdapters;
 
-use Gaia\Clarity\Services\LLM\LLMException;
-use Gaia\Clarity\Services\LLM\LLMRequest;
-use Gaia\Clarity\Services\LLMAdapters\DeepSeek;
+use Monad\Clarity\Services\LLM\LLMException;
+use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLMAdapters\DeepSeek;
 use Nyholm\Psr7\Response;
 use PHPUnit\Framework\TestCase;
 

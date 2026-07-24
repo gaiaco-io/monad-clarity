@@ -1,8 +1,8 @@
-# DeploymentTopology.md — gaia/monad-clarity
+# DeploymentTopology.md — monad/clarity
 
 Clarity is a library, not a deployable unit — it has no server topology of its own. This
 document covers the deployment-*relevant* properties Clarity must satisfy so that applications
-built on it (via `gaia/monad-skeleton`) can be deployed correctly. Application-level topology
+built on it (via `monad/skeleton`) can be deployed correctly. Application-level topology
 (load balancers, containers, process managers, CDN) is the skeleton/application's concern, not
 this repo's.
 
@@ -62,4 +62,4 @@ considered live until `health` passes clean.
 Server provisioning, container images, reverse proxy/load balancer configuration, CI/CD
 pipeline definitions, and process supervision (e.g. `php mitosis serve` is a development
 convenience per §8.12, not a production server) belong to the application repository
-(`gaia/monad-skeleton`) or the deploying team's own infrastructure documentation, not to Clarity.
+(`monad/skeleton`) or the deploying team's own infrastructure documentation, not to Clarity.

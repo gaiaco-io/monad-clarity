@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis make:controller UserController` — writes app/Controllers/{Name}.php from
@@ -17,7 +17,7 @@ use Gaia\Clarity\Services\Console;
  * case-sensitive filesystem (Linux, most CI/production hosts) despite working by
  * coincidence in local development on a case-insensitive one (macOS, Windows).
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MakeController implements Command

@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 /**
  * Constant-time string comparison, used anywhere a timing side-channel could leak
  * information about a secret value (tokens, HMACs, password reset codes).
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class ConstantTime

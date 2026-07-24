@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis test` — delegates to the application's bundled PHPUnit. No bespoke
@@ -14,7 +14,7 @@ use Gaia\Clarity\Services\Console;
  * would re-run this very suite from inside itself if a test ever called __invoke()
  * directly, so tests only ever assert on the assembled command string.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Test implements Command

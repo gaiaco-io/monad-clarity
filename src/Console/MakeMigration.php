@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis make:migration add index to users` — writes
  * database/migrations/{timestamp}_{slug}.php, a template returning an anonymous
  * up()/down() object matching what Services\Migration::migrate() expects.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MakeMigration implements Command
@@ -50,8 +50,8 @@ final class MakeMigration implements Command
 
         declare(strict_types=1);
 
-        use Gaia\Clarity\Services\Schema;
-        use Gaia\Clarity\Services\Schema\Blueprint;
+        use Monad\Clarity\Services\Schema;
+        use Monad\Clarity\Services\Schema\Blueprint;
 
         return new class {
             public function up(): void

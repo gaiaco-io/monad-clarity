@@ -1,12 +1,12 @@
-# CrossRepoContracts.md — gaia/monad-clarity ↔ gaia/monad-skeleton
+# CrossRepoContracts.md — monad/clarity ↔ monad/skeleton
 
-**CANONICAL COPY.** This file lives canonically in the `gaia/monad-clarity` repository.
-The copy in `gaia/monad-skeleton` is a mirror; on any discrepancy, this copy wins.
+**CANONICAL COPY.** This file lives canonically in the `monad/clarity` repository.
+The copy in `monad/skeleton` is a mirror; on any discrepancy, this copy wins.
 When this file changes, sync the mirror in the same working session.
 
 **Purpose.** The skeleton is cloned once at `composer create-project` and then owned by the
 developer forever — it never updates via Composer. Clarity updates freely via
-`composer update gaia/monad-clarity`. Everything in this document is therefore a
+`composer update monad/clarity`. Everything in this document is therefore a
 compatibility promise: Clarity may change anything NOT listed here without a major version;
 anything listed here changes only under semver-major.
 
@@ -14,8 +14,8 @@ anything listed here changes only under semver-major.
 
 ## 1. Package relationship
 
-- Skeleton `composer.json` requires `"gaia/monad-clarity": "^1.0"` and maps `"App\\": "app/"`.
-- Clarity `composer.json` maps `"Gaia\\Clarity\\": "src/"`, requires `"php": ">=8.2"`,
+- Skeleton `composer.json` requires `"monad/clarity": "^1.0"` and maps `"App\\": "app/"`.
+- Clarity `composer.json` maps `"Monad\\Clarity\\": "src/"`, requires `"php": ">=8.2"`,
   bundles `nesbot/carbon` and `ramsey/uuid`, and carries PHPUnit + FakerPHP as dev dependencies.
 - Also required (PSR interface compliance, per `Architecture.md` §6): `psr/log` (Logger,
   PSR-3) and `psr/http-client` + `psr/http-message` + `psr/http-factory` + `nyholm/psr7`
@@ -41,19 +41,19 @@ Their required behaviour, and nothing more:
    #!/usr/bin/env php
    <?php
    require __DIR__ . '/config/bootstrap.php';
-   exit(Gaia\Clarity\Services\Console::run($argv));
+   exit(Monad\Clarity\Services\Console::run($argv));
    ```
 
 **Clarity's promise:** the signatures these three files call — the kernel boot entry and
-`Gaia\Clarity\Services\Console::run(array $argv): int` — are stable for the life of a major
+`Monad\Clarity\Services\Console::run(array $argv): int` — are stable for the life of a major
 version. Changing them is a semver-major event, because every scaffolded app in the wild has
 these files frozen.
 
 ## 3. Console contract
 
-- The console kernel is `Gaia\Clarity\Services\Console` (file: `src/Services/Console.php`).
-  `Gaia\Clarity\Services\Console::run(array $argv): int` parses arguments, dispatches to the
-  command classes under `src/Console/` (`Gaia\Clarity\Console\*`), and returns a process exit
+- The console kernel is `Monad\Clarity\Services\Console` (file: `src/Services/Console.php`).
+  `Monad\Clarity\Services\Console::run(array $argv): int` parses arguments, dispatches to the
+  command classes under `src/Console/` (`Monad\Clarity\Console\*`), and returns a process exit
   code (0 success, non-zero failure).
 - The kernel loads `app/routes/cli.php` from the application, where developers register
   custom commands. The registration API exposed to `cli.php` is part of this contract.
@@ -70,7 +70,7 @@ Clarity may assume the following skeleton paths exist; renaming them in a scaffo
 developer-owned breakage:
 
 - `app/routes/{web,api,cli}.php` — route registration files loaded by Route / Console.
-- `app/middlewares/` — thin classes extending `Gaia\Clarity\Middlewares\*`.
+- `app/middlewares/` — thin classes extending `Monad\Clarity\Middlewares\*`.
 - `app/views/` — View service root, with `Layouts/` and `Errors/` as first-class groups.
 - `config/*.php` — configuration exposed to Clarity at boot.
 - `database/migrations/`, `database/seeds/` — Migration service input.
@@ -80,7 +80,7 @@ developer-owned breakage:
 
 ## 5. Middleware extension contract
 
-Clarity middleware engines (`Gaia\Clarity\Middlewares\*`) are designed for extension: the
+Clarity middleware engines (`Monad\Clarity\Middlewares\*`) are designed for extension: the
 skeleton ships thin subclasses in `app/middlewares/` that developers customise. Therefore the
 protected/extension surface of each middleware engine (hook methods, overridable configuration)
 is part of this contract — narrowing it is semver-major. Security-critical internals remain
@@ -123,8 +123,8 @@ body-size limits, structured `400` errors, and `415` for JSON-required routes.
 
 - Both packages follow strict semver with tagged releases and CHANGELOG entries.
 - Clarity `1.0.0` is tagged first; the skeleton pins `^1.0` and is tagged after.
-- The name `Checkout` and namespace `Gaia\Clarity\Services\Checkout` /
-  `Gaia\Clarity\Services\CheckoutAdapters\*` are RESERVED but deferred: they must not appear
+- The name `Checkout` and namespace `Monad\Clarity\Services\Checkout` /
+  `Monad\Clarity\Services\CheckoutAdapters\*` are RESERVED but deferred: they must not appear
   on `main` or in any tagged release until formally scheduled (see ReleaseNotes §9).
 
 ## 10. Change procedure for this document

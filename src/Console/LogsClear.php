@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis logs:clear` — truncates every `*.log*` file under storage/logs
  * (`--path=` to override) to empty, without deleting the files themselves.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class LogsClear implements Command

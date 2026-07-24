@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
 use RuntimeException;
 
@@ -10,7 +10,7 @@ use RuntimeException;
  * Shared "write a template file, refusing to overwrite an existing one" behaviour for
  * the four make:* generator commands.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 trait GeneratesFiles

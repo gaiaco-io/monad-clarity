@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Services\HttpClient;
-use Gaia\Clarity\Services\HttpClientException;
+use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\HttpClientException;
 use PHPUnit\Framework\TestCase;
 
 /**

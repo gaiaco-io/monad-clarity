@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Migration;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Migration;
 use Throwable;
 
 /**
@@ -19,7 +19,7 @@ use Throwable;
  * checks for the presence of a `.env` file at the project root as a practical proxy
  * rather than validating specific keys it has no way of knowing about.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Health implements Command

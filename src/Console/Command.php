@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
 /**
  * The shape every command — built-in or app-registered via `app/routes/cli.php` — is
  * invoked through. Not required by Console::register() (a plain closure works too), but
  * every built-in command implements it for consistency.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 interface Command

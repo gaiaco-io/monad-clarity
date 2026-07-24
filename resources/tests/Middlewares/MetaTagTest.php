@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Middlewares\MetaTag;
+use Monad\Clarity\Middlewares\MetaTag;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 

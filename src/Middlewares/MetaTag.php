@@ -1,12 +1,12 @@
 <?php
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
 /**
  * Dynamic SEO, Open Graph, Twitter Card, and JSON-LD meta tag service.
  * Invoke from controllers; render once in the layout <head>.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MetaTag

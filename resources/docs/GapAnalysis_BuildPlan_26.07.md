@@ -1,7 +1,7 @@
 # Monad 26.07 — Clarity Gap Analysis & Sequenced Build Plan
 
 **Status:** Draft for review
-**Scope basis:** Monad 26.07 Release Notes (final), `gaia/monad-clarity` tree (final), `gaia/monad-skeleton` tree (final)
+**Scope basis:** Monad 26.07 Release Notes (final), `monad/clarity` tree (final), `monad/skeleton` tree (final)
 **Audience:** Implementation guardrail document for `resources/docs`. Intended to be referenced by `CLAUDE.md` / implementation prompts.
 
 ---
@@ -10,7 +10,7 @@
 
 The pre-26.07 core (formerly `/Clarity` inside the application repository) consists of the following classes: `DB`, `Files`, `Mediator`, `Request`, `Response`, `Route`, `Session`, `View`, `CsrfService`, `SeoService`, and `Utils/Number`. Everything in 26.07 is measured against this baseline.
 
-The target is the finalised `gaia/monad-clarity` package tree: 7 middlewares, 15 services (+ 4 LLM adapters), 7 security utils, and a Console namespace with a kernel and 15 command classes, distributed via Packagist and consumed by the `gaia/monad-skeleton` application skeleton.
+The target is the finalised `monad/clarity` package tree: 7 middlewares, 15 services (+ 4 LLM adapters), 7 security utils, and a Console namespace with a kernel and 15 command classes, distributed via Packagist and consumed by the `monad/skeleton` application skeleton.
 
 ---
 
@@ -68,7 +68,7 @@ Ordering is strictly dependency-driven. Each phase produces testable output befo
 
 ### Phase 0 — Repository scaffolding (both repos)
 
-Create the two repositories with final `composer.json` files: Clarity with PSR-4 `"Gaia\\Clarity\\": "src/"`, `"bin"` omitted (stub lives in skeleton), Carbon and ramsey/uuid as requires, PHPUnit + FakerPHP as require-dev; skeleton with `"gaia/monad-clarity": "^1.0"` and `"App\\": "app/"`. Set the PHP version floor (Open Decision #1 — blocking). Initialise `CHANGELOG.md`, `LICENSE`, CI (lint + PHPUnit), branch protection, and `CrossRepoContracts.md` defining the skeleton-visible API surface. Nothing else starts until this lands.
+Create the two repositories with final `composer.json` files: Clarity with PSR-4 `"Monad\\Clarity\\": "src/"`, `"bin"` omitted (stub lives in skeleton), Carbon and ramsey/uuid as requires, PHPUnit + FakerPHP as require-dev; skeleton with `"monad/clarity": "^1.0"` and `"App\\": "app/"`. Set the PHP version floor (Open Decision #1 — blocking). Initialise `CHANGELOG.md`, `LICENSE`, CI (lint + PHPUnit), branch protection, and `CrossRepoContracts.md` defining the skeleton-visible API surface. Nothing else starts until this lands.
 
 ### Phase 1 — Foundations (zero-dependency layer)
 
@@ -100,7 +100,7 @@ Write the three thin entry points: `public/index.php`, `config/bootstrap.php` (a
 
 ### Phase 8 — Release engineering
 
-Test coverage per `TestingStrategy.md`; `php mitosis health` and `php mitosis test` green on a fresh create-project; README for both repos; CHANGELOG entries; tag `gaia/monad-clarity 1.0.0` first, point the skeleton at `^1.0`, tag the skeleton, submit both to Packagist; verify the full public flow (`composer create-project gaia/monad-skeleton NewApp`) from Packagist, not local paths. 26.07 ships when that command works for a stranger.
+Test coverage per `TestingStrategy.md`; `php mitosis health` and `php mitosis test` green on a fresh create-project; README for both repos; CHANGELOG entries; tag `monad/clarity 1.0.0` first, point the skeleton at `^1.0`, tag the skeleton, submit both to Packagist; verify the full public flow (`composer create-project monad/skeleton NewApp`) from Packagist, not local paths. 26.07 ships when that command works for a stranger.
 
 ### 1.0.0 acceptance gate (summary)
 

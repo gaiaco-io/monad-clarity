@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use finfo;
 use InvalidArgumentException;
@@ -25,7 +25,7 @@ use RuntimeException;
  * the real `Aws\S3\S3Client` method shapes — rather than depending on aws/aws-sdk-php,
  * so using the real SDK needs no adapter translation, and tests can use a plain fake.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Files

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use DateTimeImmutable;
-use Gaia\Clarity\Utils\CryptographicToken;
+use Monad\Clarity\Utils\CryptographicToken;
 use InvalidArgumentException;
 
 /**
@@ -19,7 +19,7 @@ use InvalidArgumentException;
  * Middlewares\Csrf). This keeps Session a pure, independently testable data layer rather
  * than one entangled with request/response state.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class Session

@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Services\Request;
+use Monad\Clarity\Services\Request;
 use JsonException;
 use PHPUnit\Framework\TestCase;
 use Psr\Http\Message\UploadedFileInterface;

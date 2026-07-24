@@ -2,8 +2,8 @@
 
 declare(strict_types=1);
 
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Schema\Blueprint;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Schema\Blueprint;
 
 return new class {
     public function up(): void

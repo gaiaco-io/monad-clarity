@@ -1,14 +1,14 @@
 # RepoMap.md — Monad Framework repositories
 
 Monad ships as two repositories / Composer packages. This document is maintained canonically
-in `gaia/monad-clarity`; the skeleton repository carries a copy for local reference — treat
+in `monad/clarity`; the skeleton repository carries a copy for local reference — treat
 this copy as authoritative on any discrepancy, per the pattern established for
 `CrossRepoContracts.md`.
 
-## gaia/monad-skeleton
+## monad/skeleton
 
-Cloned once via `composer create-project gaia/monad-skeleton NewApp`, then owned by the
-developer forever — never updated via Composer again (only `gaia/monad-clarity` is).
+Cloned once via `composer create-project monad/skeleton NewApp`, then owned by the
+developer forever — never updated via Composer again (only `monad/clarity` is).
 
 ```
 /root
@@ -25,7 +25,7 @@ developer forever — never updated via Composer again (only `gaia/monad-clarity
 │   │   ├── api.php
 │   │   ├── cli.php
 │   │   └── web.php
-│   ├── Middlewares          <!-- extends Gaia\Clarity\Middlewares\*; capitalised, PSR-4 -->
+│   ├── Middlewares          <!-- extends Monad\Clarity\Middlewares\*; capitalised, PSR-4 -->
 │   ├── Services             <!-- capitalised to match `namespace App\Services;` — PSR-4 -->
 │   └── views
 │       ├── Errors
@@ -68,28 +68,28 @@ developer forever — never updated via Composer again (only `gaia/monad-clarity
 │   │   └── event
 │   │       └── timeline.log
 │   └── userfiles
-├── mitosis                    <!-- thin stub: exit(Gaia\Clarity\Services\Console::run($argv)); -->
+├── mitosis                    <!-- thin stub: exit(Monad\Clarity\Services\Console::run($argv)); -->
 ├── .env
 ├── .env_example
 ├── .git
 ├── .gitignore
 ├── CLAUDE.md
 ├── CLAUDE.md.example
-├── composer.json              <!-- requires "gaia/monad-clarity": "^1.0" -->
+├── composer.json              <!-- requires "monad/clarity": "^1.0" -->
 ├── package.json
 └── README.md
 ```
 
-## gaia/monad-clarity
+## monad/clarity
 
-Installed to `vendor/gaia/monad-clarity`, upgraded via `composer update gaia/monad-clarity`.
+Installed to `vendor/monad/clarity`, upgraded via `composer update monad/clarity`.
 Never modified by application developers.
 
 ```
 /root
 └── vendor
-    └── gaia
-        └── monad-clarity
+    └── monad
+        └── clarity
             ├── src
             │   ├── Middlewares
             │   │   ├── Csrf.php

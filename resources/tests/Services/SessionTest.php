@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
 use DateTimeImmutable;
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Session;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Session;
 use InvalidArgumentException;
 use PDO;
 use PHPUnit\Framework\Attributes\After;

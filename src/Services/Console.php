@@ -2,24 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
-use Gaia\Clarity\Console\Arguments;
-use Gaia\Clarity\Console\CacheClear;
-use Gaia\Clarity\Console\DBExecute;
-use Gaia\Clarity\Console\DBSeed;
-use Gaia\Clarity\Console\Health;
-use Gaia\Clarity\Console\LogsClear;
-use Gaia\Clarity\Console\MakeController;
-use Gaia\Clarity\Console\MakeMigration;
-use Gaia\Clarity\Console\MakeModel;
-use Gaia\Clarity\Console\MakeService;
-use Gaia\Clarity\Console\Migrate;
-use Gaia\Clarity\Console\MigrateRollback;
-use Gaia\Clarity\Console\MigrateStatus;
-use Gaia\Clarity\Console\Serve;
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Console\Test;
+use Monad\Clarity\Console\Arguments;
+use Monad\Clarity\Console\CacheClear;
+use Monad\Clarity\Console\DBExecute;
+use Monad\Clarity\Console\DBSeed;
+use Monad\Clarity\Console\Health;
+use Monad\Clarity\Console\LogsClear;
+use Monad\Clarity\Console\MakeController;
+use Monad\Clarity\Console\MakeMigration;
+use Monad\Clarity\Console\MakeModel;
+use Monad\Clarity\Console\MakeService;
+use Monad\Clarity\Console\Migrate;
+use Monad\Clarity\Console\MigrateRollback;
+use Monad\Clarity\Console\MigrateStatus;
+use Monad\Clarity\Console\Serve;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Console\Test;
 use Throwable;
 
 /**
@@ -31,7 +31,7 @@ use Throwable;
  * on every run() before dispatch — that file calls Console::register() the same way
  * `app/routes/web.php` calls Route::get()/post().
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class Console

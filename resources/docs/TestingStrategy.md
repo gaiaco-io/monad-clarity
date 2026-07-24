@@ -1,4 +1,4 @@
-# TestingStrategy.md — gaia/monad-clarity
+# TestingStrategy.md — monad/clarity
 
 ## Tooling
 

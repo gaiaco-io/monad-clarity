@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Utils;
+namespace Monad\Clarity\Tests\Utils;
 
-use Gaia\Clarity\Utils\Hash;
+use Monad\Clarity\Utils\Hash;
 use PHPUnit\Framework\TestCase;
 
 /**

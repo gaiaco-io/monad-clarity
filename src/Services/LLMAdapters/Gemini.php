@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services\LLMAdapters;
+namespace Monad\Clarity\Services\LLMAdapters;
 
-use Gaia\Clarity\Services\HttpClient;
-use Gaia\Clarity\Services\LLM;
-use Gaia\Clarity\Services\LLM\LLMException;
-use Gaia\Clarity\Services\LLM\LLMRequest;
-use Gaia\Clarity\Services\LLM\LLMResponse;
+use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\LLM;
+use Monad\Clarity\Services\LLM\LLMException;
+use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\LLMResponse;
 use JsonException;
 
 /**
@@ -25,7 +25,7 @@ use JsonException;
  * "application/json"` plus `responseSchema` — Gemini's own server-enforced
  * schema-constrained decoding, the same guarantee OpenAI's json_schema mode makes.
  *
- * @package Gaia\Clarity\Services\LLMAdapters
+ * @package Monad\Clarity\Services\LLMAdapters
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Gemini extends LLM

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use ErrorException;
 use Psr\Log\LoggerInterface;
@@ -18,7 +18,7 @@ use Throwable;
  * Static, like Route/View/DB — handleException() is called from existing unmigrated call
  * sites (DB, Session) that predate this phase and expect a static entry point.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class Mediator

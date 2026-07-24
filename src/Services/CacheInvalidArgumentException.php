@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use InvalidArgumentException;
 use Psr\SimpleCache\InvalidArgumentException as PsrInvalidArgumentException;
@@ -12,7 +12,7 @@ use Psr\SimpleCache\InvalidArgumentException as PsrInvalidArgumentException;
  * `{}()/\@:`) — PSR-16 requires this to implement its own InvalidArgumentException
  * marker interface, distinct from a generic one.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class CacheInvalidArgumentException extends InvalidArgumentException implements PsrInvalidArgumentException

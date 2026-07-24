@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
-use Gaia\Clarity\Services\Session;
-use Gaia\Clarity\Utils\ConstantTime;
-use Gaia\Clarity\Utils\CryptographicToken;
-use Gaia\Clarity\Utils\HMAC;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
+use Monad\Clarity\Services\Session;
+use Monad\Clarity\Utils\ConstantTime;
+use Monad\Clarity\Utils\CryptographicToken;
+use Monad\Clarity\Utils\HMAC;
 
 /**
  * CSRF protection (ReleaseNotes_26.07.md §13). Storage strategy depends on whether the
@@ -40,7 +40,7 @@ use Gaia\Clarity\Utils\HMAC;
  * middleware via `new $class()`, with no constructor arguments). `requiresValidation()`,
  * `isExcluded()`, `originIsTrusted()`, and `reject()` are `protected` extension points.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class Csrf

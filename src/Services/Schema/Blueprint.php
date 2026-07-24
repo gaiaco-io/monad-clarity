@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services\Schema;
+namespace Monad\Clarity\Services\Schema;
 
 use InvalidArgumentException;
 
@@ -11,7 +11,7 @@ use InvalidArgumentException;
  * itself knows nothing about MySQL/PostgreSQL/SQLite syntax — Schema's per-dialect
  * compiler turns this description into the actual CREATE/ALTER TABLE statement.
  *
- * @package Gaia\Clarity\Services\Schema
+ * @package Monad\Clarity\Services\Schema
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Blueprint

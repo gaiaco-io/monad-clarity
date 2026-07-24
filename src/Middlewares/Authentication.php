@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Middlewares\Authentication\AuthenticationException;
-use Gaia\Clarity\Middlewares\Authentication\AuthResult;
-use Gaia\Clarity\Services\Event;
-use Gaia\Clarity\Services\HttpClient;
-use Gaia\Clarity\Services\Session;
-use Gaia\Clarity\Utils\Hash;
-use Gaia\Clarity\Utils\HMAC;
+use Monad\Clarity\Middlewares\Authentication\AuthenticationException;
+use Monad\Clarity\Middlewares\Authentication\AuthResult;
+use Monad\Clarity\Services\Event;
+use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\Session;
+use Monad\Clarity\Utils\Hash;
+use Monad\Clarity\Utils\HMAC;
 
 /**
  * Authentication (ReleaseNotes_26.07.md §15 — 16 requirements). Clarity owns the
@@ -44,7 +44,7 @@ use Gaia\Clarity\Utils\HMAC;
  * Not `final` — per CrossRepoContracts.md §5, extended by `app/middlewares/` with a
  * zero-argument constructor supplying the app's actual resolver/secrets/config.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class Authentication

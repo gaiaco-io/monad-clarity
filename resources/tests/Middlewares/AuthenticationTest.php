@@ -2,19 +2,19 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Middlewares\Authentication;
-use Gaia\Clarity\Middlewares\Authentication\AuthenticationException;
-use Gaia\Clarity\Middlewares\RateLimiter;
-use Gaia\Clarity\Services\Cache;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Event;
-use Gaia\Clarity\Services\HttpClient;
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Session;
-use Gaia\Clarity\Utils\Hash;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Middlewares\Authentication;
+use Monad\Clarity\Middlewares\Authentication\AuthenticationException;
+use Monad\Clarity\Middlewares\RateLimiter;
+use Monad\Clarity\Services\Cache;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Event;
+use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Session;
+use Monad\Clarity\Utils\Hash;
 use PDO;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;

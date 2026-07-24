@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services\LLMAdapters;
+namespace Monad\Clarity\Tests\Services\LLMAdapters;
 
 use ArrayObject;
 use Closure;
-use Gaia\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\HttpClient;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 
@@ -24,7 +24,7 @@ use Psr\Http\Message\ResponseInterface;
  * that: PHP's default (shallow) clone copies object-typed properties by reference, so the
  * clone and the original keep appending to the exact same log.
  *
- * @package Gaia\Clarity\Tests\Services\LLMAdapters
+ * @package Monad\Clarity\Tests\Services\LLMAdapters
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class FakeHttpClient extends HttpClient

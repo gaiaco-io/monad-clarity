@@ -1,4 +1,4 @@
-# ReleasePolicy.md — gaia/monad-clarity
+# ReleasePolicy.md — monad/clarity
 
 ## Versioning
 
@@ -21,8 +21,8 @@ may change in any release, including patch releases, without a major version bum
 
 ## Tagging order
 
-`gaia/monad-clarity` is tagged `1.0.0` **first**. The skeleton's `composer.json` pins
-`"gaia/monad-clarity": "^1.0"` and is tagged **after**, once verified against the tagged
+`monad/clarity` is tagged `1.0.0` **first**. The skeleton's `composer.json` pins
+`"monad/clarity": "^1.0"` and is tagged **after**, once verified against the tagged
 Clarity release (not a local path repository). Same order for every subsequent coordinated
 release: Clarity ships, skeleton follows.
 
@@ -41,7 +41,7 @@ under a `Security` CHANGELOG entry, with the trade-off explained.
 
 ## Checkout namespace reservation
 
-`Gaia\Clarity\Services\Checkout` and `Gaia\Clarity\Services\CheckoutAdapters\*` are reserved
+`Monad\Clarity\Services\Checkout` and `Monad\Clarity\Services\CheckoutAdapters\*` are reserved
 and MUST NOT appear on `main` or in any tagged release until Checkout is formally scheduled
 (see `PRD.md`, `Architecture.md` §8). Any reference implementation stays on a feature branch.
 
@@ -60,7 +60,7 @@ and MUST NOT appear on `main` or in any tagged release until Checkout is formall
 
 ## Repository authority
 
-`gaia/monad-clarity` is canonical for: this document, `CrossRepoContracts.md`, `Architecture.md`,
+`monad/clarity` is canonical for: this document, `CrossRepoContracts.md`, `Architecture.md`,
 and any document describing Clarity's own internals or the cross-repo boundary. Where the
 skeleton repository carries a mirror of a Clarity-canonical document, the Clarity copy wins on
 any discrepancy.

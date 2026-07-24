@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Utils;
+namespace Monad\Clarity\Tests\Utils;
 
-use Gaia\Clarity\Utils\HMAC;
+use Monad\Clarity\Utils\HMAC;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 

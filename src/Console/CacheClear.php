@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis cache:clear` — empties the file cache driver's directory
@@ -13,7 +13,7 @@ use Gaia\Clarity\Services\Console;
  * database or Redis driver, so a database/Redis-backed cache is left untouched rather
  * than silently doing nothing while claiming full success.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class CacheClear implements Command

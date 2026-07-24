@@ -1,4 +1,4 @@
-# Architecture.md — gaia/monad-clarity
+# Architecture.md — monad/clarity
 
 Resolved architectural decisions for the Clarity core library, with rationale. This document
 records WHY; `ReleaseNotes_26.07.md` records WHAT; `CrossRepoContracts.md` records the
@@ -6,8 +6,8 @@ compatibility promises that follow from these decisions. Where documents disagre
 
 ## 1. Two-package split
 
-Monad ships as two Composer packages: `gaia/monad-skeleton` (the application scaffold, cloned
-once via `create-project` and owned by the developer forever) and `gaia/monad-clarity` (this
+Monad ships as two Composer packages: `monad/skeleton` (the application scaffold, cloned
+once via `create-project` and owned by the developer forever) and `monad/clarity` (this
 repo — the core library, installed to `vendor/` and upgraded via `composer update`).
 
 Rationale: structurally enforces "do not modify Monad core" — nobody edits `vendor/` by
@@ -16,10 +16,10 @@ Laravel `laravel/laravel` vs `laravel/framework` split and the Symfony `symfony/
 
 ## 2. Namespace
 
-Root namespace is `Gaia\Clarity\`, PSR-4 mapped to `src/` (`"Gaia\\Clarity\\": "src/"`).
+Root namespace is `Monad\Clarity\`, PSR-4 mapped to `src/` (`"Monad\\Clarity\\": "src/"`).
 
 Rationale: a bare `Clarity\` root would claim a generic namespace with collision risk on
-Packagist; `Gaia\Clarity\` is collision-proof and matches the vendor/package naming already
+Packagist; `Monad\Clarity\` is collision-proof and matches the vendor/package naming already
 in use. Namespace segments must match directory names exactly — PSR-4 is case-sensitive.
 
 ## 3. PHP version floor
@@ -32,7 +32,7 @@ typed constants that suit Clarity's "elegant coding" principle.
 
 ## 4. Middleware boundary
 
-Middleware *engines* live in Clarity (`Gaia\Clarity\Middlewares\*`); thin extension classes
+Middleware *engines* live in Clarity (`Monad\Clarity\Middlewares\*`); thin extension classes
 live in the skeleton's `app/middlewares/`, extending the Clarity engines for developer
 customisation.
 
@@ -50,13 +50,13 @@ The `mitosis` executable is a thin stub in the skeleton, frozen at `create-proje
 #!/usr/bin/env php
 <?php
 require __DIR__ . '/config/bootstrap.php';
-exit(Gaia\Clarity\Services\Console::run($argv));
+exit(Monad\Clarity\Services\Console::run($argv));
 ```
 
 The console **kernel** — argument parsing, command dispatch, `app/routes/cli.php` loading,
-output formatting, exit codes — lives at `Gaia\Clarity\Services\Console`
+output formatting, exit codes — lives at `Monad\Clarity\Services\Console`
 (`src/Services/Console.php`). The 15 built-in **command classes** live under
-`Gaia\Clarity\Console\*` (`src/Console/`).
+`Monad\Clarity\Console\*` (`src/Console/`).
 
 Rationale for the split within Clarity itself: `Services\Console::run()` is the one symbol
 the frozen skeleton stub calls, so it is the stable, semver-locked contract surface. The

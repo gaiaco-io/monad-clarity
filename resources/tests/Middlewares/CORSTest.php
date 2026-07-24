@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Middlewares\CORS;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Middlewares\CORS;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 use PHPUnit\Framework\TestCase;
 
 final class CORSTest extends TestCase

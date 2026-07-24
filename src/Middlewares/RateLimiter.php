@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Services\Cache;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Services\Cache;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 
 /**
  * Fixed-window rate limiting (ReleaseNotes_26.07.md §28) backed by Services\Cache — any
@@ -38,7 +38,7 @@ use Gaia\Clarity\Services\Response;
  *   within a short span straddling the boundary. A sliding-window or token-bucket
  *   algorithm would close this at the cost of real complexity §28 doesn't ask for.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class RateLimiter

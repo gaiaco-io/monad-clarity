@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use JsonException;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -15,7 +15,7 @@ use Psr\Http\Message\UploadedFileInterface;
  * normalisation happens only where explicitly requested, and output escaping is the
  * responsibility of whatever renders a value into a given context (View, Response).
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Request

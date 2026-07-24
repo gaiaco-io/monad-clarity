@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use DateTimeImmutable;
-use Gaia\Clarity\Services\Schema\Blueprint;
+use Monad\Clarity\Services\Schema\Blueprint;
 use InvalidArgumentException;
 use RuntimeException;
 
@@ -36,7 +36,7 @@ use RuntimeException;
  * setup-owned tables in CrossRepoContracts.md §8 — this one's internal bookkeeping, free
  * to change in any release), created on first use.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class Migration

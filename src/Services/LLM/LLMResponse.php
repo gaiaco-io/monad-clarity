@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services\LLM;
+namespace Monad\Clarity\Services\LLM;
 
 /**
  * Provider-agnostic output every LLM adapter's complete() returns (ReleaseNotes
  * §11.3.1,2,9,10). $content is the model's text reply, or the schema-decoded value when
  * the request's $responseSchema was set and the provider honoured it.
  *
- * @package Gaia\Clarity\Services\LLM
+ * @package Monad\Clarity\Services\LLM
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class LLMResponse

@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Services;
+namespace Monad\Clarity\Tests\Services;
 
-use Gaia\Clarity\Services\Mediator;
-use Gaia\Clarity\Services\Request;
+use Monad\Clarity\Services\Mediator;
+use Monad\Clarity\Services\Request;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\LoggerInterface;

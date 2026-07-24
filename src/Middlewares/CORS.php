@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 
 /**
  * Cross-Origin Resource Sharing (ReleaseNotes_26.07.md §30). CORS is a browser-enforced
@@ -28,7 +28,7 @@ use Gaia\Clarity\Services\Response;
  * zero-argument constructor supplying the app's actual origins/methods/headers.
  * `isAllowedOrigin()` and `rejectionResponse()` are `protected` extension points.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class CORS

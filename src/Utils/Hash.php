@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Utils;
+namespace Monad\Clarity\Utils;
 
 /**
  * Password hashing. Uses Argon2id where the runtime supports it, falling back to
  * bcrypt otherwise — never a fixed algorithm that could quietly outlive its safety.
  *
- * @package Gaia\Clarity\Utils
+ * @package Monad\Clarity\Utils
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class Hash

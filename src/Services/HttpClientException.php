@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use Psr\Http\Client\NetworkExceptionInterface;
 use Psr\Http\Message\RequestInterface;
@@ -12,7 +12,7 @@ use RuntimeException;
  * Thrown for transport-level failures (DNS resolution, connection refused, timeout) —
  * anything cURL itself failed on before a response was received.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class HttpClientException extends RuntimeException implements NetworkExceptionInterface

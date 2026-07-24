@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\Migration;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\Migration;
 
 /**
  * `php mitosis migrate:status` — lists every migration file and whether it has run.
@@ -14,7 +14,7 @@ use Gaia\Clarity\Services\Migration;
  * migrations — this command doubling as a second gate would make `migrate:status && …`
  * fail unpredictably in scripts for a command whose whole job is to report, not judge.
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MigrateStatus implements Command

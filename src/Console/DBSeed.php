@@ -2,16 +2,16 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
-use Gaia\Clarity\Services\Migration;
+use Monad\Clarity\Services\Console;
+use Monad\Clarity\Services\Migration;
 
 /**
  * `php mitosis db:seed --file=seed.php` — runs a seed file (relative to
  * database/seeds unless an absolute path is given) via Services\Migration::runSeed().
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class DBSeed implements Command

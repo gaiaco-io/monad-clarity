@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use RuntimeException;
 use Throwable;
@@ -17,7 +17,7 @@ use Throwable;
  * or by assigning `$layout = '...'` at the top of the view file itself. The layout is
  * rendered with the same data plus a `$content` variable holding the child's output.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class View

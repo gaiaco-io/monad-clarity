@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services;
+namespace Monad\Clarity\Services;
 
 use Closure;
-use Gaia\Clarity\Services\Schema\Blueprint;
-use Gaia\Clarity\Services\Schema\RawExpression;
+use Monad\Clarity\Services\Schema\Blueprint;
+use Monad\Clarity\Services\Schema\RawExpression;
 use InvalidArgumentException;
 use PDO;
 use RuntimeException;
@@ -25,7 +25,7 @@ use RuntimeException;
  * - PostgreSQL's `CREATE DATABASE` has no `IF NOT EXISTS`; a second call throws, same as
  *   the underlying driver would.
  *
- * @package Gaia\Clarity\Services
+ * @package Monad\Clarity\Services
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 abstract class Schema

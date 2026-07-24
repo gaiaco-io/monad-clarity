@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Middlewares;
+namespace Monad\Clarity\Middlewares;
 
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
 use LogicException;
 
 /**
@@ -33,7 +33,7 @@ use LogicException;
  * zero-argument constructor supplying the app's actual resolver(s). `forbiddenResponse()`
  * is a `protected` extension point.
  *
- * @package Gaia\Clarity\Middlewares
+ * @package Monad\Clarity\Middlewares
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 class RBAC

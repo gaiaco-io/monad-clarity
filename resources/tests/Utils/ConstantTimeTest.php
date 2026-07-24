@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Utils;
+namespace Monad\Clarity\Tests\Utils;
 
-use Gaia\Clarity\Utils\ConstantTime;
+use Monad\Clarity\Utils\ConstantTime;
 use PHPUnit\Framework\TestCase;
 
 final class ConstantTimeTest extends TestCase

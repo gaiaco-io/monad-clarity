@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Tests\Middlewares;
+namespace Monad\Clarity\Tests\Middlewares;
 
-use Gaia\Clarity\Console\Setup;
-use Gaia\Clarity\Middlewares\Csrf;
-use Gaia\Clarity\Services\DB;
-use Gaia\Clarity\Services\Request;
-use Gaia\Clarity\Services\Response;
-use Gaia\Clarity\Services\Schema;
-use Gaia\Clarity\Services\Session;
+use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Middlewares\Csrf;
+use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Request;
+use Monad\Clarity\Services\Response;
+use Monad\Clarity\Services\Schema;
+use Monad\Clarity\Services\Session;
 use PDO;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;

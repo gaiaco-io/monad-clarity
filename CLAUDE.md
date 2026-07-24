@@ -1,8 +1,8 @@
-# CLAUDE.md — gaia/monad-clarity
+# CLAUDE.md — monad/clarity
 
 Clarity is the core library of the Monad Framework: an MVC-based PHP framework for solo
 developers and small teams, published on Packagist under MIT. This repo is the library only;
-the application skeleton lives in the separate `gaia/monad-skeleton` repo.
+the application skeleton lives in the separate `monad/skeleton` repo.
 
 ## Philosophy (non-negotiable)
 
@@ -17,9 +17,9 @@ the application skeleton lives in the separate `gaia/monad-skeleton` repo.
 ## Hard rules
 
 - PHP floor: `>=8.2`. Use readonly classes and typed constants where they clarify.
-- PSR-4: `"Gaia\\Clarity\\": "src/"`. Namespace segments match directory names exactly (case-sensitive).
-- Console kernel is `Gaia\Clarity\Services\Console` (stable contract); command classes live
-  under `Gaia\Clarity\Console\*` (internal, reorganise freely — see `Architecture.md` §5).
+- PSR-4: `"Monad\\Clarity\\": "src/"`. Namespace segments match directory names exactly (case-sensitive).
+- Console kernel is `Monad\Clarity\Services\Console` (stable contract); command classes live
+  under `Monad\Clarity\Console\*` (internal, reorganise freely — see `Architecture.md` §5).
 - IMPORTANT: No placeholders, no mock-only flows, no TODO-only code, no partial implementations.
   Every feature is built end to end in production-ready form or not started.
 - Checkout (`src/Services/Checkout.php`, `src/Services/CheckoutAdapters/`) is DEFERRED —
@@ -48,7 +48,7 @@ canonical for every document below — where the skeleton repo carries a mirror,
   conventions). Read before questioning why something is structured the way it is.
 - `API_Contracts.md` — the method-level public API surface: every service/middleware's
   signatures. What application code and the skeleton write against.
-- `CrossRepoContracts.md` — the boundary contract with `gaia/monad-skeleton`: entry-point
+- `CrossRepoContracts.md` — the boundary contract with `monad/skeleton`: entry-point
   signatures, Console kernel contract, stable command names, setup-owned table ownership,
   Jsonify↔Request contract, PSR bridge decision. Narrowing anything here is semver-major.
 - `DDL.sql` — the two setup-owned table definitions (`sessions`, `caches`), consolidated.
@@ -69,7 +69,7 @@ and ask Marshal — do not guess or silently pick one.
 - Test: `vendor/bin/phpunit` (tests live in `resources/tests`; test priority tiers in `TestingStrategy.md`)
 - Lint/static analysis: as configured in CI
 - This package has no runnable app; end-to-end verification happens against a local
-  `create-project` of gaia/monad-skeleton pointing at this working copy via a path repository.
+  `create-project` of monad/skeleton pointing at this working copy via a path repository.
 
 ## Workflow
 

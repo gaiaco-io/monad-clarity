@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Console;
+namespace Monad\Clarity\Console;
 
-use Gaia\Clarity\Services\Console;
+use Monad\Clarity\Services\Console;
 
 /**
  * `php mitosis make:service Billing` — writes app/Services/{Name}.php from a template.
@@ -13,7 +13,7 @@ use Gaia\Clarity\Services\Console;
  * PSR-4 requires the on-disk path to match the namespace segment's case exactly (see
  * MakeController's docblock for the full rationale).
  *
- * @package Gaia\Clarity\Console
+ * @package Monad\Clarity\Console
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class MakeService implements Command

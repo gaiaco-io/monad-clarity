@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Gaia\Clarity\Services\LLM;
+namespace Monad\Clarity\Services\LLM;
 
 use InvalidArgumentException;
 
@@ -11,7 +11,7 @@ use InvalidArgumentException;
  * §11.3.1-8). Immutable and validated at construction, so a malformed request fails
  * before any adapter spends a network round trip on it.
  *
- * @package Gaia\Clarity\Services\LLM
+ * @package Monad\Clarity\Services\LLM
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
 final class LLMRequest
