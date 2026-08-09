@@ -1,8 +1,15 @@
-# Monad 26.07 — Clarity Gap Analysis & Sequenced Build Plan
+# Monad 1.0.0 — Clarity Gap Analysis & Sequenced Build Plan
 
 **Status:** Draft for review
-**Scope basis:** Monad 26.07 Release Notes (final), `monad/clarity` tree (final), `monad/skeleton` tree (final)
+**Scope basis:** Monad 1.0.0 Release Notes (final), `monad/clarity` tree (final), `monad/skeleton` tree (final)
 **Audience:** Implementation guardrail document for `resources/docs`. Intended to be referenced by `CLAUDE.md` / implementation prompts.
+
+> **Provenance.** This release was planned and written under the CalVer milestone name
+> **26.07**, which shipped as semver **1.0.0** on 2026-07-24. The milestone convention has
+> since been retired in favour of semver (see `ReleasePolicy.md` § Release naming), and
+> this document was renamed from `GapAnalysis_BuildPlan_26.07.md` accordingly. Body text
+> below is preserved as written during the build, so it still speaks of "26.07" throughout
+> — read every such mention as 1.0.0.
 
 ---
 

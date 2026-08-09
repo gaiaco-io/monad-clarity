@@ -8,7 +8,7 @@ use Monad\Clarity\Services\Request;
 use Monad\Clarity\Services\Response;
 
 /**
- * Cross-Origin Resource Sharing (ReleaseNotes_26.07.md §30). CORS is a browser-enforced
+ * Cross-Origin Resource Sharing (ReleaseNotes_1.0.0.md §30). CORS is a browser-enforced
  * mechanism, not a server-side authorization boundary: a non-preflight request from a
  * disallowed origin is still passed to $next() (some clients — mobile apps, curl,
  * server-to-server calls — send no meaningful Origin at all, and CORS was never meant

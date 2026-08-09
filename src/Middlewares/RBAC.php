@@ -9,7 +9,7 @@ use Monad\Clarity\Services\Response;
 use LogicException;
 
 /**
- * Role-based access control (ReleaseNotes_26.07.md §16). Same split as Authentication:
+ * Role-based access control (ReleaseNotes_1.0.0.md §16). Same split as Authentication:
  * Clarity owns the *check*, the app owns the role/permission *data* — RBAC has no
  * schema of its own (no roles/permissions/role_permissions tables), just a duck-typed
  * resolver the app supplies.

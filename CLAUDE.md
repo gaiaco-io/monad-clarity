@@ -40,8 +40,8 @@ canonical for every document below — where the skeleton repo carries a mirror,
 
 - `PRD.md` — WHY this release exists: purpose, audience, scope, non-negotiable constraints,
   1.0.0 acceptance gate. Start here for orientation.
-- `ReleaseNotes_26.07.md` — WHAT ships: every component's requirements (§1–§31). Canonical spec.
-- `GapAnalysis_BuildPlan_26.07.md` — WHEN/in what order: 8 dependency-sequenced phases,
+- `ReleaseNotes_1.0.0.md` — WHAT ships: every component's requirements (§1–§31). Canonical spec.
+- `GapAnalysis_BuildPlan_1.0.0.md` — WHEN/in what order: 8 dependency-sequenced phases,
   resolved decisions, acceptance gate detail.
 - `Architecture.md` — WHY each structural decision was made (namespace, PHP floor, middleware
   and Console boundaries, PSR strategy, facade/adapter pattern, Checkout deferral, data

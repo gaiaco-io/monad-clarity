@@ -10,7 +10,7 @@ use JsonException;
 
 /**
  * Parses a JSON request body into Request's separate JSON data bag before the
- * controller sees it (ReleaseNotes_26.07.md §31). Full contract with
+ * controller sees it (ReleaseNotes_1.0.0.md §31). Full contract with
  * Services\Request::json() is CrossRepoContracts.md §6: behaviour must be
  * indistinguishable to the caller whether or not Jsonify ran, except that Jsonify
  * additionally enforces media-type detection, a body-size limit, structured 400s on

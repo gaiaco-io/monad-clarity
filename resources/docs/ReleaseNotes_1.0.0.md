@@ -1,8 +1,15 @@
-# Monad 26.07 Release Notes
+# Monad 1.0.0 Release Notes
 
-**Status:** FROZEN — canonical specification for the 26.07 release.
+**Status:** FROZEN — canonical specification for the 1.0.0 release.
 This document is the source of truth for WHAT ships. Build sequence lives in
-`GapAnalysis_BuildPlan_26.07.md`; cross-repo boundaries live in `CrossRepoContracts.md`.
+`GapAnalysis_BuildPlan_1.0.0.md`; cross-repo boundaries live in `CrossRepoContracts.md`.
+
+> **Provenance.** This release was planned and written under the CalVer milestone name
+> **26.07**, which shipped as semver **1.0.0** on 2026-07-24. The milestone convention has
+> since been retired in favour of semver (see `ReleasePolicy.md` § Release naming), and
+> this document was renamed from `ReleaseNotes_26.07.md` accordingly. Body text below is
+> preserved verbatim as frozen at release, so it still speaks of "26.07" throughout — read
+> every such mention as 1.0.0.
 
 1. `monad/skeleton` under MIT license available on Packagist
 2. `monad/clarity` under MIT license available on Packagist

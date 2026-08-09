@@ -9,7 +9,7 @@ git repo for contributors and CI).
 
 ## Core rule: tests are written alongside implementation, never after
 
-Per `CLAUDE.md` and the phase discipline in `GapAnalysis_BuildPlan_26.07.md`: no phase or
+Per `CLAUDE.md` and the phase discipline in `GapAnalysis_BuildPlan_1.0.0.md`: no phase or
 sub-phase is considered complete until its PHPUnit tests are green. "Tests later" is treated
 the same as a placeholder — not permitted per the no-partial-implementation rule.
 

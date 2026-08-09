@@ -12,7 +12,7 @@ use Monad\Clarity\Utils\CryptographicToken;
 use Monad\Clarity\Utils\HMAC;
 
 /**
- * CSRF protection (ReleaseNotes_26.07.md §13). Storage strategy depends on whether the
+ * CSRF protection (ReleaseNotes_1.0.0.md §13). Storage strategy depends on whether the
  * request carries a valid session (Services\Session, resolved from the `mid` cookie):
  * - **Session-backed**: the token lives in the session's payload (§13.2.1–2), rotated
  *   via Session::write(). This alone defeats forgery — the stored value lives

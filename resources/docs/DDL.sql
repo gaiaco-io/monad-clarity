@@ -4,7 +4,7 @@
 -- Convention: DATETIME (second precision) and UUID char(36) primary keys across built-in tables.
 
 -- ============================================================================
--- sessions — Services\Session (ReleaseNotes_26.07.md §17)
+-- sessions — Services\Session (ReleaseNotes_1.0.0.md §17)
 -- user_id is NULLABLE: supports guest / pre-login sessions, including
 -- DB-backed pre-authentication CSRF token storage (Middlewares\Csrf, §13.2).
 -- ============================================================================
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS `sessions` (
 ) ENGINE=INNODB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================
--- caches — Services\Cache DB driver (ReleaseNotes_26.07.md §26, PSR-16)
+-- caches — Services\Cache DB driver (ReleaseNotes_1.0.0.md §26, PSR-16)
 -- key_hash = SHA-256 of cache_key, used as PK to avoid long-key index limits.
 -- Driver rule: always compare cache_key on read; never trust key_hash alone.
 -- expires_at NULL = never expires (maps PSR-16 ttl: null).

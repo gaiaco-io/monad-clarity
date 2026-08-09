@@ -54,7 +54,7 @@ cache:clear, logs:clear, setup.
 
 ## Success criteria (1.0.0 acceptance gate)
 
-From `GapAnalysis_BuildPlan_26.07.md`: `composer create-project monad/skeleton NewApp`
+From `GapAnalysis_BuildPlan_1.0.0.md`: `composer create-project monad/skeleton NewApp`
 succeeds from Packagist for a stranger; all 15 `mitosis` commands function; `php mitosis health`
 passes all five checks on a fresh install; the PHPUnit suite is green; both repos' READMEs and
 `CrossRepoContracts.md` are published; no placeholder, mock-only, or non-functional code exists

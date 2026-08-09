@@ -9,7 +9,7 @@ use Monad\Clarity\Services\Request;
 use Monad\Clarity\Services\Response;
 
 /**
- * Fixed-window rate limiting (ReleaseNotes_26.07.md §28) backed by Services\Cache — any
+ * Fixed-window rate limiting (ReleaseNotes_1.0.0.md §28) backed by Services\Cache — any
  * of its three drivers works, so the limiter is consistent across a multi-node
  * deployment whenever Cache is configured with the database or Redis driver
  * (DeploymentTopology.md §2; the file driver is single-node only, same caveat as Cache

@@ -170,9 +170,9 @@ Never modified by application developers.
                 │   ├── CrossRepoContracts.md  <!-- CANONICAL copy -->
                 │   ├── DDL.sql
                 │   ├── DeploymentTopology.md
-                │   ├── GapAnalysis_BuildPlan_26.07.md
+                │   ├── GapAnalysis_BuildPlan_1.0.0.md
                 │   ├── PRD.md
-                │   ├── ReleaseNotes_26.07.md
+                │   ├── ReleaseNotes_1.0.0.md
                 │   ├── ReleasePolicy.md
                 │   ├── RepoMap.md             <!-- this file -->
                 │   └── TestingStrategy.md

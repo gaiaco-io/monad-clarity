@@ -13,7 +13,7 @@ use Monad\Clarity\Utils\Hash;
 use Monad\Clarity\Utils\HMAC;
 
 /**
- * Authentication (ReleaseNotes_26.07.md §15 — 16 requirements). Clarity owns the
+ * Authentication (ReleaseNotes_1.0.0.md §15 — 16 requirements). Clarity owns the
  * *mechanism*; the app owns the user *store*. Every requirement here composes
  * primitives that already exist rather than introducing new ones:
  * - Password hashing/verification/rehash-detection: `Utils\Hash` directly (no separate

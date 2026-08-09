@@ -106,7 +106,7 @@ body-size limits, structured `400` errors, and `415` for JSON-required routes.
 ## 8. Database contracts (setup-owned tables)
 
 `php mitosis setup` creates the Monad built-in tables. Their DDL is fixed in
-`ReleaseNotes_26.07.md` and is a compatibility surface:
+`ReleaseNotes_1.0.0.md` and is a compatibility surface:
 
 - **`sessions`** (§17): UUID `char(36)` PK; `user_id` NULLABLE (guest/pre-login sessions and
   pre-authentication CSRF token storage are valid); unique `digest`; JSON `payload`;

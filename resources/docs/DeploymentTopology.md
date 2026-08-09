@@ -54,7 +54,7 @@ The single command an operator or CI pipeline runs to verify a deployment is via
 check: configuration completeness (required `.env`/config keys present), DB connectivity,
 writable storage paths (`storage/cache`, `storage/logs/*`, `storage/userfiles`), migration
 status (no pending migrations), and required PHP extensions per §1. Health is the deployment
-acceptance gate referenced in `GapAnalysis_BuildPlan_26.07.md` — a deployment is not
+acceptance gate referenced in `GapAnalysis_BuildPlan_1.0.0.md` — a deployment is not
 considered live until `health` passes clean.
 
 ## 6. Out of scope for this document

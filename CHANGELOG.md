@@ -39,13 +39,45 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   `DB::run()`'s statement by numeric index (`$row[0]`) rather than by column name now
   reads `null` — such code was relying on the bug. Reading by column name is unaffected.
 
+### Documentation
+- Retired the CalVer milestone naming convention in favour of semver. Releases were
+  previously identified two ways at once: a semver package version (`1.0.0`, tagged and
+  published) and a parallel CalVer milestone name (`26.07` — year 26, month 07) used for
+  release identity and document filenames. The package version was always strict semver
+  and is unchanged; only the milestone convention is retired, anchored on the equivalence
+  **`26.07` shipped as `1.0.0`**. `ReleasePolicy.md` gains a *Release naming* section
+  recording that equivalence, establishing that a release has exactly one name — its semver
+  version — and specifying that versioned documents are named at full `MAJOR.MINOR.PATCH`
+  precision while living documents carry no version in their filename.
+- Renamed `resources/docs/ReleaseNotes_26.07.md` → `ReleaseNotes_1.0.0.md` and
+  `GapAnalysis_BuildPlan_26.07.md` → `GapAnalysis_BuildPlan_1.0.0.md` (via `git mv`, so
+  history follows), and updated all 26 references to those two filenames across 17 tracked
+  files — `CLAUDE.md`'s source-of-truth list (2), eight `resources/docs/` documents (10,
+  including Clarity's own `RepoMap.md` tree and `DDL.sql`'s two table citations), seven
+  historical `CHANGELOG.md` entries (7), one integration-test docblock (1), and six
+  `src/Middlewares/` class docblocks (6) that cite the
+  specification by section (`Authentication`, `CORS`, `Csrf`, `Jsonify`, `RBAC`,
+  `RateLimiter`). No code changed — the `src/` edits are comments only, so there is no
+  API or behavioural impact and no semver consequence.
+- Existing historical prose is deliberately preserved rather than rewritten: only
+  references that would otherwise dangle were updated. `CHANGELOG.md`'s 1.0.0 entry still
+  opens "Initial 26.07 release", and `PRD.md`, `Architecture.md` and the two renamed
+  documents still discuss "26.07" scope in their body text, as written at the time. The two
+  renamed documents each carry a provenance note under their heading recording the rename
+  and the `26.07` = `1.0.0` equivalence, so a frozen specification headed `1.0.0` that
+  discusses `26.07` throughout reads as history rather than contradiction.
+- Known drift: `monad/skeleton` still carries `26.07` references in its `CHANGELOG.md`, its
+  `RepoMap.md` tree, and its mirrored `CrossRepoContracts.md`. Per this document's
+  *Repository authority* section the Clarity copy wins; the skeleton is synced separately,
+  after this lands.
+
 ## [1.0.0] - 2026-07-24
 
 Initial 26.07 release. `create-project monad/skeleton` produces a working
 application: `php mitosis setup && php mitosis serve` renders the Home view, all 15
 `mitosis` commands function, `php mitosis health` passes all five checks, and the full
 test suite is green. Everything below shipped as part of this release — see the phase
-history in this same file (and `resources/docs/GapAnalysis_BuildPlan_26.07.md`) for the
+history in this same file (and `resources/docs/GapAnalysis_BuildPlan_1.0.0.md`) for the
 detailed build order and the real bugs caught and fixed along the way.
 
 **Package renamed from `gaia/monad-clarity` to `monad/clarity`** (PHP namespace
@@ -459,7 +491,7 @@ API signature is identical, only the vendor/namespace prefix moved.
   content-based MIME detection has always been a §19 requirement).
 - Phase 3 (data layer, part 3 — Phase 3 complete): `Services\Cache` — PSR-16
   (`Psr\SimpleCache\CacheInterface`), three drivers in one class bound at construction
-  (`Cache::DRIVER_FILE`/`DRIVER_DATABASE`/`DRIVER_REDIS`), per `ReleaseNotes_26.07.md`
+  (`Cache::DRIVER_FILE`/`DRIVER_DATABASE`/`DRIVER_REDIS`), per `ReleaseNotes_1.0.0.md`
   §26. Full get/set/delete/clear/has/getMultiple/setMultiple/deleteMultiple surface.
   TTL accepts `null` (never expires, per `DDL.sql`'s own comment: "expires_at NULL =
   never expires"), `int` seconds, or `DateInterval`. Cache keys containing a PSR-16
@@ -477,7 +509,7 @@ API signature is identical, only the vendor/namespace prefix moved.
   than passing vacuously.
 - `psr/simple-cache` added to `composer.json` `require` (PSR-16 compliance).
 - Phase 3 (data layer, part 2): `Services\Migration` — orchestrates migration files
-  (`GapAnalysis_BuildPlan_26.07.md` §12; create/drop database/table/index are Schema's
+  (`GapAnalysis_BuildPlan_1.0.0.md` §12; create/drop database/table/index are Schema's
   job, used directly from a migration's `up()`/`down()`). A migration file returns an
   object with `up()`/`down()`; applied migrations are tracked in `clarity_migrations`
   (not one of the two setup-owned tables in `CrossRepoContracts.md` §8 — internal
@@ -497,7 +529,7 @@ API signature is identical, only the vendor/namespace prefix moved.
   against its own source database threw "table already exists" until `IF NOT EXISTS`
   was explicitly re-injected, the same fix already needed for MySQL's `SHOW CREATE TABLE`.
 - Phase 3 (data layer, part 1): `Services\Schema` — PDO dialect abstraction over MySQL
-  (default), PostgreSQL, and SQLite (`GapAnalysis_BuildPlan_26.07.md` §10). `Blueprint`
+  (default), PostgreSQL, and SQLite (`GapAnalysis_BuildPlan_1.0.0.md` §10). `Blueprint`
   (`Services\Schema\Blueprint`) builds a dialect-agnostic column/key description;
   `id()`/`autoIncrementId()` give UUID-default primary keys with the configurable integer
   option per `Architecture.md` §9. `createTable`/`alterTable`/`dropTable`/`dropColumn`/
@@ -517,7 +549,7 @@ API signature is identical, only the vendor/namespace prefix moved.
   only by Clarity's own test suite, never required to consume the library); `ext-pdo_pgsql`,
   `ext-redis` documented under `suggest`. CI's PHP extension list updated to match.
 - Phase 1 (foundations): the seven `Monad\Clarity\Utils` security helpers per
-  `GapAnalysis_BuildPlan_26.07.md` §29 —
+  `GapAnalysis_BuildPlan_1.0.0.md` §29 —
   `ConstantTime` (timing-safe string comparison via `hash_equals`),
   `HMAC` (sign/verify, `hash_hmac_algos()`-validated algorithm),
   `CryptographicToken` (`random_bytes`-backed hex/base64url token generation),
@@ -591,7 +623,7 @@ API signature is identical, only the vendor/namespace prefix moved.
   still happens correctly either way. DB.php is Phase 3 scope; left as-is as it already
   double-logs (its own `logError` plus Mediator) and needs its own rework there regardless.
 - `Middlewares\MetaTag` (was `Services\SeoService`) — relocated and renamed per
-  `GapAnalysis_BuildPlan_26.07.md` item 10; behavior otherwise unchanged. Dropped one dead
+  `GapAnalysis_BuildPlan_1.0.0.md` item 10; behavior otherwise unchanged. Dropped one dead
   line (`(new View())->set('seo', ...)`) that called an instance API the new `View` no
   longer has and was itself the kind of implicit view-data injection `View` now explicitly
   forbids (§24.4) — `toViewData()` remains public for a caller to pass in explicitly. 6 tests.
@@ -652,5 +684,5 @@ API signature is identical, only the vendor/namespace prefix moved.
 - `Middlewares/Keylock.php` — declared `namespace Gaia\Kerberos`, did not match the package
   namespace, and was not part of any documented middleware in `RepoMap.md`.
 - `Services/$MYVIMRC` — stray editor artifact, not source code.
-- `Utils/Number.php` — per `GapAnalysis_BuildPlan_26.07.md` §2.4, resolved as dropped;
+- `Utils/Number.php` — per `GapAnalysis_BuildPlan_1.0.0.md` §2.4, resolved as dropped;
   not part of the 26.07 scope, no predecessor in the seven `Utils\*` security helpers.

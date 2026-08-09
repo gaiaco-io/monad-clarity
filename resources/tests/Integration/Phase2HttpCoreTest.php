@@ -15,7 +15,7 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Phase 2 exit criteria (GapAnalysis_BuildPlan_26.07.md): "a request can be routed
+ * Phase 2 exit criteria (GapAnalysis_BuildPlan_1.0.0.md): "a request can be routed
  * through middleware to a controller, rendered via View or returned as JSON, with dev
  * and prod exception rendering working end to end under the built-in server." Per-class
  * unit suites (RequestTest, ResponseTest, RouteTest, ViewTest, MediatorTest) each pass in

@@ -13,6 +13,24 @@ Strict [semver](https://semver.org/): `MAJOR.MINOR.PATCH`.
   extension surface, or altering a setup-owned table's DDL (`sessions`, `caches`) without a
   shipped migration path.
 
+## Release naming
+
+A release has exactly one name: its semver version. There is no parallel milestone,
+codename, or date-based identifier.
+
+This supersedes the CalVer milestone convention used through the first release, under which
+a release was named for the year and month it was scheduled to ship. **Milestone `26.07`
+shipped as `1.0.0` on 2026-07-24** — the two names denote the same release, and `26.07` is
+retired. Documents written under the old convention keep their historical wording; a
+provenance note at the top of each records the equivalence.
+
+Versioned documents are named for the release they describe, at full `MAJOR.MINOR.PATCH`
+precision: `ReleaseNotes_1.0.0.md`, `GapAnalysis_BuildPlan_1.0.0.md`. Only releases that
+warrant a frozen specification get such a document — in practice majors and minors, since a
+patch release ships fixes against an existing spec rather than a new one. Unversioned
+documents (`Architecture.md`, `API_Contracts.md`, `CrossRepoContracts.md` and the rest) are
+living and carry no version in their filename.
+
 ## What is NOT a compatibility promise
 
 Anything not listed in `CrossRepoContracts.md` — internal implementation of a service, private

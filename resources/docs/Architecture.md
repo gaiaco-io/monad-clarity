@@ -1,7 +1,7 @@
 # Architecture.md — monad/clarity
 
 Resolved architectural decisions for the Clarity core library, with rationale. This document
-records WHY; `ReleaseNotes_26.07.md` records WHAT; `CrossRepoContracts.md` records the
+records WHY; `ReleaseNotes_1.0.0.md` records WHAT; `CrossRepoContracts.md` records the
 compatibility promises that follow from these decisions. Where documents disagree, stop and ask Marshal.
 
 ## 1. Two-package split
