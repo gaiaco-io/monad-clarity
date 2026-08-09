@@ -70,7 +70,8 @@ Clarity may assume the following skeleton paths exist; renaming them in a scaffo
 developer-owned breakage:
 
 - `app/routes/{web,api,cli}.php` — route registration files loaded by Route / Console.
-- `app/middlewares/` — thin classes extending `Monad\Clarity\Middlewares\*`.
+- `app/Middlewares/` — thin classes extending `Monad\Clarity\Middlewares\*`. Capitalised to
+  match `namespace App\Middlewares;` — PSR-4 resolves paths case-sensitively.
 - `app/views/` — View service root, with `Layouts/` and `Errors/` as first-class groups.
 - `config/*.php` — configuration exposed to Clarity at boot.
 - `database/migrations/`, `database/seeds/` — Migration service input.
@@ -81,7 +82,7 @@ developer-owned breakage:
 ## 5. Middleware extension contract
 
 Clarity middleware engines (`Monad\Clarity\Middlewares\*`) are designed for extension: the
-skeleton ships thin subclasses in `app/middlewares/` that developers customise. Therefore the
+skeleton ships thin subclasses in `app/Middlewares/` that developers customise. Therefore the
 protected/extension surface of each middleware engine (hook methods, overridable configuration)
 is part of this contract — narrowing it is semver-major. Security-critical internals remain
 private and may change in any release; that is the point of the split.

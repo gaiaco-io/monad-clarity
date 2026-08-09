@@ -47,6 +47,7 @@ developer forever — never updated via Composer again (only `monad/clarity` is)
 ├── public
 │   ├── assets
 │   │   ├── css
+│   │   ├── fonts             <!-- self-hosted Fraunces/IBM Plex Sans/IBM Plex Mono, copied by scripts/copy-assets.js -->
 │   │   ├── img
 │   │   └── js
 │   ├── index.php             <!-- thin: delegates to Clarity kernel -->

@@ -6,6 +6,20 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- `RepoMap.md`'s skeleton tree gained `public/assets/fonts/` — real since the skeleton's
+  `1.1.0` landing-page redesign added self-hosted Fraunces/IBM Plex Sans/IBM Plex Mono,
+  copied there by `scripts/copy-assets.js`, and wasn't previously part of the documented
+  `public/assets/` tree (`css`/`img`/`js` only).
+- `CrossRepoContracts.md` §4 corrected `app/middlewares/` to `app/Middlewares/` in both
+  places it appeared — the actual skeleton, and this document's own §5 two lines later,
+  already agreed on the capitalised, PSR-4-correct form; only §4's first mention had the
+  stale lowercase spelling. No contract changed, only the spelling of an existing one.
+- Mirrored both files to the skeleton repo per each document's own change procedure
+  (`CrossRepoContracts.md` §10; the same pattern `RepoMap.md` states for itself) — both are
+  now byte-identical between repos again. Docs-only; `resources/` is `export-ignore`d from
+  the Packagist dist, so this has no effect on any tagged release.
+
 ## [1.0.1] - 2026-08-09
 
 ### Fixed
