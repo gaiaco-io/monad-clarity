@@ -73,12 +73,16 @@ and MUST NOT appear on `main` or in any tagged release until Checkout is formall
 5. `.gitattributes` `export-ignore` list confirmed current: `/resources`, `/CLAUDE.md`, and
    the `.gitattributes`/`.gitignore` files themselves are excluded from the dist archive.
 6. Tag pushed; Packagist auto-update webhook (or manual update) confirmed.
-7. `CrossRepoContracts.md` mirror in the skeleton repo checked for drift against the canonical
-   copy in this repo; sync if needed (per `CrossRepoContracts.md` §10).
+7. `CrossRepoContracts.md` and `RepoMap.md` mirrors in the skeleton repo checked for drift
+   against the canonical copies in this repo; sync if needed (per `CrossRepoContracts.md`
+   §10 and the equivalent procedure `RepoMap.md` states for itself). Also worth a skim for
+   staleness against the actual codebase while checking — a mirror can be byte-identical
+   between repos and still describe a file that moved or a path that was never really
+   updated to match its own PSR-4 casing.
 
 ## Repository authority
 
-`monad/clarity` is canonical for: this document, `CrossRepoContracts.md`, `Architecture.md`,
-and any document describing Clarity's own internals or the cross-repo boundary. Where the
-skeleton repository carries a mirror of a Clarity-canonical document, the Clarity copy wins on
-any discrepancy.
+`monad/clarity` is canonical for: this document, `CrossRepoContracts.md`, `RepoMap.md`,
+`Architecture.md`, and any document describing Clarity's own internals or the cross-repo
+boundary. Where the skeleton repository carries a mirror of a Clarity-canonical document, the
+Clarity copy wins on any discrepancy.

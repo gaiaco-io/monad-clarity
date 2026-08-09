@@ -32,6 +32,55 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   `GapAnalysis_BuildPlan_1.0.0.md`, and this file's own prior entry for that relocation all
   already agreed; `RepoMap.md`'s tree was simply never updated after the move. Moved to the
   `Middlewares` block, mirrored to the skeleton repo.
+- Full audit of the remaining `resources/docs/*.md` beyond `RepoMap.md`/`CrossRepoContracts.md`
+  (`API_Contracts.md`, `Architecture.md`, `DDL.sql`, `DeploymentTopology.md`, `PRD.md`,
+  `ReleasePolicy.md`, `TestingStrategy.md`, and the two frozen historical documents),
+  checking every documented method signature, file path, and cross-reference against the
+  real source rather than just reading for plausibility. `DDL.sql` matches the actual
+  `Setup::sessionsBlueprint()`/`cachesBlueprint()` output column-for-column; `PRD.md`,
+  `DeploymentTopology.md`, and the frozen `ReleaseNotes_1.0.0.md`/
+  `GapAnalysis_BuildPlan_1.0.0.md` (checked for broken cross-references only, per their own
+  preserved-as-written status) all held up. Living docs did not:
+  - `Architecture.md` §4 had the same stale `app/middlewares/` (lowercase) as the
+    `CrossRepoContracts.md` instances fixed above — a third, separately-introduced copy of
+    the identical error, not caught by the earlier fix since it's a different file.
+  - `API_Contracts.md` had four real signature-level errors. `Request::file()` documented a
+    return type of `?UploadedFile` — no such concrete class exists anywhere in Clarity; the
+    actual, real return type is the PSR-7 interface `?Psr\Http\Message\UploadedFileInterface`.
+    `Route::name()` and `Route::middleware()` were documented with the `Route::` static-call
+    prefix (`Route::middleware(string|array $middleware): Route`) but are real instance
+    methods chained off the object `Route::get()`/`post()`/etc. return (`$route->middleware(...)`)
+    — the static notation actively misleads about how to call them — and `middleware()`'s
+    real parameter type is `string|callable|array`, missing `callable` in the old text;
+    `Route::where()` is a real, working instance method that wasn't documented at all.
+    `View::render()` was documented as `render(string $view, array $data = []): Response`,
+    missing the `int $status = 200` parameter added in an earlier, already-shipped,
+    already-CHANGELOG-documented feature — the doc was never updated after that method
+    signature changed. Most substantively: the `Migration` entry claimed
+    "create/drop database; create/alter/drop table; create/drop index" as its own
+    capability — all three are entirely `Schema`'s job (`Services\Migration::class` has no
+    such methods at all; confirmed against `Migration.php`'s real six public methods), a
+    split this file's own historical entry already stated explicitly
+    ("create/drop database/table/index are Schema's job, used directly from a migration's
+    `up()`/`down()`") — while the `Schema` entry, sitting directly above it, described none
+    of Schema's real, extensive DDL API at all. Rewrote both entries to attribute each
+    capability to the class that actually has it.
+  - `TestingStrategy.md`'s "CI requirements" section claimed `CHANGELOG.md` entry presence
+    "is checked" in the same breath as two genuinely CI-enforced facts (the PHPUnit matrix,
+    the red-suite merge block) — but `.github/workflows/ci.yml` has no such step; only
+    `composer validate --strict`, lint, and test. Reworded to say plainly that this is a
+    review-time discipline per `ReleasePolicy.md`, not something CI currently gates.
+  - `ReleasePolicy.md`'s "Repository authority" list and Packagist publication checklist
+    named `CrossRepoContracts.md` as needing drift checks against the skeleton mirror on
+    every release, but never named `RepoMap.md` — despite `RepoMap.md`'s own header
+    claiming identical Clarity-canonical status "per the pattern established for
+    `CrossRepoContracts.md`." Had this checklist item existed already, the `app/api`/
+    `app/middlewares`/`MetaTag` staleness fixed above would likely have been caught at the
+    next release rather than accumulating across several. Added `RepoMap.md` to both, plus
+    a note that a mirror can be byte-identical between repos and still be stale against the
+    actual codebase — byte-diffing the two copies against each other, which is what "check
+    for drift" had been read as, doesn't catch that; the previous entries above are the
+    proof.
 
 ## [1.0.1] - 2026-08-09
 

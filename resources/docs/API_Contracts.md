@@ -18,7 +18,7 @@ $request->input(string $key, mixed $default = null): mixed
 $request->json(?string $key = null, mixed $default = null): mixed   // dot-notation key
 $request->header(string $name): ?string
 $request->cookie(string $name): ?string
-$request->file(string $name): ?UploadedFile
+$request->file(string $name): ?Psr\Http\Message\UploadedFileInterface
 $request->ip(): string
 $request->userAgent(): ?string
 $request->all(): array
@@ -52,20 +52,24 @@ Route::get(string $uri, callable|array $action): Route
 Route::post(string $uri, callable|array $action): Route
 Route::put/patch/delete/options(...): Route
 Route::group(array $attributes, callable $callback): void
-Route::name(string $name): Route
-Route::middleware(string|array $middleware): Route
 Route::fallback(callable|array $action): void
+
+// Instance methods, chained off the Route object get()/post()/etc. return — not static:
+$route->name(string $name): Route
+$route->middleware(string|callable|array $middleware): Route
+$route->where(string $parameter, string $pattern): Route
 ```
 
-- Supports: named routes, groups, prefixes, middleware stacks, typed parameters, optional
-  parameters, route constraints, fallback route, and a distinct 404 (no matching route) vs 405
-  (matching route, wrong method) response (§22.2). Route model binding is an optional
-  extension, not a required core behaviour.
+- Supports: named routes, groups, prefixes, middleware stacks (a string class name, a
+  callable, or an array of either — `middleware()`'s union type), typed parameters, optional
+  parameters, route constraints (`where()`), fallback route, and a distinct 404 (no matching
+  route) vs 405 (matching route, wrong method) response (§22.2). Route model binding is an
+  optional extension, not a required core behaviour.
 
 ## Services\View — `Monad\Clarity\Services\View`
 
 ```php
-View::render(string $view, array $data = []): Response
+View::render(string $view, array $data = [], int $status = 200): Response
 View::share(string $key, mixed $value): void
 View::composer(string $view, callable $callback): void
 View::exists(string $view): bool
@@ -99,12 +103,21 @@ allowlist, max size, generated safe filenames, atomic move, pluggable storage ad
 
 PDO-based dialect abstraction. MySQL is the default; PostgreSQL and SQLite are built-in
 supported dialects. Defaults to UUID primary keys with a configurable integer-PK option.
+Create/drop database; create table (fluent `Blueprint` callback) and alter table (add
+columns, drop column); create/drop index; `hasTable()`/`hasColumn()` existence checks;
+`raw()` for dialect-specific expressions Schema doesn't itself abstract. Called directly
+from a migration file's `up()`/`down()` — Schema does the DDL, Migration orchestrates when
+it runs.
 
 ## Services\Migration — `Monad\Clarity\Services\Migration`
 
-Create/drop database; create/alter/drop table; create/drop index; run raw SQL scripts; run
-seed scripts; rollback; per-file migration status check; DDL import/export where exported
-statements are idempotent (safe to re-run).
+Orchestrates migration files: run pending migrations, roll back N steps, per-file applied/
+pending status, run a raw `.sql` script, run a seed script, export the live schema as
+idempotent DDL (`CREATE TABLE IF NOT EXISTS` reproduced from native DDL text on SQLite/
+MySQL; PostgreSQL reconstructed from `information_schema` — primary keys, unique
+constraints, and indexes are NOT captured there, a documented limitation, not silently
+incomplete). Does not itself create, alter, or drop anything — a migration file's `up()`/
+`down()` calls `Services\Schema` directly for that.
 
 ## Services\Cache — `Monad\Clarity\Services\Cache` (PSR-16)
 

@@ -62,5 +62,7 @@ of every build-plan phase that touches a skeleton-visible contract (per `CrossRe
 ## CI requirements
 
 Every pull request runs the full PHPUnit suite against the PHP version floor (`>=8.2`, plus
-at least one newer minor, e.g. 8.3) before merge. `CHANGELOG.md` entry presence is checked per
-`ReleasePolicy.md`. No merge to `main` with a red test suite, regardless of urgency.
+at least one newer minor, e.g. 8.3) before merge — `composer validate --strict`, lint, then
+test, matching `.github/workflows/ci.yml`'s matrix exactly. No merge to `main` with a red
+test suite, regardless of urgency. `CHANGELOG.md` entry presence is a review-time discipline
+per `ReleasePolicy.md`, not a CI-enforced gate — nothing in the workflow currently checks it.

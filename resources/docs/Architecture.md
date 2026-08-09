@@ -33,7 +33,7 @@ typed constants that suit Clarity's "elegant coding" principle.
 ## 4. Middleware boundary
 
 Middleware *engines* live in Clarity (`Monad\Clarity\Middlewares\*`); thin extension classes
-live in the skeleton's `app/middlewares/`, extending the Clarity engines for developer
+live in the skeleton's `app/Middlewares/`, extending the Clarity engines for developer
 customisation.
 
 Rationale: authentication, CSRF, and rate limiting are exactly the code that must receive
