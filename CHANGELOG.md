@@ -6,6 +6,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-09
+
 ### Fixed
 - `Services\DB::connect()` applied none of its own `BASE_OPTIONS`, and silently applied
   three unrelated ones in their place. The options were merged with array unpacking
