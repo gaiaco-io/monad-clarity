@@ -65,9 +65,17 @@ abstract class DB
     /**
      * Register an already-open PDO connection under a context directly — for tests
      * (in-memory SQLite) or an application that constructs its own PDO instance.
+     *
+     * The caller's PDO instance is mutated: its default fetch mode is set to FETCH_ASSOC
+     * so that a statement returned by run() reads the same way whichever path opened the
+     * connection. Only the fetch mode is forced — ERRMODE is already EXCEPTION by default
+     * on PHP 8, and ATTR_EMULATE_PREPARES is a construction-time option that several
+     * drivers (SQLite among them) reject via setAttribute().
      */
     public static function useConnection(PDO $pdo, string $context = self::DEFAULT_CONTEXT): void
     {
+        $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+
         self::$connections[$context] = $pdo;
     }
 
@@ -91,7 +99,10 @@ abstract class DB
             $config['dsn'],
             $config['username'],
             $config['password'],
-            [...self::BASE_OPTIONS, ...$config['options']]
+            // array_replace(), not spread: PDO option keys are the ATTR_* integer
+            // constants, and array unpacking renumbers integer keys from zero — which
+            // silently rewrote every one of these into a different attribute.
+            array_replace(self::BASE_OPTIONS, $config['options'])
         );
     }
 

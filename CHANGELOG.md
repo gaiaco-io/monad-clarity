@@ -6,6 +6,39 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Fixed
+- `Services\DB::connect()` applied none of its own `BASE_OPTIONS`, and silently applied
+  three unrelated ones in their place. The options were merged with array unpacking
+  (`[...self::BASE_OPTIONS, ...$config['options']]`), but PDO option keys are the `ATTR_*`
+  integer constants and array unpacking renumbers integer keys from zero. Keys `3`
+  (`ATTR_ERRMODE`), `19` (`ATTR_DEFAULT_FETCH_MODE`) and `20` (`ATTR_EMULATE_PREPARES`)
+  became `0`, `1` and `2` — so PDO was handed `ATTR_AUTOCOMMIT => 2`,
+  `ATTR_PREFETCH => 2` and `ATTR_TIMEOUT => false` instead. Consequences, in order of
+  severity: `ATTR_EMULATE_PREPARES => false` never reached the driver, so on MySQL every
+  query ran as an emulated prepare rather than a real server-side prepared statement;
+  `ATTR_TIMEOUT => false` set a zero-second connect timeout; and the default fetch mode
+  stayed at PDO's own `FETCH_BOTH`, so a `PDOStatement` returned by `DB::run()` yielded
+  each row with every value duplicated — once under its column name and once under a
+  numeric index. (`ATTR_ERRMODE` was the one casualty without visible effect: PHP 8
+  already defaults to `ERRMODE_EXCEPTION`.) Fixed by merging with `array_replace()`, which
+  preserves integer keys while keeping the original precedence — options passed to
+  `DB::configure()` still override the base defaults.
+- `Services\DB::useConnection()` registered the caller's `PDO` instance without applying
+  any options at all, so a connection injected rather than constructed by `connect()` had
+  the same `FETCH_BOTH` default. It now sets `ATTR_DEFAULT_FETCH_MODE => FETCH_ASSOC` on
+  the instance, so a statement from `DB::run()` reads identically whichever path opened
+  the connection. Only the fetch mode is forced: `ERRMODE` is already `EXCEPTION` by
+  default on PHP 8, and `ATTR_EMULATE_PREPARES` is a construction-time option that several
+  drivers — SQLite among them — reject through `setAttribute()`.
+
+  Both bugs were invisible to the existing tests because `DB::fetch()` and
+  `DB::fetchAll()` pass `FETCH_ASSOC` explicitly on every call, which masked the
+  connection's default entirely; only code reading the `PDOStatement` that `DB::run()`
+  returns was affected. The new regression tests therefore assert on that statement and on
+  the connection's attributes directly. **Behaviour change:** application code that read
+  `DB::run()`'s statement by numeric index (`$row[0]`) rather than by column name now
+  reads `null` — such code was relying on the bug. Reading by column name is unaffected.
+
 ## [1.0.0] - 2026-07-24
 
 Initial 26.07 release. `create-project monad/skeleton` produces a working

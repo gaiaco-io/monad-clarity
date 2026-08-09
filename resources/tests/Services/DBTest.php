@@ -52,6 +52,53 @@ final class DBTest extends TestCase
         self::assertSame($pdo, DB::connect('sqlite-context'));
     }
 
+    public function testConfiguredConnectionAppliesBaseOptionsUnderTheirOwnKeys(): void
+    {
+        DB::configure('sqlite-context', ['dsn' => 'sqlite::memory:']);
+
+        $pdo = DB::connect('sqlite-context');
+
+        // Guards against integer-key renumbering silently rewriting BASE_OPTIONS into
+        // an unrelated set of attributes (ATTR_AUTOCOMMIT/ATTR_PREFETCH/ATTR_TIMEOUT).
+        self::assertSame(PDO::FETCH_ASSOC, $pdo->getAttribute(PDO::ATTR_DEFAULT_FETCH_MODE));
+        self::assertSame(PDO::ERRMODE_EXCEPTION, $pdo->getAttribute(PDO::ATTR_ERRMODE));
+    }
+
+    public function testConfiguredOptionsOverrideBaseOptions(): void
+    {
+        DB::configure('sqlite-context', [
+            'dsn' => 'sqlite::memory:',
+            'options' => [PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_OBJ],
+        ]);
+
+        self::assertSame(
+            PDO::FETCH_OBJ,
+            DB::connect('sqlite-context')->getAttribute(PDO::ATTR_DEFAULT_FETCH_MODE)
+        );
+    }
+
+    public function testRunReturnsStatementThatFetchesAssociativelyByDefault(): void
+    {
+        $id = DB::insert('widgets', ['name' => 'Gadget', 'quantity' => 3]);
+
+        $statement = DB::run('SELECT * FROM widgets WHERE id = ?', [$id]);
+
+        // Fetched with no explicit mode: a FETCH_BOTH connection would duplicate every
+        // value under a numeric index alongside its column name.
+        self::assertSame(['id' => $id, 'name' => 'Gadget', 'quantity' => 3], $statement->fetch());
+    }
+
+    public function testUseConnectionForcesAssociativeFetchMode(): void
+    {
+        DB::reset();
+        DB::useConnection(new PDO('sqlite::memory:'));
+
+        self::assertSame(
+            PDO::FETCH_ASSOC,
+            DB::connect()->getAttribute(PDO::ATTR_DEFAULT_FETCH_MODE)
+        );
+    }
+
     public function testInsertGeneratesUuidByDefaultAndPersistsRow(): void
     {
         $id = DB::insert('widgets', ['name' => 'Gadget', 'quantity' => 3]);
