@@ -13,7 +13,7 @@ developer forever — never updated via Composer again (only `monad/clarity` is)
 ```
 /root
 ├── app
-│   ├── api
+│   ├── Api                  <!-- capitalised to match `namespace App\Api;` — PSR-4 -->
 │   ├── client
 │   │   └── src
 │   │       ├── css

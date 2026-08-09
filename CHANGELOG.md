@@ -15,10 +15,16 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   places it appeared — the actual skeleton, and this document's own §5 two lines later,
   already agreed on the capitalised, PSR-4-correct form; only §4's first mention had the
   stale lowercase spelling. No contract changed, only the spelling of an existing one.
-- Mirrored both files to the skeleton repo per each document's own change procedure
-  (`CrossRepoContracts.md` §10; the same pattern `RepoMap.md` states for itself) — both are
-  now byte-identical between repos again. Docs-only; `resources/` is `export-ignore`d from
-  the Packagist dist, so this has no effect on any tagged release.
+- `RepoMap.md`'s skeleton tree also had `app/api` in lowercase, uncommented, sitting
+  directly beside the capitalised, PSR-4-commented `Controllers`/`Models`/`Middlewares`/
+  `Services`. Corrected to `Api` with the same `namespace App\Api;` — PSR-4 comment as its
+  siblings. The directory itself is currently empty and untracked in the skeleton repo (no
+  `App\Api` classes exist yet); renamed the stray local `app/api` to `app/Api` there to
+  match.
+- Mirrored all three corrections to the skeleton repo per each document's own change
+  procedure (`CrossRepoContracts.md` §10; the same pattern `RepoMap.md` states for itself)
+  — both files are byte-identical between repos again. Docs-only; `resources/` is
+  `export-ignore`d from the Packagist dist, so this has no effect on any tagged release.
 
 ## [1.0.1] - 2026-08-09
 
