@@ -99,7 +99,8 @@ Never modified by application developers.
             │   │   ├── CORS.php
             │   │   ├── Logger.php
             │   │   ├── RateLimiter.php
-            │   │   └── Jsonify.php
+            │   │   ├── Jsonify.php
+            │   │   └── MetaTag.php          <!-- was Services\SeoService; relocated + renamed -->
             │   ├── Services
             │   │   ├── DB.php
             │   │   ├── Files.php
@@ -107,7 +108,6 @@ Never modified by application developers.
             │   │   ├── Request.php
             │   │   ├── Response.php
             │   │   ├── Route.php
-            │   │   ├── MetaTag.php
             │   │   ├── Session.php
             │   │   ├── View.php
             │   │   ├── Console.php          <!-- console kernel: Console::run(array $argv): int -->

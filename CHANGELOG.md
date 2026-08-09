@@ -25,6 +25,13 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   procedure (`CrossRepoContracts.md` §10; the same pattern `RepoMap.md` states for itself)
   — both files are byte-identical between repos again. Docs-only; `resources/` is
   `export-ignore`d from the Packagist dist, so this has no effect on any tagged release.
+- Auditing `RepoMap.md` for further casing mismatches (none found beyond the two above)
+  turned up a different, older error in the Clarity tree: `MetaTag.php` was listed under
+  `src/Services/`, but has lived at `src/Middlewares/MetaTag.php` since it was relocated
+  and renamed from `Services\SeoService` — `API_Contracts.md`, `ReleaseNotes_1.0.0.md`,
+  `GapAnalysis_BuildPlan_1.0.0.md`, and this file's own prior entry for that relocation all
+  already agreed; `RepoMap.md`'s tree was simply never updated after the move. Moved to the
+  `Middlewares` block, mirrored to the skeleton repo.
 
 ## [1.0.1] - 2026-08-09
 
