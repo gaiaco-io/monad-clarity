@@ -74,6 +74,49 @@ final class MediatorTest extends TestCase
         self::assertMatchesRegularExpression('/^[0-9a-f]{8}$/', $data['incident_id']);
     }
 
+    public function testProdRendererReturnsJsonWhenRequestPrefersJson(): void
+    {
+        Mediator::configure(debug: false);
+
+        $request = Request::fromArrays(server: ['HTTP_ACCEPT' => 'application/json']);
+        $response = Mediator::handleException(new RuntimeException('boom'), $request);
+        $data = json_decode($response->content(), true);
+
+        self::assertSame('application/json', $response->header('Content-Type'));
+        self::assertSame('An unexpected error occurred.', $data['error']);
+    }
+
+    public function testProdRendererReturnsHtmlWhenRequestPrefersHtml(): void
+    {
+        Mediator::configure(debug: false);
+
+        $request = Request::fromArrays(server: [
+            'HTTP_ACCEPT' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        ]);
+        $response = Mediator::handleException(new RuntimeException('boom'), $request);
+
+        self::assertSame(500, $response->status());
+        self::assertStringStartsWith('text/html', (string) $response->header('Content-Type'));
+        self::assertStringContainsString('<!doctype html', $response->content());
+        self::assertStringNotContainsString('{"error"', $response->content());
+        self::assertMatchesRegularExpression('/Incident ID: <code>[0-9a-f]{8}<\/code>/', $response->content());
+    }
+
+    public function testProdRendererHtmlHidesInternals(): void
+    {
+        Mediator::configure(debug: false);
+
+        $request = Request::fromArrays(server: ['HTTP_ACCEPT' => 'text/html']);
+        $response = Mediator::handleException(
+            new RuntimeException('Sensitive internal detail: db password is hunter2'),
+            $request
+        );
+
+        self::assertStringNotContainsString('hunter2', $response->content());
+        self::assertStringNotContainsString('Sensitive internal detail', $response->content());
+        self::assertStringNotContainsString(__FILE__, $response->content());
+    }
+
     public function testProdRendererLogsFullExceptionViaLogger(): void
     {
         $logger = new class implements LoggerInterface {

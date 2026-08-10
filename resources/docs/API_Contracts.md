@@ -17,6 +17,7 @@ $request->query(string $key, mixed $default = null): mixed
 $request->input(string $key, mixed $default = null): mixed
 $request->json(?string $key = null, mixed $default = null): mixed   // dot-notation key
 $request->header(string $name): ?string
+$request->wantsJson(): bool   // content negotiation off the Accept header; ambiguous/absent defaults true
 $request->cookie(string $name): ?string
 $request->file(string $name): ?Psr\Http\Message\UploadedFileInterface
 $request->ip(): string
@@ -92,6 +93,11 @@ Registers PHP error, exception, and shutdown handlers. Two renderers, selected b
   ordered stack frames, request ID, request summary, and the previous-exception chain.
 - **Production renderer** hides internals, returns an appropriate HTTP status, records the
   full exception via the Logger middleware, and returns a request/incident ID to the caller.
+  Response *format* is negotiated independently of the dev/prod choice: a JSON body
+  (`{"error": ..., "incident_id": ...}`) unless the request's `Request::wantsJson()` is
+  false, in which case a minimal static HTML error page carries the same incident ID with
+  no exception internals. Ambiguous or absent requests (no `Request` available, or no
+  explicit HTML preference) default to JSON, preserving the existing API error contract.
 
 ## Services\Files — `Monad\Clarity\Services\Files`
 

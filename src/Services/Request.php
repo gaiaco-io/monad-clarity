@@ -153,6 +153,24 @@ final class Request
         return $value;
     }
 
+    /**
+     * Whether the client prefers a JSON body over HTML for this request — used by
+     * error-rendering call sites (Mediator's production exception handler) to decide
+     * *format* independent of *environment*. Ambiguous or absent signals (no `Accept`
+     * header, a wildcard `Accept`, most non-browser clients) default to JSON, since
+     * that's the behaviour every existing API consumer already depends on; only an `Accept` that
+     * explicitly prefers HTML flips this to false, which is exactly what a real browser
+     * page navigation always sends. Reads only the `Accept` header — never touches the
+     * request body — so this is always safe to call, including from a global exception
+     * handler where a body-parsing failure would itself be fatal.
+     */
+    public function wantsJson(): bool
+    {
+        $accept = $this->header('Accept') ?? '';
+
+        return !str_contains($accept, 'text/html') && !str_contains($accept, 'application/xhtml+xml');
+    }
+
     public function header(string $name): ?string
     {
         $key = strtoupper(str_replace('-', '_', $name));

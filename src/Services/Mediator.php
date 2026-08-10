@@ -47,7 +47,7 @@ abstract class Mediator
     {
         set_error_handler(self::handleError(...));
         set_exception_handler(static function (Throwable $exception): void {
-            self::handleException($exception)->send();
+            self::handleException($exception, self::captureRequestForRendering())->send();
         });
         register_shutdown_function(self::handleShutdown(...));
     }
@@ -79,8 +79,23 @@ abstract class Mediator
         }
 
         self::handleException(
-            new ErrorException($error['message'], 0, $error['type'], $error['file'], $error['line'])
+            new ErrorException($error['message'], 0, $error['type'], $error['file'], $error['line']),
+            self::captureRequestForRendering()
         )->send();
+    }
+
+    /**
+     * Build a Request for content negotiation only (Request::wantsJson()), from
+     * $_SERVER alone — never touches php://input. Both call sites here run outside the
+     * normal middleware pipeline (the global exception handler, and a shutdown function
+     * that may be firing after a fatal like memory exhaustion), so reading the request
+     * body — already consumed earlier in the request lifecycle, and not reliably
+     * re-readable per Request::rawBody()'s own docblock — is both unnecessary and a
+     * second point of failure to avoid here.
+     */
+    private static function captureRequestForRendering(): Request
+    {
+        return Request::fromArrays(server: $_SERVER);
     }
 
     /**
@@ -99,7 +114,7 @@ abstract class Mediator
 
         return self::$debug
             ? self::renderDev($exception, $incidentId, $request)
-            : self::renderProd($exception, $incidentId);
+            : self::renderProd($incidentId, $request);
     }
 
     private static function renderDev(Throwable $exception, string $incidentId, ?Request $request): Response
@@ -214,12 +229,50 @@ abstract class Mediator
             . '.meta code{color:#a6e3a1}';
     }
 
-    private static function renderProd(Throwable $exception, string $incidentId): Response
+    /**
+     * $request is null for callers that hand Mediator a caught exception directly,
+     * outside any HTTP request context — with no signal to negotiate on, this defaults
+     * to the JSON body every existing API consumer already depends on. HTML is only
+     * chosen when a request is present and explicitly prefers it (Request::wantsJson()).
+     */
+    private static function renderProd(string $incidentId, ?Request $request): Response
     {
+        if ($request !== null && !$request->wantsJson()) {
+            return self::renderProdHtml($incidentId);
+        }
+
         return Response::json([
             'error' => 'An unexpected error occurred.',
             'incident_id' => $incidentId,
         ], 500);
+    }
+
+    /**
+     * The HTML counterpart to renderProd()'s JSON body: same safety posture (no
+     * exception internals, just the incident ID), rendered for requests that prefer
+     * HTML instead of leaking the JSON error body onto the page as raw text.
+     */
+    private static function renderProdHtml(string $incidentId): Response
+    {
+        $html = '<!doctype html><html><head><meta charset="utf-8"><title>Something went wrong</title>'
+            . '<style>' . self::prodStyles() . '</style></head><body>'
+            . '<main>'
+            . '<h1>Something went wrong</h1>'
+            . '<p>An unexpected error occurred. Our team has been notified.</p>'
+            . '<p class="incident">Incident ID: <code>' . self::escape($incidentId) . '</code></p>'
+            . '</main></body></html>';
+
+        return Response::htm($html, 500);
+    }
+
+    private static function prodStyles(): string
+    {
+        return 'body{font:16px/1.6 system-ui,sans-serif;background:#1e1e2e;color:#cdd6f4;margin:0;'
+            . 'min-height:100vh;display:flex;align-items:center;justify-content:center}'
+            . 'main{max-width:28rem;padding:2rem;text-align:center}'
+            . 'h1{color:#f38ba8;margin:0 0 .75rem}'
+            . '.incident{color:#6c7086;font-size:.875rem;margin-top:1.5rem}'
+            . '.incident code{color:#a6e3a1}';
     }
 
     private static function escape(string $value): string
