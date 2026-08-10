@@ -58,6 +58,43 @@ final class RequestTest extends TestCase
         self::assertNull($request->header('X-Missing'));
     }
 
+    public function testWantsJsonDefaultsTrueWithNoAcceptHeader(): void
+    {
+        $request = Request::fromArrays();
+
+        self::assertTrue($request->wantsJson());
+    }
+
+    public function testWantsJsonDefaultsTrueForWildcardAccept(): void
+    {
+        $request = Request::fromArrays(server: ['HTTP_ACCEPT' => '*/*']);
+
+        self::assertTrue($request->wantsJson());
+    }
+
+    public function testWantsJsonTrueWhenAcceptIsJson(): void
+    {
+        $request = Request::fromArrays(server: ['HTTP_ACCEPT' => 'application/json']);
+
+        self::assertTrue($request->wantsJson());
+    }
+
+    public function testWantsJsonFalseWhenAcceptExplicitlyPrefersHtml(): void
+    {
+        $request = Request::fromArrays(server: [
+            'HTTP_ACCEPT' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        ]);
+
+        self::assertFalse($request->wantsJson());
+    }
+
+    public function testWantsJsonFalseForXhtmlAccept(): void
+    {
+        $request = Request::fromArrays(server: ['HTTP_ACCEPT' => 'application/xhtml+xml']);
+
+        self::assertFalse($request->wantsJson());
+    }
+
     public function testCookieAccessor(): void
     {
         $request = Request::fromArrays(cookies: ['mid' => 'abc123']);

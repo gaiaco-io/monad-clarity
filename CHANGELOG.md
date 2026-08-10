@@ -6,6 +6,43 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-10
+
+### Added
+- `Request::wantsJson(): bool` — content negotiation off the `Accept` header, for callers
+  that need to choose between a JSON and an HTML response for the same code path.
+  Ambiguous or absent signals (no `Accept` header, a wildcard `Accept`, most non-browser
+  clients) default to `true`, matching the JSON behaviour every existing API consumer
+  already depends on; only an `Accept` that explicitly prefers `text/html` or
+  `application/xhtml+xml` returns `false`, which is exactly what a real browser page
+  navigation always sends. Reads only the `Accept` header, never the request body, so it's
+  always safe to call — including from a global exception handler where a body-parsing
+  failure would itself be fatal.
+
+### Fixed
+- `Mediator`'s production exception handler (`renderProd()`) rendered a JSON error body
+  for every exception regardless of what kind of request triggered it. An unhandled
+  exception on an ordinary server-rendered HTML page (no `Accept: application/json`, not
+  an API route) displayed the raw string `{"error":"An unexpected error occurred.",...}`
+  as the page itself, instead of a safe HTML error page — the same symptom class the
+  downstream Flow app had already patched around in its own `Authentication::page()`
+  middleware for expired-session redirects, with no equivalent fix at Clarity's outermost
+  error boundary. `renderProd()` now branches on `Request::wantsJson()`: HTML-preferring
+  requests get a new minimal, static, prod-safe error page (incident ID only, no exception
+  internals — same safety posture as the JSON body); everything else keeps the existing
+  JSON response unchanged. `Mediator::register()`'s `set_exception_handler` closure and
+  `handleShutdown()` now both pass a `Request` (built from `$_SERVER` only, never
+  `php://input` — the body may already be consumed and isn't reliably re-readable, and a
+  shutdown function is exactly the place to avoid a second, avoidable point of failure) so
+  the real global error boundary — not just direct `handleException($exception, $request)`
+  callers — gets this fix. Callers that hand `Mediator` an exception with no `$request` at
+  all (existing behaviour) keep the JSON response, since there's no signal to negotiate on.
+  `Middlewares\RBAC::forbiddenResponse()` has the identical unconditional-JSON pattern but
+  is a documented `protected` extension point apps are expected to override for HTML
+  routes — left as is; not the same failure mode as an unstoppable global exception
+  handler, and downstream apps already have the hook to fix it themselves with
+  `Request::wantsJson()` now available.
+
 ### Documentation
 - `RepoMap.md`'s skeleton tree gained `public/assets/fonts/` — real since the skeleton's
   `1.1.0` landing-page redesign added self-hosted Fraunces/IBM Plex Sans/IBM Plex Mono,
