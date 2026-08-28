@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Monad\Clarity\Services\Checkout;
 
 use Monad\Clarity\Services\DB;
+use Monad\Clarity\Services\Event;
 use DateTimeImmutable;
 use PDOException;
 use Ramsey\Uuid\Uuid;
@@ -361,6 +362,21 @@ final class TransactionLedger
         }
 
         DB::update(self::TRANSACTIONS_TABLE, $changes, ['id' => $transactionId], $this->context);
+
+        // Fired exactly once per transaction: only a pending transaction reaches this line,
+        // and it is terminal immediately after. A redelivered callback returns above without
+        // reaching here, so a listener that ships goods or sends a receipt runs once even
+        // though the gateway will deliver the same event several times.
+        if ($status === TransactionStatus::Success) {
+            Event::dispatch(Event::PAYMENT_COMPLETED, [
+                'transactionId' => $transactionId,
+                'reference' => (string) $transaction['reference'],
+                'gateway' => (string) $transaction['gateway'],
+                'gatewayReference' => (string) $transaction['gateway_reference'],
+                'amountMinor' => (int) $transaction['amount_minor'],
+                'currency' => (string) $transaction['currency'],
+            ]);
+        }
 
         return true;
     }

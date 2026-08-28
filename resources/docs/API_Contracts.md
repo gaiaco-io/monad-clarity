@@ -134,7 +134,8 @@ driver must compare stored `cache_key` on read, never trust `key_hash` alone (se
 ## Services\Event — `Monad\Clarity\Services\Event`
 
 Tiny synchronous dispatcher. Built-in event names (stable identifiers, extend freely):
-`login.success`, `login.failed`, `payment.completed` *(reserved — fires only once Checkout ships)*,
+`login.success`, `login.failed`, `payment.completed` *(dispatched by `Checkout\TransactionLedger`
+when a transaction settles as successful — once per transaction, never on a redelivered callback)*,
 `user.registered`, `file.uploaded`, `migration.completed`.
 
 ## Services\HttpClient — `Monad\Clarity\Services\HttpClient` (PSR-18)
@@ -149,6 +150,34 @@ output tokens, timeout, structured JSON response flag, usage information, provid
 Adapters: `Monad\Clarity\Services\LLMAdapters\{OpenAI,Anthropic,DeepSeek,Gemini}`, each
 translating the facade contract to its provider's wire format over HttpClient. No agents, tool
 orchestration, vector databases, memory, prompt pipelines, or cross-provider automatic retries.
+
+## Services\Checkout — `Monad\Clarity\Services\Checkout` (1.2.0)
+
+Abstract adapter contract, same shape as `Services\LLM`. Four methods, each taking and
+returning provider-agnostic value objects so switching gateway changes one constructor call:
+
+- `createCheckout(Checkout\CheckoutRequest): Checkout\CheckoutSession` — §9.6.1
+- `retrieveStatus(string $reference, int $timeoutSeconds = 30): Checkout\TransactionSnapshot` — §9.6.3
+- `parseCallback(string $rawBody, array $headers): Checkout\CallbackEvent` — §9.6.4; verifies
+  the gateway's signature and throws rather than returning an unverified event. `$rawBody`
+  must be `Request::rawBody()` byte for byte — signatures are computed over exact bytes.
+- `refund(Checkout\RefundRequest): Checkout\RefundResult` — §9.6.6
+
+Value objects in `Monad\Clarity\Services\Checkout\*`: `Money` (integer minor units + ISO 4217
+code; no decimal type anywhere), `LineItem`, `TransactionStatus` (enum: `pending`, `success`,
+`failed`, `cancelled` — a refund is a record, not a status), `CheckoutRequest`,
+`CheckoutSession`, `TransactionSnapshot`, `CallbackEvent`, `RefundRequest`, `RefundResult`,
+`CheckoutException`.
+
+`Checkout\TransactionLedger` — persistence (§9.6.2, §9.6.5, §9.6.8), deliberately outside the
+facade so every adapter shares one ledger: `open()`, `recordCallback()`, `recordSnapshot()`,
+`recordRefund()`, `refundableAmount()`, `totalRefunded()`, `find()`, `findRefund()`,
+`findByGatewayReference()`, `statusHistory()`, `refunds()`. Status rows are insert-only;
+callbacks and refunds are idempotent on the gateway's own identifiers.
+
+Adapters: `Monad\Clarity\Services\CheckoutAdapters\StripeCheckout` (hosted Checkout Sessions).
+The other eight gateway namespaces are reserved and unbuilt. Tables come from
+`php mitosis checkout:install`, never from `setup`.
 
 ## Middlewares\Csrf — `Monad\Clarity\Middlewares\Csrf`
 
@@ -180,7 +209,8 @@ service-level checks.
 ## Middlewares\RateLimiter — `Monad\Clarity\Middlewares\RateLimiter`
 
 Required call sites: login, password reset, public API, LLM operations, webhook abuse
-protection. (Checkout creation is a reserved future call site — deferred.)
+protection. (Checkout creation became a real call site in 1.2.0; rate-limiting it is
+application-owned wiring, as with every other call site.)
 
 ## Middlewares\CORS — `Monad\Clarity\Middlewares\CORS`
 

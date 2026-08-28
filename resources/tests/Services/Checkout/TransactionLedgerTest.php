@@ -138,6 +138,41 @@ final class TransactionLedgerTest extends TestCase
         self::assertSame('cancelled', $history[2]['status']);
     }
 
+    public function testSettlingATransactionDispatchesPaymentCompletedExactlyOnce(): void
+    {
+        $received = [];
+        Event::listen(Event::PAYMENT_COMPLETED, static function (mixed $payload) use (&$received): void {
+            $received[] = $payload;
+        });
+
+        $id = $this->open();
+        $event = $this->callbackEvent('evt_1', TransactionStatus::Success);
+
+        $this->ledger->recordCallback($event);
+        $this->ledger->recordCallback($event);
+        $this->ledger->recordCallback($this->callbackEvent('evt_2', TransactionStatus::Success));
+
+        self::assertCount(1, $received, 'Gateways redeliver; a listener shipping goods must run once.');
+        self::assertSame($id, $received[0]['transactionId']);
+        self::assertSame('ORDER-1001', $received[0]['reference']);
+        self::assertSame('stripe_checkout', $received[0]['gateway']);
+        self::assertSame(2500, $received[0]['amountMinor']);
+        self::assertSame('USD', $received[0]['currency']);
+    }
+
+    public function testANonSuccessfulOutcomeDispatchesNoPaymentCompleted(): void
+    {
+        $received = 0;
+        Event::listen(Event::PAYMENT_COMPLETED, static function () use (&$received): void {
+            $received++;
+        });
+
+        $this->open();
+        $this->ledger->recordCallback($this->callbackEvent('evt_1', TransactionStatus::Failed, 'Declined.'));
+
+        self::assertSame(0, $received);
+    }
+
     public function testRecordCallbackRefusesAnEventForAnUnknownTransaction(): void
     {
         $this->expectException(CheckoutException::class);

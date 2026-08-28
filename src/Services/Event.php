@@ -15,7 +15,7 @@ abstract class Event
 {
     public const LOGIN_SUCCESS = 'login.success';
     public const LOGIN_FAILED = 'login.failed';
-    public const PAYMENT_COMPLETED = 'payment.completed'; // reserved — fires once Checkout ships
+    public const PAYMENT_COMPLETED = 'payment.completed'; // Checkout\TransactionLedger, on settle
     public const USER_REGISTERED = 'user.registered';
     public const FILE_UPLOADED = 'file.uploaded';
     public const MIGRATION_COMPLETED = 'migration.completed';

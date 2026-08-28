@@ -57,11 +57,19 @@ warning in code, where feasible) in a minor release at least one minor version b
 in a major release. Exception: security fixes may break compatibility immediately, documented
 under a `Security` CHANGELOG entry, with the trade-off explained.
 
-## Checkout namespace reservation
+## Checkout namespace reservation — released in 1.2.0
 
-`Monad\Clarity\Services\Checkout` and `Monad\Clarity\Services\CheckoutAdapters\*` are reserved
-and MUST NOT appear on `main` or in any tagged release until Checkout is formally scheduled
-(see `PRD.md`, `Architecture.md` §8). Any reference implementation stays on a feature branch.
+`Monad\Clarity\Services\Checkout` and `Monad\Clarity\Services\CheckoutAdapters\*` were reserved
+and barred from `main` and from any tagged release until Checkout was formally scheduled.
+
+**Checkout was scheduled and shipped in 1.2.0** (see `ReleaseNotes_1.2.0.md`,
+`Architecture.md` §8). The reservation no longer applies to `Services\Checkout`,
+`Services\Checkout\*`, or `Services\CheckoutAdapters\StripeCheckout`.
+
+The reservation **does** still apply to every unbuilt adapter namespace —
+`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`, `HitPay`, `Xendit`.
+Each ships in its own minor release when built end to end, and none may appear on `main` as a
+stub in the meantime. An unbuilt adapter is an absent file.
 
 ## Packagist publication checklist (per tagged release)
 

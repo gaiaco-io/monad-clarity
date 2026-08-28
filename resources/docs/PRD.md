@@ -1,5 +1,15 @@
 # PRD.md — monad/clarity, Release 26.07
 
+> **Status note (added at 1.2.0).** This document describes the 26.07 release, which shipped
+> as **1.0.0** on 2026-07-24. Its scope lists, acceptance gate, and out-of-scope section are
+> preserved as written — they are accurate statements about *that* release and are not
+> retrospectively edited.
+>
+> One item has since changed: the **Checkout service was formally scheduled and released in
+> 1.2.0**, lifting the deferral recorded below. See `ReleaseNotes_1.2.0.md` for its scope,
+> and `Architecture.md` §8 for the rationale. Where this document says Checkout is deferred,
+> read that as true of 1.0.0 and superseded from 1.2.0 onward.
+
 ## Purpose
 
 Clarity is the core library of the Monad Framework: an MVC-based PHP library providing
@@ -45,6 +55,8 @@ cache:clear, logs:clear, setup.
 
 - **Checkout service** and all payment gateway adapters (Fiuu, iPay88, BillPlz, Stripe, Adyen,
   Airwallex, HitPay, Xendit) — deferred; namespace reserved; not on `main`.
+  *(Superseded: Checkout and the Stripe hosted-checkout adapter shipped in 1.2.0. The other
+  eight adapters remain unbuilt with their namespaces reserved — see `ReleaseNotes_1.2.0.md`.)*
 - Agentic LLM features: tool orchestration, agents, vector databases, memory, prompt
   pipelines, automatic cross-provider retries.
 - SPA framework support (React/Vue) — not a Monad concern at any layer.
@@ -63,5 +75,6 @@ on `main` (Checkout excluded by design, not by omission).
 ## Non-negotiable constraints
 
 No partial implementations, no placeholders, no TODO-only code — every feature in scope ships
-end-to-end in production-ready form or is formally deferred (as Checkout is). PHP `>=8.2`.
+end-to-end in production-ready form or is formally deferred (as Checkout was through 1.1.0;
+scheduled and shipped in 1.2.0). PHP `>=8.2`.
 Namespace `Monad\Clarity\`. Strict semver from `1.0.0` onward.
