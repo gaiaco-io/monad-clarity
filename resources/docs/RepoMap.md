@@ -111,23 +111,30 @@ Never modified by application developers.
             │   │   ├── Session.php
             │   │   ├── View.php
             │   │   ├── Console.php          <!-- console kernel: Console::run(array $argv): int -->
-            │   │   ├── Checkout.php         <!-- DEFERRED — not on main -->
+            │   │   ├── Checkout.php         <!-- adapter contract; released 1.2.0 -->
             │   │   ├── Schema.php
             │   │   ├── LLM.php
             │   │   ├── Migration.php
             │   │   ├── Cache.php
             │   │   ├── Event.php
             │   │   ├── HttpClient.php
-            │   │   ├── CheckoutAdapters      <!-- DEFERRED — not on main -->
-            │   │   │   ├── Fiuu.php
-            │   │   │   ├── iPay88.php
-            │   │   │   ├── BillPlz.php
-            │   │   │   ├── StripeCheckout.php
-            │   │   │   ├── StripeConnectExpress.php
-            │   │   │   ├── Adyen.php
-            │   │   │   ├── Airwallex.php
-            │   │   │   ├── HitPay.php
-            │   │   │   └── Xendit.php
+            │   │   ├── Checkout               <!-- value objects + ledger; released 1.2.0 -->
+            │   │   │   ├── CallbackEvent.php
+            │   │   │   ├── CheckoutException.php
+            │   │   │   ├── CheckoutRequest.php
+            │   │   │   ├── CheckoutSession.php
+            │   │   │   ├── LineItem.php
+            │   │   │   ├── Money.php
+            │   │   │   ├── RefundRequest.php
+            │   │   │   ├── RefundResult.php
+            │   │   │   ├── TransactionLedger.php
+            │   │   │   ├── TransactionSnapshot.php
+            │   │   │   └── TransactionStatus.php
+            │   │   ├── CheckoutAdapters
+            │   │   │   └── StripeCheckout.php
+            │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
+            │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
+            │   │   │        ships in its own minor when built end to end — never a stub. -->
             │   │   └── LLMAdapters
             │   │       ├── OpenAI.php
             │   │       ├── Anthropic.php
@@ -155,6 +162,7 @@ Never modified by application developers.
             │       ├── Health.php
             │       ├── Serve.php
             │       ├── Setup.php
+            │       ├── CheckoutInstall.php   <!-- checkout:install; added 1.2.0 -->
             │       ├── CacheClear.php
             │       └── LogsClear.php
             ├── CHANGELOG.md
@@ -183,9 +191,11 @@ Never modified by application developers.
 
 ## Key structural notes
 
-- Checkout and its adapters are shown here as reserved namespace/file locations for reference
-  only. Per `Architecture.md` §8 and `ReleasePolicy.md`, they must not exist on `main` or in
-  any tagged 1.0.0 release.
+- Checkout shipped in 1.2.0: `Services\Checkout` (the adapter contract), `Services\Checkout\*`
+  (value objects and `TransactionLedger`), and one adapter, `CheckoutAdapters\StripeCheckout`.
+  The other eight adapter namespaces remain reserved and their files genuinely do not exist —
+  per `Architecture.md` §8 and `ReleasePolicy.md`, an unbuilt adapter is an absent file, never
+  a stub on `main`. See `ReleaseNotes_1.2.0.md` for what is and is not in that release.
 - `Services\Console.php` is the stable kernel entry point (`CrossRepoContracts.md` §2–3);
   `src/Console/*` command classes are internal and may be reorganised freely in minor releases.
 - `app/Middlewares` in the skeleton and `src/Middlewares` in Clarity are two different things:

@@ -40,6 +40,11 @@ This document is the source of truth for WHAT ships. Build sequence lives in
     13. `php mitosis cache:clear`
     14. `php mitosis logs:clear`
 9. DEFERRED — NOT IN 26.07 Clarity Checkout Service:
+   <!-- Scheduling update (not a change to this frozen spec): the deferral was lifted for
+        1.2.0, which ships §9.6.1-.6 and §9.6.8 plus the StripeCheckout adapter. §9.5 and
+        §9.6.7 remain unbuilt, as do eight of the nine gateways. The requirements below are
+        preserved verbatim as frozen at 1.0.0; see ReleaseNotes_1.2.0.md for what actually
+        shipped and for the three specification decisions §9 left open. -->
     1. Namespace: `Monad\Clarity\Services\Checkout`
     2. Abstraction layer and headless application for various payment gateways to simplify common operations between the merchant's site and the payment gateway
     3. Supports Fiuu, iPay88, BillPlz, Adyen, Airwallex, HitPay, Xendit as a wrapper to payment gateway's existing SDK / API

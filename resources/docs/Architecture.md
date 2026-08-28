@@ -89,16 +89,33 @@ service would either grow into an unmaintainable mega-class or hide adapter logi
 conditionals — the opposite of "every line has a meaningful purpose." One file per adapter
 keeps each translation layer small, testable, and independently versionable.
 
-## 8. Checkout deferral
+## 8. Checkout deferral — lifted in 1.2.0
 
-`Services\Checkout` and `Services\CheckoutAdapters\*` are specified (§9) but **deferred** —
-not built, not released, not present on `main` in 26.07. The namespace is reserved.
+`Services\Checkout` and `Services\CheckoutAdapters\*` were specified (§9) but **deferred**
+through 1.0.0 and 1.1.0 — not built, not released, not present on `main`, namespace reserved.
 
-Rationale: seven-plus payment gateway integrations are a permanent maintenance obligation
-(gateway APIs change independently of Clarity's release cycle) and the single largest scope
-risk in the release. Deferring decouples 26.07's timeline from gateway API stability. Reference
-implementations, if kept at all, live on a feature branch — never on `main` or in a tagged
-release — because shipping non-functional stubs contradicts the "no placeholders" rule.
+Original rationale: seven-plus payment gateway integrations are a permanent maintenance
+obligation (gateway APIs change independently of Clarity's release cycle) and were the single
+largest scope risk in 1.0.0. Deferring decoupled that release's timeline from gateway API
+stability.
+
+**This deferral was lifted for 1.2.0**, which ships the Checkout facade, the transaction
+ledger, and the first adapter (`StripeCheckout`). See `ReleaseNotes_1.2.0.md` for the exact
+scope. The reasoning that produced the deferral is unchanged and still governs how the
+remaining gateways arrive: each is built end to end and ships in its own minor release, never
+as a stub. Eight of the nine gateways in §9.3/§9.4 remain unbuilt, and their absence is an
+absent file rather than a placeholder class — the "no placeholders" rule applies to an
+in-progress service exactly as it applied to a deferred one.
+
+Two structural consequences of Checkout being stateful, where LLM is not:
+
+- The facade stays a pure adapter contract (§7). Persistence lives beside it in
+  `Services\Checkout\TransactionLedger`, so every gateway shares one ledger instead of each
+  carrying a copy of identical database logic, and neither half needs the other to be tested.
+- The checkout tables are **not** setup-owned. `mitosis setup` still creates exactly
+  `sessions` and `caches`; the checkout tables come from `mitosis checkout:install`, keeping
+  payment tables opt-in for applications that take no payments. See §9 and
+  `CrossRepoContracts.md` §8.
 
 ## 9. Data conventions
 

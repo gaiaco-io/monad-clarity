@@ -45,8 +45,15 @@ local-filesystem implementation.
   hardcodes, logs, or persists raw API keys (Logger's redaction utility, `Utils\Redactor`,
   must treat these as sensitive by default).
 - **Authentication (Google SSO)**: outbound HTTPS to Google's OAuth endpoints via HttpClient.
-- **Checkout (deferred)**: would introduce outbound dependencies on each payment gateway;
-  not applicable until Checkout ships.
+- **Checkout adapters** (1.2.0 onward): outbound HTTPS to each configured payment gateway.
+  Currently that means Stripe (`api.stripe.com`) via `CheckoutAdapters\StripeCheckout`;
+  each further gateway adds its own host. Gateway secret keys and webhook signing secrets
+  come from application config/`.env` and are treated exactly as provider API keys above —
+  never hardcoded, logged, or persisted, and sensitive to `Utils\Redactor` by default.
+  Note the dependency is bidirectional, unlike every other entry here: gateways deliver
+  **inbound** webhook callbacks, so the callback route must be publicly reachable and must
+  not sit behind authentication. Callback handling is idempotent, which matters because
+  gateways redeliver on any non-2xx or timeout.
 
 ## 5. Health checks (`php mitosis health`, §8.11)
 

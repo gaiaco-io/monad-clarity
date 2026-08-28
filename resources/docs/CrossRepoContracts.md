@@ -57,10 +57,12 @@ these files frozen.
   code (0 success, non-zero failure).
 - The kernel loads `app/routes/cli.php` from the application, where developers register
   custom commands. The registration API exposed to `cli.php` is part of this contract.
-- The 15 built-in commands and their names (`make:controller`, `make:model`, `make:migration`,
+- The 16 built-in commands and their names (`make:controller`, `make:model`, `make:migration`,
   `make:service`, `migrate`, `migrate:status`, `migrate:rollback`, `db:seed`, `db:execute`,
-  `test`, `health`, `serve`, `cache:clear`, `logs:clear`, `setup`) are stable; removing or
-  renaming one is semver-major. Adding commands is semver-minor.
+  `test`, `health`, `serve`, `cache:clear`, `logs:clear`, `setup`, `checkout:install`) are
+  stable; removing or renaming one is semver-major. Adding commands is semver-minor.
+  `checkout:install` was added in 1.2.0 (`ReleaseNotes_1.2.0.md` §1.4); the other fifteen
+  date from 1.0.0.
 - `test` delegates to the bundled PHPUnit against the skeleton's test suite. No bespoke runner.
 - `serve` binds the PHP built-in server to port 8000 using `public/router.php`.
 
@@ -119,14 +121,22 @@ body-size limits, structured `400` errors, and `415` for JSON-required routes.
 - Convention: built-in tables use `DATETIME` (second precision) and UUID `char(36)`
   primary keys. Schema service defaults to UUID PKs with a configurable integer option (§10.5).
 - Altering a setup-owned table's DDL is semver-major and requires a shipped migration.
+- The set of setup-owned tables is exactly `sessions` and `caches`, and 1.2.0 did **not**
+  extend it. Checkout's three tables (`checkout_transactions`,
+  `checkout_transaction_statuses`, `checkout_refunds`) are created by
+  `php mitosis checkout:install`, not by `setup`, and are therefore **not** a compatibility
+  surface under this section — payments are opt-in, and an application that takes none never
+  creates them. Their definition lives in `Console\CheckoutInstall`'s blueprint methods.
 
 ## 9. Versioning & release policy
 
 - Both packages follow strict semver with tagged releases and CHANGELOG entries.
 - Clarity `1.0.0` is tagged first; the skeleton pins `^1.0` and is tagged after.
-- The name `Checkout` and namespace `Monad\Clarity\Services\Checkout` /
-  `Monad\Clarity\Services\CheckoutAdapters\*` are RESERVED but deferred: they must not appear
-  on `main` or in any tagged release until formally scheduled (see ReleaseNotes §9).
+- `Monad\Clarity\Services\Checkout`, `Services\Checkout\*` and
+  `Services\CheckoutAdapters\StripeCheckout` were RESERVED and deferred through 1.1.0; they
+  were formally scheduled and **released in 1.2.0** (see `ReleaseNotes_1.2.0.md`). The
+  remaining `Services\CheckoutAdapters\*` namespaces stay reserved and must not appear on
+  `main` as stubs — each ships in its own minor when built end to end.
 
 ## 10. Change procedure for this document
 

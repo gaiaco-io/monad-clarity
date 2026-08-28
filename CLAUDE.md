@@ -22,8 +22,12 @@ the application skeleton lives in the separate `monad/skeleton` repo.
   under `Monad\Clarity\Console\*` (internal, reorganise freely — see `Architecture.md` §5).
 - IMPORTANT: No placeholders, no mock-only flows, no TODO-only code, no partial implementations.
   Every feature is built end to end in production-ready form or not started.
-- Checkout (`src/Services/Checkout.php`, `src/Services/CheckoutAdapters/`) is DEFERRED —
-  it must never exist on `main` or in any tagged release until formally scheduled.
+- Checkout was DEFERRED through 1.1.0 and was formally scheduled for 1.2.0. `Checkout.php`,
+  `Checkout/`, and `CheckoutAdapters/StripeCheckout.php` are now on `main`. The remaining
+  eight adapters (`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`,
+  `HitPay`, `Xendit`) are still unbuilt: their namespaces are reserved, and an unbuilt adapter
+  must be an absent file, never a stub. §9.5 (custom checkout page) and §9.6.7 (reports) are
+  also still open — see `ReleaseNotes_1.2.0.md`.
 - Semver strictly: patch = fixes, minor = additive, major = breaking. Update CHANGELOG.md with every change.
 - Built-in tables use `DATETIME` (second precision) and UUID `char(36)` primary keys by default.
 - `sessions.user_id` is NULLABLE (guest/pre-login sessions are valid).
@@ -44,7 +48,7 @@ canonical for every document below — where the skeleton repo carries a mirror,
 - `GapAnalysis_BuildPlan_1.0.0.md` — WHEN/in what order: 8 dependency-sequenced phases,
   resolved decisions, acceptance gate detail.
 - `Architecture.md` — WHY each structural decision was made (namespace, PHP floor, middleware
-  and Console boundaries, PSR strategy, facade/adapter pattern, Checkout deferral, data
+  and Console boundaries, PSR strategy, facade/adapter pattern, Checkout scheduling, data
   conventions). Read before questioning why something is structured the way it is.
 - `API_Contracts.md` — the method-level public API surface: every service/middleware's
   signatures. What application code and the skeleton write against.
@@ -59,6 +63,9 @@ canonical for every document below — where the skeleton repo carries a mirror,
 - `TestingStrategy.md` — test tiers by risk (security-critical first), coverage philosophy,
   CI requirements, skeleton-integration smoke testing.
 - `RepoMap.md` — final directory trees for both repos.
+- `ReleaseNotes_1.2.0.md` — WHAT ships in 1.2.0 (Checkout + StripeCheckout), what explicitly
+  does not, and the three §9 specification gaps resolved there. Canonical for Checkout;
+  `ReleaseNotes_1.0.0.md` §9 is the frozen original spec and is not edited.
 
 **Conflict order:** ReleaseNotes defines requirements → CrossRepoContracts defines boundaries →
 BuildPlan defines sequence → Architecture explains rationale. If two documents disagree, stop

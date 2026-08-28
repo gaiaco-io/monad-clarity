@@ -6,6 +6,55 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-08-28
+
+### Added
+- **`Services\Checkout`** — payment gateway abstraction, lifting the deferral that held
+  `Monad\Clarity\Services\Checkout` and `Services\CheckoutAdapters\*` off `main` through
+  1.1.0. An abstract adapter contract in the same shape as `Services\LLM`, with four
+  operations: `createCheckout()`, `retrieveStatus()`, `parseCallback()`, and `refund()`.
+  Provider-agnostic value objects live in `Services\Checkout\*`, so switching gateway changes
+  one constructor call and nothing else. See `resources/docs/ReleaseNotes_1.2.0.md` for the
+  full scope and for the three specification questions §9 left open.
+- **`Services\Checkout\TransactionLedger`** — transaction records, insert-only status history
+  with a failure-reason column, and refund records. Kept outside the facade so every future
+  gateway shares one persistence layer rather than each carrying a copy of identical database
+  logic. Callbacks and refunds are idempotent on the gateway's own identifiers under unique
+  indexes: gateways redeliver callbacks by design, and a gateway call that times out after
+  being accepted gets retried. Amounts are integer minor units beside an ISO 4217 code — no
+  decimal or float type appears anywhere in Checkout, because zero-decimal currencies (JPY,
+  KRW) and three-decimal ones (BHD, KWD) both make a ×100 conversion layer a rounding bug.
+  Append-only rows use UUIDv7 primary keys: built-in tables store `DATETIME` at second
+  precision, so `created_at` alone cannot order a history and a UUIDv4 tie-break would order
+  same-second rows at random.
+- **`Services\CheckoutAdapters\StripeCheckout`** — Stripe's hosted payment page via the
+  Checkout Sessions API, with refunds and signed webhook callbacks. Adds **no new Composer
+  dependency**: it speaks Stripe's form-encoded REST API through the existing
+  `Services\HttpClient`, and signature verification uses `Utils\HMAC` and
+  `Utils\ConstantTime`, which already provide the primitives. Webhook verification enforces
+  Stripe's replay tolerance and accepts any one of several signatures during secret rotation.
+  `retrieveStatus()` expands the PaymentIntent, because a Checkout Session's `payment_status`
+  only distinguishes paid from unpaid — without it, a payment that failed asynchronously
+  would re-query as `pending` indefinitely, defeating re-query as the reconciliation path for
+  a callback that never arrived.
+- **`php mitosis checkout:install`** — a sixteenth built-in command, creating
+  `checkout_transactions`, `checkout_transaction_statuses`, and `checkout_refunds`.
+  Deliberately separate from `setup`: the checkout tables are not a setup-owned compatibility
+  surface (`CrossRepoContracts.md` §8 still names exactly `sessions` and `caches`), and
+  payments are opt-in — an application that takes none creates no payment tables. Its
+  blueprint methods are the single canonical definition of the checkout schema, exercised
+  directly by the ledger's own tests so the shipped DDL and the code writing to it cannot
+  drift.
+
+### Notes
+- Semver **minor**: every change is additive. No setup-owned table DDL changed, no
+  entry-point or `Console::run()` signature changed, no public method removed or narrowed.
+- Not in this release, and still specified in `ReleaseNotes_1.0.0.md` §9: the custom checkout
+  page (§9.5), built-in report generation (§9.6.7), and eight of the nine gateways
+  (`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`, `HitPay`,
+  `Xendit`). Their namespaces stay reserved and their files genuinely do not exist — an
+  unbuilt adapter is an absent file, never a stub.
+
 ## [1.1.0] - 2026-08-10
 
 ### Added
