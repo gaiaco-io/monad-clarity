@@ -165,7 +165,65 @@ final class StripeCheckoutTest extends TestCase
 
         self::assertSame($expected, $snapshot->status);
         self::assertSame('GET', $fake->lastRequest()->getMethod());
-        self::assertSame('https://api.stripe.com/v1/checkout/sessions/cs_test_123', (string) $fake->lastRequest()->getUri());
+        self::assertStringStartsWith(
+            'https://api.stripe.com/v1/checkout/sessions/cs_test_123',
+            (string) $fake->lastRequest()->getUri()
+        );
+    }
+
+    public function testRetrieveStatusExpandsThePaymentIntentSoFailuresAreVisible(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::openSessionResponse());
+
+        $this->adapter($fake)->retrieveStatus('cs_test_123');
+
+        self::assertStringContainsString(
+            'expand%5B0%5D=payment_intent',
+            (string) $fake->lastRequest()->getUri()
+        );
+    }
+
+    /**
+     * A Checkout Session reports only paid/unpaid, so without the expanded PaymentIntent a
+     * failed async payment would re-query as pending indefinitely.
+     */
+    public function testRetrieveStatusReportsAFailureCarriedOnTheExpandedPaymentIntent(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'status' => 'complete',
+            'payment_status' => 'unpaid',
+            'amount_total' => 2500,
+            'currency' => 'usd',
+            'payment_intent' => [
+                'id' => 'pi_test_456',
+                'status' => 'requires_payment_method',
+                'last_payment_error' => ['message' => 'The bank declined the debit.'],
+            ],
+        ]));
+
+        $snapshot = $this->adapter($fake)->retrieveStatus('cs_test_123');
+
+        self::assertSame(TransactionStatus::Failed, $snapshot->status);
+        self::assertSame('The bank declined the debit.', $snapshot->failureReason);
+        self::assertSame('pi_test_456', $snapshot->paymentReference);
+    }
+
+    public function testRetrieveStatusReportsACancelledPaymentIntentAsCancelled(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'status' => 'complete',
+            'payment_status' => 'unpaid',
+            'amount_total' => 2500,
+            'currency' => 'usd',
+            'payment_intent' => ['id' => 'pi_test_456', 'status' => 'canceled'],
+        ]));
+
+        $snapshot = $this->adapter($fake)->retrieveStatus('cs_test_123');
+
+        self::assertSame(TransactionStatus::Cancelled, $snapshot->status);
+        self::assertNull($snapshot->failureReason);
     }
 
     // ---------------------------------------------------------------------------------

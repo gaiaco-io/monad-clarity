@@ -241,6 +241,25 @@ final class TransactionLedgerTest extends TestCase
         self::assertSame(1000, $this->ledger->totalRefunded($id)->minorUnits);
     }
 
+    /**
+     * The retry case idempotency exists for — a gateway call that timed out after the
+     * refund was accepted. A full refund leaves nothing refundable, so recognising the
+     * duplicate has to come before the refundable-amount check, or the retry is rejected
+     * as an overspend rather than recognised as the same refund.
+     */
+    public function testRetryingAFullRefundIsRecognisedRatherThanRejectedAsAnOverspend(): void
+    {
+        $id = $this->settled();
+        $refund = $this->refund('re_1', 2500);
+
+        self::assertNotNull($this->ledger->recordRefund($id, $refund));
+        self::assertNull($this->ledger->recordRefund($id, $refund));
+
+        self::assertCount(1, $this->ledger->refunds($id));
+        self::assertSame(2500, $this->ledger->totalRefunded($id)->minorUnits);
+        self::assertSame(0, $this->ledger->refundableAmount($id)->minorUnits);
+    }
+
     // ---------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------

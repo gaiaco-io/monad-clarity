@@ -113,7 +113,17 @@ final class StripeCheckout extends Checkout
 
     public function retrieveStatus(string $reference, int $timeoutSeconds = 30): TransactionSnapshot
     {
-        $session = $this->send('GET', '/checkout/sessions/' . rawurlencode($reference), [], $timeoutSeconds);
+        // The PaymentIntent is expanded because a Checkout Session never reports a failure
+        // on its own — `payment_status` only ever distinguishes paid from unpaid. Without
+        // this, a payment that failed asynchronously would re-query as `pending` forever,
+        // which defeats the point of re-query being the reconciliation path for a callback
+        // that never arrived (§9.6.3 → §9.6.5).
+        $session = $this->send(
+            'GET',
+            '/checkout/sessions/' . rawurlencode($reference),
+            ['expand' => ['payment_intent']],
+            $timeoutSeconds
+        );
         $status = $this->mapSessionStatus($session);
 
         return new TransactionSnapshot(
@@ -347,6 +357,21 @@ final class StripeCheckout extends Checkout
             return TransactionStatus::Success;
         }
 
+        // A failure is only ever visible on the PaymentIntent, and only when it has been
+        // expanded — retrieveStatus() asks for it; a webhook payload carries a bare id, and
+        // that path reads the failure from the event type instead.
+        $intent = $session['payment_intent'] ?? null;
+
+        if (is_array($intent)) {
+            if ((string) ($intent['status'] ?? '') === 'canceled') {
+                return TransactionStatus::Cancelled;
+            }
+
+            if (isset($intent['last_payment_error'])) {
+                return TransactionStatus::Failed;
+            }
+        }
+
         return match (isset($session['status']) ? (string) $session['status'] : null) {
             'expired' => TransactionStatus::Cancelled,
             default => TransactionStatus::Pending,
@@ -358,12 +383,18 @@ final class StripeCheckout extends Checkout
      */
     private function failureReasonOf(array $object, ?string $eventType = null): ?string
     {
-        $error = $object['last_payment_error'] ?? null;
+        $intent = $object['payment_intent'] ?? null;
 
-        if (is_array($error) && isset($error['message'])) {
-            return (string) $error['message'];
+        foreach ([$object, is_array($intent) ? $intent : []] as $candidate) {
+            $error = $candidate['last_payment_error'] ?? null;
+
+            if (is_array($error) && isset($error['message'])) {
+                return (string) $error['message'];
+            }
         }
 
+        // Better the gateway's own event name than nothing: the failure_reason column
+        // exists so an operator can tell why a payment failed without opening a dashboard.
         return $eventType;
     }
 

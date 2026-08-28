@@ -89,8 +89,11 @@ final class TransactionLedger
      * Apply a verified callback (§9.6.4) to the transaction it names, appending a status
      * row and updating the transaction (§9.6.5).
      *
-     * @return bool False if this exact gateway event was already recorded — a redelivery,
-     *         which is normal traffic and not an error.
+     * @return bool True if the transaction moved. False covers the two cases where it did
+     *         not: the event was already recorded (a redelivery), or the transaction had
+     *         already settled and the status row was filed without overriding it. Both mean
+     *         "handled, nothing further to do" — a webhook endpoint acknowledges either —
+     *         so they share a return value. Call statusHistory() to tell them apart.
      */
     public function recordCallback(CallbackEvent $event): bool
     {
@@ -160,6 +163,14 @@ final class TransactionLedger
 
         if ($transaction === null) {
             throw new CheckoutException(sprintf('No transaction "%s" to refund against.', $transactionId));
+        }
+
+        // Recognising a repeat has to come first. A full refund leaves nothing refundable,
+        // so checking the remaining amount before the duplicate would reject the retry as
+        // an overspend — precisely the case idempotency exists for, since a gateway call
+        // that timed out after being accepted is retried with the same refund id.
+        if ($this->findRefund($refund->gatewayRefundId) !== null) {
+            return null;
         }
 
         $remaining = $this->refundableAmount($transactionId);
@@ -238,6 +249,20 @@ final class TransactionLedger
         DB::run(
             sprintf('SELECT * FROM %s WHERE id = ?', self::TRANSACTIONS_TABLE),
             [$transactionId],
+            $this->context
+        );
+
+        return DB::fetch() ?: null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function findRefund(string $gatewayRefundId): ?array
+    {
+        DB::run(
+            sprintf('SELECT * FROM %s WHERE gateway_refund_id = ?', self::REFUNDS_TABLE),
+            [$gatewayRefundId],
             $this->context
         );
 
