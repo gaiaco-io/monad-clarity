@@ -155,6 +155,24 @@ final class StripeCheckout extends Checkout
             throw new CheckoutException(sprintf('Stripe webhook "%s" carried no event object.', $type));
         }
 
+        // A Stripe webhook endpoint receives every event type enabled on it, and the default
+        // is all of them — `product.created`, `charge.succeeded`, `payment_intent.*` and the
+        // rest arrive at the same URL as the checkout events. Without this guard those parse
+        // "successfully" into a CallbackEvent whose gatewayReference is a product or charge
+        // id, which is not a checkout reference at all. Stripe stamps every object with its
+        // own type, so the discriminator is already in the payload.
+        $objectType = isset($object['object']) ? (string) $object['object'] : 'unknown';
+
+        if ($objectType !== 'checkout.session') {
+            throw new CheckoutException(sprintf(
+                'Stripe webhook "%s" carries a "%s" object, not a checkout.session — this adapter cannot '
+                . 'interpret it. Endpoints receive every enabled event type; route only checkout.session.* '
+                . 'events here, or catch this and ignore the rest.',
+                $type,
+                $objectType
+            ));
+        }
+
         $status = match ($type) {
             'checkout.session.async_payment_succeeded' => TransactionStatus::Success,
             'checkout.session.async_payment_failed' => TransactionStatus::Failed,

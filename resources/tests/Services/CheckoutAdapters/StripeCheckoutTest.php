@@ -342,6 +342,55 @@ final class StripeCheckoutTest extends TestCase
         self::assertSame('The bank declined the debit.', $event->failureReason);
     }
 
+    /**
+     * A Stripe endpoint receives every event type enabled on it, and the default is all of
+     * them. Found by a live `stripe listen` run: without the object-type guard these parsed
+     * "successfully" into a CallbackEvent whose gatewayReference was a product or charge id.
+     *
+     * @return list<array{string, string, string}>
+     */
+    public static function nonCheckoutEvents(): array
+    {
+        return [
+            ['product.created', 'product', 'prod_V9bcHuoKi1ahsr'],
+            ['price.created', 'price', 'price_1U9IP3AIdo'],
+            ['charge.succeeded', 'charge', 'ch_3U9IP5AIdoJYd'],
+            ['payment_intent.succeeded', 'payment_intent', 'pi_3U9IP5AIdoJYd'],
+        ];
+    }
+
+    #[DataProvider('nonCheckoutEvents')]
+    public function testParseCallbackRefusesAnEventThatIsNotACheckoutSession(
+        string $type,
+        string $objectType,
+        string $objectId
+    ): void {
+        $payload = json_encode([
+            'id' => 'evt_unrelated',
+            'type' => $type,
+            'data' => ['object' => ['id' => $objectId, 'object' => $objectType]],
+        ], JSON_THROW_ON_ERROR);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/not a checkout\.session/');
+
+        $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+    }
+
+    public function testParseCallbackRefusesAnEventWhoseObjectHasNoType(): void
+    {
+        $payload = json_encode([
+            'id' => 'evt_untyped',
+            'type' => 'checkout.session.completed',
+            'data' => ['object' => ['id' => 'cs_test_123']],
+        ], JSON_THROW_ON_ERROR);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/"unknown" object/');
+
+        $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+    }
+
     public function testParseCallbackMapsExpiryToCancelled(): void
     {
         $payload = self::eventPayload('evt_3', 'checkout.session.expired', ['status' => 'expired']);

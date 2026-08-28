@@ -146,6 +146,19 @@ Semver **minor**. Every change is additive:
   `TestingStrategy.md` Tier 4's rule for LLM adapters.
 - The ledger's tests run against the very blueprint closures `checkout:install` emits, so the
   shipped DDL and the code that writes to it cannot drift.
+- **Verified live against Stripe in test mode** before tagging, not only against mocks:
+  session creation with nested line items read back and compared field by field, idempotency
+  replay returning the original session, `expand[]=payment_intent` on re-query, a real
+  confirmed PaymentIntent refunded partially then fully with an over-refund rejected, and a
+  zero-decimal (JPY) amount confirmed unscaled. Callbacks were verified end to end through
+  `stripe listen` — real Stripe-generated signatures, which is the one thing the mocked suite
+  structurally cannot prove, since it signs with the same helper it verifies with.
+
+  That run found one defect the mocks could not: `parseCallback()` accepted **any** Stripe
+  event type, returning a `CallbackEvent` whose `gatewayReference` was a product or charge id
+  for unrelated traffic. Stripe endpoints receive every enabled event type by default, so this
+  was routine traffic rather than an edge case. Fixed by requiring a `checkout.session` object
+  and throwing otherwise.
 
 **Outstanding before tagging** (see `ReleasePolicy.md` § Packagist publication checklist):
 

@@ -36,7 +36,11 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   `retrieveStatus()` expands the PaymentIntent, because a Checkout Session's `payment_status`
   only distinguishes paid from unpaid — without it, a payment that failed asynchronously
   would re-query as `pending` indefinitely, defeating re-query as the reconciliation path for
-  a callback that never arrived.
+  a callback that never arrived. `parseCallback()` accepts only events carrying a
+  `checkout.session` object and throws a `CheckoutException` naming the actual object type
+  for anything else — a Stripe endpoint receives every event type enabled on it, and the
+  default is all of them, so `product.created` and `charge.succeeded` arrive at the same URL.
+  Route only `checkout.session.*` events to the adapter, or catch and ignore the rest.
 - **`php mitosis checkout:install`** — a sixteenth built-in command, creating
   `checkout_transactions`, `checkout_transaction_statuses`, and `checkout_refunds`.
   Deliberately separate from `setup`: the checkout tables are not a setup-owned compatibility
