@@ -6,6 +6,7 @@ namespace Monad\Clarity\Services;
 
 use Monad\Clarity\Console\Arguments;
 use Monad\Clarity\Console\CacheClear;
+use Monad\Clarity\Console\CheckoutInstall;
 use Monad\Clarity\Console\DBExecute;
 use Monad\Clarity\Console\DBSeed;
 use Monad\Clarity\Console\Health;
@@ -52,6 +53,7 @@ abstract class Console
         'cache:clear' => CacheClear::class,
         'logs:clear' => LogsClear::class,
         'setup' => Setup::class,
+        'checkout:install' => CheckoutInstall::class,
     ];
 
     /** @var array<string, callable|string> */

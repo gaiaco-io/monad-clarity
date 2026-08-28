@@ -13,30 +13,33 @@ use Monad\Clarity\Services\Checkout\RefundResult;
 use Monad\Clarity\Services\Checkout\TransactionLedger;
 use Monad\Clarity\Services\Checkout\TransactionSnapshot;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
+use Monad\Clarity\Console\CheckoutInstall;
 use Monad\Clarity\Services\DB;
 use Monad\Clarity\Services\Event;
-use Monad\Clarity\Services\Migration;
+use Monad\Clarity\Services\Schema;
 use PDO;
 use PHPUnit\Framework\Attributes\After;
 use PHPUnit\Framework\Attributes\Before;
 use PHPUnit\Framework\TestCase;
 
 /**
- * The ledger runs against the real checkout migration on in-memory SQLite, so these tests
- * cover the schema as shipped — including the unique indexes the idempotency guarantees
- * actually depend on.
+ * The ledger runs against the very blueprints `mitosis checkout:install` emits, on
+ * in-memory SQLite — so these tests cover the schema exactly as shipped, including the
+ * unique indexes the idempotency guarantees actually depend on. Exercising the command's
+ * own closures rather than a second copy of the DDL is what keeps the two from drifting.
  */
 final class TransactionLedgerTest extends TestCase
 {
-    private const MIGRATIONS_PATH = __DIR__ . '/../../../migrations';
-
     private TransactionLedger $ledger;
 
     #[Before]
     public function setUpLedgerSchema(): void
     {
         DB::useConnection(new PDO('sqlite::memory:'));
-        Migration::migrate(self::MIGRATIONS_PATH);
+
+        Schema::createTable(TransactionLedger::TRANSACTIONS_TABLE, CheckoutInstall::transactionsBlueprint());
+        Schema::createTable(TransactionLedger::STATUSES_TABLE, CheckoutInstall::statusesBlueprint());
+        Schema::createTable(TransactionLedger::REFUNDS_TABLE, CheckoutInstall::refundsBlueprint());
 
         $this->ledger = new TransactionLedger();
     }
