@@ -6,6 +6,13 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Changed
+- `ReleasePolicy.md`'s Packagist publication checklist gains a website-documentation step.
+  The docs at `monad.gaiaco.io` live in a separate repo as hand-authored pages plus a
+  hardcoded nav, with nothing deriving them from this one — so 1.2.0 shipped Checkout, a
+  gateway adapter, and a sixteenth `mitosis` command with no documentation, and no checklist
+  item would have caught it. Documentation-only; no code change.
+
 ## [1.2.0] - 2026-08-28
 
 ### Added
