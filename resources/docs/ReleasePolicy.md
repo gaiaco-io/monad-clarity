@@ -81,7 +81,15 @@ stub in the meantime. An unbuilt adapter is an absent file.
 5. `.gitattributes` `export-ignore` list confirmed current: `/resources`, `/CLAUDE.md`, and
    the `.gitattributes`/`.gitignore` files themselves are excluded from the dist archive.
 6. Tag pushed; Packagist auto-update webhook (or manual update) confirmed.
-7. `CrossRepoContracts.md` and `RepoMap.md` mirrors in the skeleton repo checked for drift
+7. **Website documentation updated for anything user-facing this release adds or changes.**
+   `monad.gaiaco.io`'s docs live in the separate `monad-www` repo as hand-authored content
+   files plus a *hardcoded* nav (`app/views/Partials/DocsNavData.php` carries literal entry
+   lists and counts). Nothing derives them from this repo, so a new service, middleware,
+   utility, or `mitosis` command reaches the site only if someone writes the page. Checkout
+   shipped in 1.2.0 and was absent from the docs until it was noticed by hand — this item
+   exists so that is caught here instead. A release that adds nothing user-facing ticks this
+   item and moves on; one that does needs the `monad-www` change merged before the tag.
+8. `CrossRepoContracts.md` and `RepoMap.md` mirrors in the skeleton repo checked for drift
    against the canonical copies in this repo; sync if needed (per `CrossRepoContracts.md`
    §10 and the equivalent procedure `RepoMap.md` states for itself). Also worth a skim for
    staleness against the actual codebase while checking — a mirror can be byte-identical
