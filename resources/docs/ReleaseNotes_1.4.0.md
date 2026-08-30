@@ -428,12 +428,31 @@ Not asserted from the code — driven against a `create-project` of the skeleton
 - A third run reports `Checkout is already installed: all four tables were already present.`
 - `php mitosis health` is green on the upgraded project, and on a fresh one.
 
-### 5.4 The rest of the checklist
+### 5.4 The rest of the checklist — all done at tagging
 
-- `php mitosis health` green on a fresh `create-project` against the **tagged** version.
-- **Website documentation** — checklist item 7. Subscriptions are user-facing and `monad-www`'s
-  nav is hardcoded, so a page and its nav entry need merging before the tag.
-- **`CrossRepoContracts.md` and `RepoMap.md` mirrors** in `monad/skeleton` synced. Unlike 1.3.0,
-  this release edits `CrossRepoContracts.md`, so its §10 procedure applies.
+Recorded after the fact, so a later reader can see what was actually verified rather than what
+was intended. `ReleasePolicy.md`'s numbering:
 
-This is a payment integration; mocked coverage is not evidence that it works.
+1. **CHANGELOG** cut to `[1.4.0] - 2026-08-31`. ✔
+2. **`composer.json` reviewed.** The `dev-main` branch alias was still `1.0.x-dev`, stale since
+   1.2.0 and misleading to anyone requiring `dev-main`; now `1.4.x-dev`. ✔
+3. **Full suite green** — 783 tests on PHP 8.2 and 8.3 in CI. ✔
+4. **`php mitosis health` green on a fresh `create-project` against the tagged version**, resolved
+   from Packagist rather than a path repository, with `setup`, `checkout:install` and `migrate`
+   all run first. Exit code 0 on all five checks. ✔
+5. **`.gitattributes` export-ignore confirmed against the real dist**: the published zipball
+   contains `src`, `composer.json`, `CHANGELOG.md`, `LICENSE`, `README.md` and
+   `phpunit.xml.dist` — no `resources/`, no `CLAUDE.md`. ✔
+6. **Tag pushed and Packagist updated**, which it picked up immediately. A GitHub Release was
+   published too, not just a tag — `ChangelogAutomation.md` §2b keys the website's `/changelog`
+   on `release`/`published`, and 1.2.0 went unrecorded there for exactly that reason. ✔
+7. **Website documentation** merged before the tag (`monad-www` #6). The Checkout page had said
+   "Paddle covers one-time payments only; its subscription surface is not wrapped" — true when
+   written, false as of this release. Extended rather than given a new nav entry: there is no
+   `Services\Subscription`, and listing one under Services would misrepresent the framework. ✔
+8. **`CrossRepoContracts.md` and `RepoMap.md` mirrors** synced in `monad/skeleton` (#6). Unlike
+   1.3.0, this release edits `CrossRepoContracts.md`, so its §10 procedure genuinely applied. ✔
+
+This is a payment integration; mocked coverage is not evidence that it works. Two gateway
+questions remain open and are recorded in §5.2 — a genuine `pay.paddle.io` hosted link, and
+`$paymentPageUrl` mode, which needs a domain on Paddle's Website-approval list.
