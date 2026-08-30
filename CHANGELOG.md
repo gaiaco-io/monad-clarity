@@ -50,7 +50,11 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   `totals.total`, not its `subtotal`, which is what the allocator assumes. It is observable
   only on a taxed transaction, since the two figures are equal until tax applies. It also
   found that Paddle refuses any further adjustment while one is pending approval, so partial
-  refunds are serialised behind Paddle's review.
+  refunds are serialised behind Paddle's review. Callbacks were verified end to end against
+  real Paddle-generated signatures through a tunnel — a genuine `transaction.created` parsed
+  and a genuine `customer.created` was refused by the event guard, with a wrong-secret replay
+  of the same deliveries refused as unverified, so a pass means the signature was actually
+  checked.
 
   Additive: no facade method, value object, or table definition changed. See
   `ReleaseNotes_1.3.0.md`, whose §2.1 also records the decision that `ReleaseNotes_1.0.0.md`
