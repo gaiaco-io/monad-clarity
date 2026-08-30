@@ -48,7 +48,10 @@ local-filesystem implementation.
 - **Checkout adapters** (1.2.0 onward): outbound HTTPS to each configured payment gateway.
   Currently that means Stripe (`api.stripe.com`) via `CheckoutAdapters\StripeCheckout` and
   Paddle (`api.paddle.com`, or `sandbox-api.paddle.com` for the sandbox environment) via
-  `CheckoutAdapters\PaddleCheckout`; each further gateway adds its own host. Gateway secret keys and webhook signing secrets
+  `CheckoutAdapters\PaddleCheckout` and, from 1.4.0, `CheckoutAdapters\PaddleSubscription` —
+  the same hosts, the same credentials, and the same two account prerequisites below, since a
+  subscription is started through the same Transactions API; each further gateway adds its own
+  host. Gateway secret keys and webhook signing secrets
   come from application config/`.env` and are treated exactly as provider API keys above —
   never hardcoded, logged, or persisted, and sensitive to `Utils\Redactor` by default.
   Paddle additionally requires a **default payment link** configured on the Paddle account
@@ -61,7 +64,15 @@ local-filesystem implementation.
   Website approval, in sandbox as well as live, or transaction creation fails with
   `transaction_checkout_url_domain_is_not_approved`. Both were confirmed against a live
   sandbox account, the second contradicting the common claim that sandbox approves any domain
-  automatically.
+  automatically, and both reconfirmed for `CheckoutAdapters\PaddleSubscription` in 1.4.0 — a
+  domain already serving as the account's default payment link is still refused as a
+  per-transaction override, because the default-link setting and the Website-approval list are
+  different things.
+  For verification purposes, note a subscription can be created **without a browser**: a
+  `collection_mode: manual` transaction against a customer with a *complete* postal address
+  (region and second line present) reaches `billed` and creates a live subscription with no card
+  involved. `ReleaseNotes_1.3.0.md` §5.3 recorded that route as closed; the blocker was the
+  address, not the customer.
   Note the dependency is bidirectional, unlike every other entry here: gateways deliver
   **inbound** webhook callbacks, so the callback route must be publicly reachable and must
   not sit behind authentication. Callback handling is idempotent, which matters because

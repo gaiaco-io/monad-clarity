@@ -7,6 +7,9 @@ namespace Monad\Clarity\Tests\Console;
 use Monad\Clarity\Console\Arguments;
 use Monad\Clarity\Console\CheckoutInstall;
 use Monad\Clarity\Console\Setup;
+use Monad\Clarity\Services\Checkout\SubscriptionLedger;
+use Monad\Clarity\Services\Checkout\SubscriptionSnapshot;
+use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionLedger;
 use Monad\Clarity\Services\Console;
 use Monad\Clarity\Services\DB;
@@ -39,16 +42,17 @@ final class CheckoutInstallTest extends TestCase
         return (string) ob_get_clean();
     }
 
-    public function testCreatesTheThreeCheckoutTables(): void
+    public function testCreatesTheFourCheckoutTables(): void
     {
         $output = $this->capture(function () {
             self::assertSame(0, (new CheckoutInstall())(Arguments::parse([])));
         });
 
-        self::assertStringContainsString('Checkout install complete', $output);
+        self::assertStringContainsString('4 of 4 tables created', $output);
         self::assertTrue(Schema::hasTable(TransactionLedger::TRANSACTIONS_TABLE));
         self::assertTrue(Schema::hasTable(TransactionLedger::STATUSES_TABLE));
         self::assertTrue(Schema::hasTable(TransactionLedger::REFUNDS_TABLE));
+        self::assertTrue(Schema::hasTable(SubscriptionLedger::SUBSCRIPTIONS_TABLE));
     }
 
     /**
@@ -63,6 +67,7 @@ final class CheckoutInstallTest extends TestCase
         self::assertFalse(Schema::hasTable(TransactionLedger::TRANSACTIONS_TABLE));
         self::assertFalse(Schema::hasTable(TransactionLedger::STATUSES_TABLE));
         self::assertFalse(Schema::hasTable(TransactionLedger::REFUNDS_TABLE));
+        self::assertFalse(Schema::hasTable(SubscriptionLedger::SUBSCRIPTIONS_TABLE));
     }
 
     public function testTheCommandIsRegisteredUnderItsStableName(): void
@@ -165,4 +170,62 @@ final class CheckoutInstallTest extends TestCase
         $this->expectException(\PDOException::class);
         DB::insert(TransactionLedger::REFUNDS_TABLE, $row);
     }
+
+    /**
+     * The whole upgrade path from 1.3.0: an application that already has the first three
+     * tables re-runs the command and gains only the fourth. Schema::createTable emits
+     * CREATE TABLE IF NOT EXISTS, so no migration is needed — this proves it rather than
+     * asserting it in a release note.
+     */
+    public function testInstallIsSafeToReRunOnAnExistingDatabase(): void
+    {
+        // A 1.3.0 database: the three tables the previous release shipped, and no fourth.
+        Schema::createTable(TransactionLedger::TRANSACTIONS_TABLE, CheckoutInstall::transactionsBlueprint());
+        Schema::createTable(TransactionLedger::STATUSES_TABLE, CheckoutInstall::statusesBlueprint());
+        Schema::createTable(TransactionLedger::REFUNDS_TABLE, CheckoutInstall::refundsBlueprint());
+
+        DB::insert(TransactionLedger::TRANSACTIONS_TABLE, [
+            'reference' => 'order-1',
+            'gateway' => 'paddle_checkout',
+            'gateway_reference' => 'txn_existing',
+            'payment_reference' => null,
+            'amount_minor' => 2500,
+            'currency' => 'USD',
+            'status' => 'success',
+            'customer_email' => null,
+            'metadata' => null,
+            'created_at' => '2026-08-30 00:00:00',
+            'updated_at' => '2026-08-30 00:00:00',
+        ]);
+
+        self::assertFalse(Schema::hasTable(SubscriptionLedger::SUBSCRIPTIONS_TABLE));
+
+        $this->capture(function () {
+            self::assertSame(0, (new CheckoutInstall())(Arguments::parse([])));
+        });
+
+        self::assertTrue(Schema::hasTable(SubscriptionLedger::SUBSCRIPTIONS_TABLE));
+
+        DB::run('SELECT COUNT(*) AS total FROM ' . TransactionLedger::TRANSACTIONS_TABLE);
+        self::assertSame(1, (int) DB::fetch()['total'], 'Existing rows must survive the re-run.');
+    }
+
+    public function testASubscriptionIsNeverStoredTwiceUnderOneGatewayReference(): void
+    {
+        $this->capture(static fn () => (new CheckoutInstall())(Arguments::parse([])));
+
+        $ledger = new SubscriptionLedger();
+        $snapshot = new SubscriptionSnapshot(
+            gateway: 'paddle_subscription',
+            gatewayReference: 'sub_test_123',
+            status: SubscriptionStatus::Active,
+        );
+
+        $ledger->recordSnapshot($snapshot);
+        $ledger->recordSnapshot($snapshot);
+
+        DB::run('SELECT COUNT(*) AS total FROM ' . SubscriptionLedger::SUBSCRIPTIONS_TABLE);
+        self::assertSame(1, (int) DB::fetch()['total']);
+    }
+
 }

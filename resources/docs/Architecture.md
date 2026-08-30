@@ -112,13 +112,26 @@ gateways are added is still governed by the maintenance obligation above.
 
 Two structural consequences of Checkout being stateful, where LLM is not:
 
-- The facade stays a pure adapter contract (§7). Persistence lives beside it in
-  `Services\Checkout\TransactionLedger`, so every gateway shares one ledger instead of each
-  carrying a copy of identical database logic, and neither half needs the other to be tested.
+- The facade stays a pure adapter contract (§7). Persistence lives beside it rather than inside
+  it, so every gateway shares one implementation instead of each carrying a copy of identical
+  database logic, and neither half needs the other to be tested.
+
+  The unit of sharing is **one ledger per entity kind, not one ledger for everything**.
+  `Services\Checkout\TransactionLedger` holds transactions, their insert-only status history,
+  and refunds; 1.4.0 added `Services\Checkout\SubscriptionLedger` beside it rather than growing
+  the first. The reason is that `TransactionLedger`'s value is two invariants a reader can rely
+  on — status rows are only ever inserted, and every write a gateway can deliver twice is keyed
+  on that gateway's own id under a unique index — and **neither holds for a subscription**, which
+  is a single mutable row guarded by a monotonic timestamp instead. Folding it in would have
+  turned a class whose worth is two crisp invariants into one whose invariants have exceptions.
+  Both remain gateway-agnostic, which is the property this bullet is actually about. See
+  `ReleaseNotes_1.4.0.md` §2.5 for the full argument and for the weaker guarantee it accepts.
 - The checkout tables are **not** setup-owned. `mitosis setup` still creates exactly
   `sessions` and `caches`; the checkout tables come from `mitosis checkout:install`, keeping
   payment tables opt-in for applications that take no payments. See §9 and
-  `CrossRepoContracts.md` §8.
+  `CrossRepoContracts.md` §8. That command is re-runnable and skips tables already present,
+  which is how a release that adds a checkout table upgrades an existing application without
+  shipping a migration.
 
 ## 9. Data conventions
 

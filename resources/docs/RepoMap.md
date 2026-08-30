@@ -129,9 +129,25 @@ Never modified by application developers.
             │   │   │   ├── RefundResult.php
             │   │   │   ├── TransactionLedger.php
             │   │   │   ├── TransactionSnapshot.php
-            │   │   │   └── TransactionStatus.php
+            │   │   │   ├── TransactionStatus.php
+            │   │   │   <!-- subscriptions; 1.4.0 -->
+            │   │   │   ├── BillingCycle.php
+            │   │   │   ├── BillingInterval.php
+            │   │   │   ├── PaymentFailureBehaviour.php
+            │   │   │   ├── ProrationBillingMode.php
+            │   │   │   ├── ResumeBilling.php
+            │   │   │   ├── ScheduledChange.php
+            │   │   │   ├── ScheduledChangeAction.php
+            │   │   │   ├── SubscriptionEffectiveFrom.php
+            │   │   │   ├── SubscriptionEvent.php
+            │   │   │   ├── SubscriptionItem.php
+            │   │   │   ├── SubscriptionLedger.php
+            │   │   │   ├── SubscriptionSnapshot.php
+            │   │   │   └── SubscriptionStatus.php
             │   │   ├── CheckoutAdapters
             │   │   │   ├── PaddleCheckout.php
+            │   │   │   ├── PaddleSubscription.php   <!-- recurring billing; 1.4.0 -->
+            │   │   │   ├── SpeaksPaddle.php         <!-- trait: what both Paddle adapters share -->
             │   │   │   └── StripeCheckout.php
             │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
@@ -183,6 +199,9 @@ Never modified by application developers.
                 │   ├── GapAnalysis_BuildPlan_1.0.0.md
                 │   ├── PRD.md
                 │   ├── ReleaseNotes_1.0.0.md
+                │   ├── ReleaseNotes_1.2.0.md
+                │   ├── ReleaseNotes_1.3.0.md
+                │   ├── ReleaseNotes_1.4.0.md
                 │   ├── ReleasePolicy.md
                 │   ├── RepoMap.md             <!-- this file -->
                 │   └── TestingStrategy.md

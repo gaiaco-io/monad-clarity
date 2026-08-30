@@ -24,12 +24,19 @@ the application skeleton lives in the separate `monad/skeleton` repo.
   Every feature is built end to end in production-ready form or not started.
 - Checkout was DEFERRED through 1.1.0 and was formally scheduled for 1.2.0. `Checkout.php`,
   `Checkout/`, and `CheckoutAdapters/StripeCheckout.php` are now on `main`, joined in 1.3.0 by
-  `CheckoutAdapters/PaddleCheckout.php`. The eight remaining adapters (`StripeConnectExpress`,
-  `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`, `HitPay`, `Xendit`) are still unbuilt:
-  their namespaces are reserved, and an unbuilt adapter must be an absent file, never a stub.
-  That list is the roadmap's current state, not a closed set — §9's roster is illustrative, so
-  a gateway it never named may be built (`ReleaseNotes_1.3.0.md` §2.1). §9.5 (custom checkout
-  page) and §9.6.7 (reports) are still open — see `ReleaseNotes_1.2.0.md`.
+  `CheckoutAdapters/PaddleCheckout.php` and in 1.4.0 by `CheckoutAdapters/PaddleSubscription.php`
+  (recurring billing) plus the `SpeaksPaddle` trait the two Paddle adapters share. The eight
+  remaining adapters (`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`,
+  `HitPay`, `Xendit`) are still unbuilt: their namespaces are reserved, and an unbuilt adapter
+  must be an absent file, never a stub. That list is the roadmap's current state, not a closed
+  set — §9's roster is illustrative, so a gateway it never named may be built
+  (`ReleaseNotes_1.3.0.md` §2.1), and one gateway may have more than one adapter where its flows
+  genuinely differ. §9.5 (custom checkout page) and §9.6.7 (reports) are still open — see
+  `ReleaseNotes_1.2.0.md`.
+- IMPORTANT: `Services\Checkout` takes **no fifth abstract method**. Adding one breaks every
+  downstream adapter and is semver-major (`ReleaseNotes_1.3.0.md` §2.4). Capabilities only some
+  gateways have — subscriptions, payouts, connected accounts — are public methods on the
+  adapter that has them.
 - Semver strictly: patch = fixes, minor = additive, major = breaking. Update CHANGELOG.md with every change.
 - Built-in tables use `DATETIME` (second precision) and UUID `char(36)` primary keys by default.
 - `sessions.user_id` is NULLABLE (guest/pre-login sessions are valid).
@@ -72,6 +79,14 @@ canonical for every document below — where the skeleton repo carries a mirror,
   decisions: that the gateway roster is illustrative rather than closed, and the three places
   Paddle's behaviour differs from a conventional PSP (no gateway-hosted page, no idempotency
   keys, asynchronous refunds). Read before adding any adapter beyond the reserved eight.
+- `ReleaseNotes_1.4.0.md` — WHAT ships in 1.4.0 (PaddleSubscription, SubscriptionLedger, the
+  `checkout_subscriptions` table, the `SpeaksPaddle` extraction), and eight further §9 decisions.
+  Read before touching subscriptions. The three most load-bearing: a subscription is born from a
+  transaction so `createCheckout()` returns a `txn_` and never a `sub_` (§2.3); `past_due` maps
+  to `Pending` for a subscription and `Failed` for a one-time payment, which is why
+  `mapTransactionStatus()` is abstract on the shared trait (§2.6); and `checkout_subscriptions`
+  is mutable, so its idempotency is an honestly weaker monotonic guard rather than the
+  unique-index guarantee `TransactionLedger` gives (§2.5).
 
 **Conflict order:** ReleaseNotes defines requirements → CrossRepoContracts defines boundaries →
 BuildPlan defines sequence → Architecture explains rationale. If two documents disagree, stop
