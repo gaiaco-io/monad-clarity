@@ -43,7 +43,12 @@ makes non-negotiable: their callback parsing is **Tier 1** and carries the adver
 demanded there, and a mocked suite is not sufficient evidence to tag a release — every adapter
 is also driven live against its gateway's test or sandbox environment before the tag, because
 a suite that signs with the same helper it verifies with cannot prove signature verification
-works. Both `StripeCheckout` and `PaddleCheckout` shipped under that bar.
+works. `StripeCheckout`, `PaddleCheckout` and `PaddleSubscription` all ship under that bar.
+
+Where an adapter shares code with a sibling, the sibling's existing suite passing **unmodified**
+is the acceptance test for the extraction — 1.4.0 carved `SpeaksPaddle` out of `PaddleCheckout`
+and required its 51 tests to stay byte-identical. A test file edited to accommodate a refactor
+has stopped being evidence that the refactor changed nothing.
 
 **Tier 5 — Console:** kernel dispatch (`Services\Console::run()`), each of the 16 command
 classes individually, using a temp filesystem/SQLite fixture rather than touching a real

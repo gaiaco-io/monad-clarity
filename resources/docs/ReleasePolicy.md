@@ -65,7 +65,8 @@ and barred from `main` and from any tagged release until Checkout was formally s
 **Checkout was scheduled and shipped in 1.2.0** (see `ReleaseNotes_1.2.0.md`,
 `Architecture.md` §8). The reservation no longer applies to `Services\Checkout`,
 `Services\Checkout\*`, or to any adapter that has since been built —
-`CheckoutAdapters\StripeCheckout` (1.2.0) and `CheckoutAdapters\PaddleCheckout` (1.3.0).
+`CheckoutAdapters\StripeCheckout` (1.2.0), `CheckoutAdapters\PaddleCheckout` (1.3.0), and
+`CheckoutAdapters\PaddleSubscription` (1.4.0).
 
 The reservation **does** still apply to every unbuilt adapter namespace. Each ships in its own
 minor release when built end to end, and none may appear on `main` as a stub in the meantime.

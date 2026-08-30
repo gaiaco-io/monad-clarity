@@ -186,7 +186,53 @@ Paddle is the merchant of record, so a merchant selling ebooks, SaaS, or softwar
 its own category or the sale is taxed wrongly. Its `$baseUri` argument reaches the sandbox
 (`https://sandbox-api.paddle.com`), which shares nothing with live. The
 eight remaining gateway namespaces are reserved and unbuilt. Tables come from
-`php mitosis checkout:install`, never from `setup`.
+`php mitosis checkout:install`, never from `setup`; the command is re-runnable and skips tables
+already present, which is the upgrade path when a release adds one.
+
+### Subscriptions (1.4.0)
+
+`Monad\Clarity\Services\CheckoutAdapters\PaddleSubscription` — recurring billing, beside
+`PaddleCheckout` as §9.4 reserves `StripeConnectExpress` beside `StripeCheckout`. It implements
+the same four `Checkout` methods, strictly transaction-scoped (a subscription's money movements
+are transactions), and adds seven of its own — **no fifth abstract method on the facade**, which
+would be semver-major per `ReleaseNotes_1.3.0.md` §2.4:
+
+- `retrieveSubscription(string $subscriptionReference, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `parseSubscriptionCallback(string $rawBody, array $headers): Checkout\SubscriptionEvent`
+- `subscriptionReferenceOf(Checkout\CallbackEvent|Checkout\TransactionSnapshot): ?string`
+- `cancel(string, Checkout\SubscriptionEffectiveFrom, int = 30): Checkout\SubscriptionSnapshot`
+- `pause(string, Checkout\SubscriptionEffectiveFrom, ?DateTimeInterface = null, Checkout\ResumeBilling = StartNewBillingPeriod, int = 30): Checkout\SubscriptionSnapshot`
+- `resume(string, Checkout\SubscriptionEffectiveFrom, Checkout\ResumeBilling = StartNewBillingPeriod, int = 30): Checkout\SubscriptionSnapshot`
+- `changePlan(string, list<Checkout\SubscriptionItem>, Checkout\ProrationBillingMode, Checkout\PaymentFailureBehaviour = PreventChange, int = 30): Checkout\SubscriptionSnapshot`
+- `removeScheduledChange(string $subscriptionReference, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+
+Note two gateway constraints the adapter enforces locally rather than letting a caller discover them: `resume()` accepts only `SubscriptionEffectiveFrom::Immediately`, and `pause()`'s `$onResume` requires a `$resumeAt`. While any change is scheduled Paddle refuses every further change to that subscription, which is what `removeScheduledChange()` exists for.
+
+Constructed with its billing cycle, because `createCheckout()`'s signature is fixed and
+`CheckoutRequest` is frozen: `new PaddleSubscription($apiKey, $http, new BillingCycle(BillingInterval::Month), trialPeriod: null, webhookSecret: …, paymentPageUrl: …, taxCategory: 'saas')`.
+One instance means one plan's terms.
+
+**`createCheckout()` returns a `txn_`, never a `sub_`** — there is no `POST /subscriptions`, and
+Paddle creates the subscription when the transaction is paid. Bridge with
+`subscriptionReferenceOf()` or off the `subscription.created` callback.
+
+Value objects in `Monad\Clarity\Services\Checkout\*`: `SubscriptionStatus` (enum: `active`,
+`trialing`, `past_due`, `paused`, `cancelled` — only `cancelled` is terminal, and a customer who
+has clicked cancel is still `active` with a pending change), `SubscriptionSnapshot`
+(`isCancelling()`, `isPausing()`, `accessEndsAt()` — deliberately **no** `grantsAccess()`),
+`SubscriptionEvent`, `ScheduledChange`, `ScheduledChangeAction`, `BillingCycle`,
+`BillingInterval`, `SubscriptionItem` (`::catalogPrice()` / `::inline()`),
+`ProrationBillingMode`, `PaymentFailureBehaviour`, `SubscriptionEffectiveFrom`, `ResumeBilling`.
+
+`Checkout\SubscriptionLedger` — persistence for `checkout_subscriptions`, separate from
+`TransactionLedger` because that class's two invariants do not hold for a mutable record:
+`record()`, `recordSnapshot()`, `linkTransaction()`, `statusOf()`, `find()`,
+`findByGatewayReference()`, `findByReference()`, `findByTransactionReference()`. Idempotency is
+a monotonic guard on the gateway's own timestamp — weaker than the unique-index guarantee
+`TransactionLedger` gives, and documented as such in `ReleaseNotes_1.4.0.md` §2.5.
+
+`CheckoutAdapters\SpeaksPaddle` is an **internal** trait holding what both Paddle adapters
+share. It is not part of the public API surface; adapters are the contract.
 
 ## Middlewares\Csrf — `Monad\Clarity\Middlewares\Csrf`
 

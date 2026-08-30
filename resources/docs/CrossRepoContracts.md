@@ -121,12 +121,16 @@ body-size limits, structured `400` errors, and `415` for JSON-required routes.
 - Convention: built-in tables use `DATETIME` (second precision) and UUID `char(36)`
   primary keys. Schema service defaults to UUID PKs with a configurable integer option (§10.5).
 - Altering a setup-owned table's DDL is semver-major and requires a shipped migration.
-- The set of setup-owned tables is exactly `sessions` and `caches`, and 1.2.0 did **not**
-  extend it. Checkout's three tables (`checkout_transactions`,
-  `checkout_transaction_statuses`, `checkout_refunds`) are created by
-  `php mitosis checkout:install`, not by `setup`, and are therefore **not** a compatibility
-  surface under this section — payments are opt-in, and an application that takes none never
-  creates them. Their definition lives in `Console\CheckoutInstall`'s blueprint methods.
+- The set of setup-owned tables is exactly `sessions` and `caches`, and neither 1.2.0 nor any
+  release since has extended it. Checkout's four tables (`checkout_transactions`,
+  `checkout_transaction_statuses`, `checkout_refunds`, and `checkout_subscriptions`, the last
+  added in 1.4.0) are created by `php mitosis checkout:install`, not by `setup`, and are
+  therefore **not** a compatibility surface under this section — payments are opt-in, and an
+  application that takes none never creates them. Their definition lives in
+  `Console\CheckoutInstall`'s blueprint methods.
+- `checkout:install` is re-runnable, and that is the upgrade path when a release adds a
+  checkout table: each table is skipped when already present. An application on an earlier
+  minor runs the command again and gains only what is new.
 
 ## 9. Versioning & release policy
 
@@ -136,7 +140,10 @@ body-size limits, structured `400` errors, and `415` for JSON-required routes.
   `Services\CheckoutAdapters\StripeCheckout` were RESERVED and deferred through 1.1.0; they
   were formally scheduled and **released in 1.2.0** (see `ReleaseNotes_1.2.0.md`). The
   remaining `Services\CheckoutAdapters\*` namespaces stay reserved and must not appear on
-  `main` as stubs — each ships in its own minor when built end to end.
+  `main` as stubs — each ships in its own minor when built end to end. `PaddleCheckout` shipped
+  in 1.3.0 and `PaddleSubscription` in 1.4.0; §9's roster is illustrative rather than closed
+  (`ReleaseNotes_1.3.0.md` §2.1), and a gateway may have more than one adapter where its flows
+  genuinely differ, as §9.4 already contemplates for Stripe.
 
 ## 10. Change procedure for this document
 

@@ -6,6 +6,120 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-31
+
+### Added
+- **`Services\CheckoutAdapters\PaddleSubscription`** — recurring billing, the first thing
+  Checkout has been asked to do that a single transaction cannot express. It sits beside
+  `PaddleCheckout` exactly as §9.4 reserves `StripeConnectExpress` beside `StripeCheckout`: one
+  gateway, two genuinely different flows, one class each. Subscriptions are started through the
+  Transactions API with a `billing_cycle` on the inline price, then read and changed through
+  `/subscriptions` — `retrieveSubscription()`, `parseSubscriptionCallback()`, `cancel()`,
+  `pause()`, `resume()` and `changePlan()`. **No new Composer dependency**, and no fifth
+  abstract method on `Services\Checkout`: adding one is semver-major (`ReleaseNotes_1.3.0.md`
+  §2.4), so subscription operations are adapter methods, which is also where they honestly
+  belong — most gateways do not sell subscriptions at all.
+
+  **A subscription is born from a transaction, not created by an API call.** There is no
+  `POST /subscriptions`, so `createCheckout()` returns a `txn_` and the `sub_` does not exist
+  until the customer pays. Paddle publishes the link on both sides — `subscription_id` on the
+  transaction, `transaction_id` on the `subscription.created` delivery — and both are read, so
+  a dropped delivery on either side still lands the link. `CheckoutSession::$paymentReference`
+  is deliberately not overloaded to carry it: that field is the handle refunds act on.
+
+  **A cancellation is a scheduled change, not a status.** A customer who cancels stays `Active`
+  with a pending `ScheduledChange` until the period they paid for runs out, and revoking access
+  on the click takes away paid-for service. `SubscriptionSnapshot` carries the two together
+  with `isCancelling()`, `isPausing()` and `accessEndsAt()` — but deliberately **no**
+  `grantsAccess()`, because whether a `past_due` customer keeps the product during dunning is a
+  merchant's decision, not a framework's.
+
+  **`past_due` maps differently in the two Paddle adapters, on purpose.** `PaddleCheckout` reads
+  it as `Failed`, which is terminal and right for a one-time payment. On a renewal it is
+  dunning — Paddle Retain keeps retrying and the charge often completes days later — and because
+  the ledger refuses to move a transaction away from a settled status, inheriting that mapping
+  would have locked every recovered renewal at `failed` for good while its status history
+  quietly recorded the truth. `PaddleSubscription` maps it to `Pending`, and
+  `mapTransactionStatus()` is abstract on the shared trait so neither adapter can acquire the
+  other's mapping by accident. Proved end to end against a real ledger, and confirmed
+  non-vacuous by temporarily restoring the old mapping, under which the test fails.
+
+  An unrecognised subscription status **throws** rather than defaulting, unlike the transaction
+  mapping: every value is an assertion about whether a paying customer keeps access, so there is
+  no safe direction to err in.
+
+- **`Services\Checkout\SubscriptionLedger`** and a fourth `checkout:install` table,
+  `checkout_subscriptions`. A separate class rather than more methods on `TransactionLedger`,
+  whose two stated invariants — insert-only status rows, and every repeatable write keyed on a
+  unique index — are both false for a mutable subscription record. Its idempotency is a
+  monotonic guard on the gateway's own timestamp plus the set of event ids already applied at
+  that second — an **honestly weaker** guarantee than 1.2.0 §2.3's, documented as such: within
+  one second the events cannot be *ordered*, so the last writer wins. Idempotency itself is
+  exact. The unique index stays load-bearing for concurrency rather than redelivery.
+
+- **`PaddleSubscription::removeScheduledChange()`** — withdraws a scheduled cancellation or
+  pause. Not a convenience: while any change is pending, Paddle refuses every further change to
+  that subscription with `subscription_locked_pending_changes`, so without this a customer who
+  cancelled for the end of the period could not pause, re-plan, or cancel immediately, and
+  nothing could withdraw the cancellation — they would have had to wait out their own change of
+  mind. Found by driving the lifecycle against a live sandbox.
+
+- **Twelve subscription value objects** in `Services\Checkout\*`, all gateway-agnostic so a
+  future `StripeSubscription` reuses them: `SubscriptionStatus`, `SubscriptionSnapshot`,
+  `SubscriptionEvent`, `ScheduledChange`, `ScheduledChangeAction`, `BillingCycle`,
+  `BillingInterval`, `SubscriptionItem`, `ProrationBillingMode`, `PaymentFailureBehaviour`,
+  `SubscriptionEffectiveFrom`, `ResumeBilling`. `ProrationBillingMode` is a required argument
+  with no default because Paddle has none and its five values differ by real money charged to a
+  real customer; `SubscriptionEffectiveFrom` is required for the same reason even where Paddle
+  does have a default, since Paddle's own defaults disagree between endpoints.
+
+### Changed
+- **`Services\CheckoutAdapters\SpeaksPaddle`** — the machinery both Paddle adapters share,
+  extracted from `PaddleCheckout` rather than duplicated into the new one: the signed callback
+  scheme, the `data` envelope, cursor pagination, inline item building, the two checkout modes,
+  and the three transaction-scoped operations that read the same endpoints either way. The
+  over-refund guard is the piece that most needed this — a second divergent copy of the code a
+  live sandbox run already found a pagination defect in is exactly the wrong thing to own.
+  `PaddleCheckout` fell from 763 lines to 147, stays `final`, and its public surface is
+  byte-identical; **its 51 tests pass unmodified**, which is the evidence the extraction changed
+  no behaviour. Precedent for a trait shared between siblings is `Console\GeneratesFiles`.
+
+### Fixed
+- **Same-second webhook siblings were not recognised on redelivery**, found by replaying real
+  Paddle deliveries through the ledger. Paddle sent a `subscription.resumed` and a
+  `subscription.updated` **126 microseconds apart**; stored at `DATETIME`'s second precision they
+  are simultaneous. The guard remembered a single `last_event_id`, so redelivering the sibling
+  re-applied it *and returned `true`* — telling the application a real change had happened when
+  none had, and double-firing whatever it does on that. `checkout_subscriptions.last_event_id`
+  is now `last_event_ids`, the set of ids applied at the stored second, reset whenever a newer
+  second arrives so it cannot grow without bound. Verified against the captured deliveries:
+  2 of 4 wrongly moved the record before, 0 of 4 after.
+- **`pause()` was broken for every indefinite pause**, found against a live Paddle sandbox. It
+  sent `on_resume` unconditionally, and Paddle refuses that — `cannot use on_resume if resume_at
+  is not present` — so a pause with no return date, the commonest kind, failed outright. It now
+  sends `on_resume` only alongside `resume_at`, and refuses the invalid pairing locally with a
+  message that explains it. A fixture that accepts any well-formed body could not see this.
+- **`resume()` refuses `SubscriptionEffectiveFrom::NextBillingPeriod` locally.** Paddle accepts
+  only `immediately` and rejects anything else as a bare `bad_request` / "Invalid request."
+  naming no field, which is close to undiagnosable from the reply. Its docblock also claimed a
+  resume could move the date of a not-yet-started pause, as Paddle's own documentation says; the
+  API refuses that with `subscription_must_be_paused`, and the claim is gone.
+- **`php mitosis checkout:install` is now re-runnable**, which is what makes it the upgrade
+  path for a release that adds a table. A second run previously **failed**:
+  `Schema::createTable()` emits `CREATE TABLE IF NOT EXISTS` but then creates the table's
+  indexes unconditionally, so the command died on a duplicate index. Each table is now skipped
+  when already present, via a `hasTable()` check rather than an `IF NOT EXISTS` on the index —
+  MySQL has no `CREATE INDEX IF NOT EXISTS`, so there is no portable clause to reach for. Found
+  by writing the test that claimed the upgrade path worked. Upgrading from 1.3.0 is now
+  `php mitosis checkout:install` and nothing else; no migration ships and none is needed.
+
+  Note the command's success line changed with it, since it now reports how much it did:
+  `Checkout install complete: N of 4 tables created (transaction, status, refund, subscription).`,
+  or `Checkout is already installed: all four tables were already present.` Anything matching on
+  the old `transaction, status, and refund tables ready` wording needs updating.
+
+## [1.3.0] - 2026-08-31
+
 ### Added
 - **`Services\CheckoutAdapters\PaddleCheckout`** — a second checkout gateway, alongside
   `StripeCheckout`. One-time payments through Paddle's Transactions API, refunds through
