@@ -100,12 +100,15 @@ largest scope risk in 1.0.0. Deferring decoupled that release's timeline from ga
 stability.
 
 **This deferral was lifted for 1.2.0**, which ships the Checkout facade, the transaction
-ledger, and the first adapter (`StripeCheckout`). See `ReleaseNotes_1.2.0.md` for the exact
-scope. The reasoning that produced the deferral is unchanged and still governs how the
-remaining gateways arrive: each is built end to end and ships in its own minor release, never
-as a stub. Eight of the nine gateways in §9.3/§9.4 remain unbuilt, and their absence is an
-absent file rather than a placeholder class — the "no placeholders" rule applies to an
-in-progress service exactly as it applied to a deferred one.
+ledger, and the first adapter (`StripeCheckout`); 1.3.0 adds a second, `PaddleCheckout`. See
+`ReleaseNotes_1.2.0.md` and `ReleaseNotes_1.3.0.md` for the exact scope of each. The reasoning
+that produced the deferral is unchanged and still governs how further gateways arrive: each is
+built end to end and ships in its own minor release, never as a stub. Eight of the nine
+gateways in §9.3/§9.4 remain unbuilt, and their absence is an absent file rather than a
+placeholder class — the "no placeholders" rule applies to an in-progress service exactly as it
+applied to a deferred one. §9's roster is illustrative rather than closed, which is what lets
+a gateway it never named be built at all (`ReleaseNotes_1.3.0.md` §2.1); the rate at which
+gateways are added is still governed by the maintenance obligation above.
 
 Two structural consequences of Checkout being stateful, where LLM is not:
 

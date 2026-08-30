@@ -23,11 +23,13 @@ the application skeleton lives in the separate `monad/skeleton` repo.
 - IMPORTANT: No placeholders, no mock-only flows, no TODO-only code, no partial implementations.
   Every feature is built end to end in production-ready form or not started.
 - Checkout was DEFERRED through 1.1.0 and was formally scheduled for 1.2.0. `Checkout.php`,
-  `Checkout/`, and `CheckoutAdapters/StripeCheckout.php` are now on `main`. The remaining
-  eight adapters (`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`,
-  `HitPay`, `Xendit`) are still unbuilt: their namespaces are reserved, and an unbuilt adapter
-  must be an absent file, never a stub. §9.5 (custom checkout page) and §9.6.7 (reports) are
-  also still open — see `ReleaseNotes_1.2.0.md`.
+  `Checkout/`, and `CheckoutAdapters/StripeCheckout.php` are now on `main`, joined in 1.3.0 by
+  `CheckoutAdapters/PaddleCheckout.php`. The eight remaining adapters (`StripeConnectExpress`,
+  `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`, `HitPay`, `Xendit`) are still unbuilt:
+  their namespaces are reserved, and an unbuilt adapter must be an absent file, never a stub.
+  That list is the roadmap's current state, not a closed set — §9's roster is illustrative, so
+  a gateway it never named may be built (`ReleaseNotes_1.3.0.md` §2.1). §9.5 (custom checkout
+  page) and §9.6.7 (reports) are still open — see `ReleaseNotes_1.2.0.md`.
 - Semver strictly: patch = fixes, minor = additive, major = breaking. Update CHANGELOG.md with every change.
 - Built-in tables use `DATETIME` (second precision) and UUID `char(36)` primary keys by default.
 - `sessions.user_id` is NULLABLE (guest/pre-login sessions are valid).
@@ -66,6 +68,10 @@ canonical for every document below — where the skeleton repo carries a mirror,
 - `ReleaseNotes_1.2.0.md` — WHAT ships in 1.2.0 (Checkout + StripeCheckout), what explicitly
   does not, and the three §9 specification gaps resolved there. Canonical for Checkout;
   `ReleaseNotes_1.0.0.md` §9 is the frozen original spec and is not edited.
+- `ReleaseNotes_1.3.0.md` — WHAT ships in 1.3.0 (PaddleCheckout), and four further §9
+  decisions: that the gateway roster is illustrative rather than closed, and the three places
+  Paddle's behaviour differs from a conventional PSP (no gateway-hosted page, no idempotency
+  keys, asynchronous refunds). Read before adding any adapter beyond the reserved eight.
 
 **Conflict order:** ReleaseNotes defines requirements → CrossRepoContracts defines boundaries →
 BuildPlan defines sequence → Architecture explains rationale. If two documents disagree, stop

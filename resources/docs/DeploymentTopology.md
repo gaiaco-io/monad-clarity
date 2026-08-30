@@ -46,10 +46,22 @@ local-filesystem implementation.
   must treat these as sensitive by default).
 - **Authentication (Google SSO)**: outbound HTTPS to Google's OAuth endpoints via HttpClient.
 - **Checkout adapters** (1.2.0 onward): outbound HTTPS to each configured payment gateway.
-  Currently that means Stripe (`api.stripe.com`) via `CheckoutAdapters\StripeCheckout`;
-  each further gateway adds its own host. Gateway secret keys and webhook signing secrets
+  Currently that means Stripe (`api.stripe.com`) via `CheckoutAdapters\StripeCheckout` and
+  Paddle (`api.paddle.com`, or `sandbox-api.paddle.com` for the sandbox environment) via
+  `CheckoutAdapters\PaddleCheckout`; each further gateway adds its own host. Gateway secret keys and webhook signing secrets
   come from application config/`.env` and are treated exactly as provider API keys above —
   never hardcoded, logged, or persisted, and sensitive to `Utils\Redactor` by default.
+  Paddle additionally requires a **default payment link** configured on the Paddle account
+  (Paddle > Checkout > Checkout settings) before it will create a transaction at all — it
+  refuses with `transaction_default_checkout_url_not_set` regardless of collection mode, and
+  a per-transaction `checkout.url` override does not substitute for it. This is account
+  configuration rather than application config, so it is a deployment prerequisite for
+  `CheckoutAdapters\PaddleCheckout` in both of its modes. Its `$paymentPageUrl` mode needs a
+  second piece of the same kind: that URL's domain must be approved under Paddle > Checkout >
+  Website approval, in sandbox as well as live, or transaction creation fails with
+  `transaction_checkout_url_domain_is_not_approved`. Both were confirmed against a live
+  sandbox account, the second contradicting the common claim that sandbox approves any domain
+  automatically.
   Note the dependency is bidirectional, unlike every other entry here: gateways deliver
   **inbound** webhook callbacks, so the callback route must be publicly reachable and must
   not sit behind authentication. Callback handling is idempotent, which matters because

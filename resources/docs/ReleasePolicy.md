@@ -64,12 +64,18 @@ and barred from `main` and from any tagged release until Checkout was formally s
 
 **Checkout was scheduled and shipped in 1.2.0** (see `ReleaseNotes_1.2.0.md`,
 `Architecture.md` §8). The reservation no longer applies to `Services\Checkout`,
-`Services\Checkout\*`, or `Services\CheckoutAdapters\StripeCheckout`.
+`Services\Checkout\*`, or to any adapter that has since been built —
+`CheckoutAdapters\StripeCheckout` (1.2.0) and `CheckoutAdapters\PaddleCheckout` (1.3.0).
 
-The reservation **does** still apply to every unbuilt adapter namespace —
-`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`, `HitPay`, `Xendit`.
-Each ships in its own minor release when built end to end, and none may appear on `main` as a
-stub in the meantime. An unbuilt adapter is an absent file.
+The reservation **does** still apply to every unbuilt adapter namespace. Each ships in its own
+minor release when built end to end, and none may appear on `main` as a stub in the meantime.
+An unbuilt adapter is an absent file.
+
+Currently reserved and unbuilt: `StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`,
+`Airwallex`, `HitPay`, `Xendit`. That list is the present state of the roadmap, not a closed
+set — `ReleaseNotes_1.0.0.md` §9 specifies an abstraction layer for "various payment gateways"
+and enumerates adapter namespaces ending in "etc.", so a gateway it does not name may still be
+built. `ReleaseNotes_1.3.0.md` §2.1 records that decision and the reasoning behind it.
 
 ## Packagist publication checklist (per tagged release)
 

@@ -36,10 +36,16 @@ distinction, the Jsonify↔Request contract from `CrossRepoContracts.md` §6 exp
 branches: middleware ran / middleware absent), and Mediator's dev vs prod renderer outputs.
 
 **Tier 4 — pure utilities and integrations:** `Utils\Redactor`, `Services\Event`,
-`Services\HttpClient`, `Services\LLM` + adapters. LLM adapter tests mock HttpClient — no live
-provider API calls in the automated suite (cost, flakiness, and secrets exposure).
+`Services\HttpClient`, `Services\LLM` + adapters, `Services\Checkout` adapters. LLM adapter
+tests mock HttpClient — no live provider API calls in the automated suite (cost, flakiness,
+and secrets exposure). Checkout adapters follow the same rule, with two additions the money
+makes non-negotiable: their callback parsing is **Tier 1** and carries the adversarial cases
+demanded there, and a mocked suite is not sufficient evidence to tag a release — every adapter
+is also driven live against its gateway's test or sandbox environment before the tag, because
+a suite that signs with the same helper it verifies with cannot prove signature verification
+works. Both `StripeCheckout` and `PaddleCheckout` shipped under that bar.
 
-**Tier 5 — Console:** kernel dispatch (`Services\Console::run()`), each of the 15 command
+**Tier 5 — Console:** kernel dispatch (`Services\Console::run()`), each of the 16 command
 classes individually, using a temp filesystem/SQLite fixture rather than touching a real
 project. `make:*` commands are tested by asserting generated file content and location; `db:*`
 and `migrate*` commands are tested against a throwaway test database.

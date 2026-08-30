@@ -131,6 +131,7 @@ Never modified by application developers.
             │   │   │   ├── TransactionSnapshot.php
             │   │   │   └── TransactionStatus.php
             │   │   ├── CheckoutAdapters
+            │   │   │   ├── PaddleCheckout.php
             │   │   │   └── StripeCheckout.php
             │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
@@ -193,9 +194,11 @@ Never modified by application developers.
 
 - Checkout shipped in 1.2.0: `Services\Checkout` (the adapter contract), `Services\Checkout\*`
   (value objects and `TransactionLedger`), and one adapter, `CheckoutAdapters\StripeCheckout`.
-  The other eight adapter namespaces remain reserved and their files genuinely do not exist —
-  per `Architecture.md` §8 and `ReleasePolicy.md`, an unbuilt adapter is an absent file, never
-  a stub on `main`. See `ReleaseNotes_1.2.0.md` for what is and is not in that release.
+  `CheckoutAdapters\PaddleCheckout` followed in 1.3.0, adding nothing to the facade or the
+  tables — the second adapter is the whole release. The eight remaining adapter namespaces are
+  reserved and their files genuinely do not exist — per `Architecture.md` §8 and
+  `ReleasePolicy.md`, an unbuilt adapter is an absent file, never a stub on `main`. See
+  `ReleaseNotes_1.2.0.md` and `ReleaseNotes_1.3.0.md` for what is and is not in each release.
 - `Services\Console.php` is the stable kernel entry point (`CrossRepoContracts.md` §2–3);
   `src/Console/*` command classes are internal and may be reorganised freely in minor releases.
 - `app/Middlewares` in the skeleton and `src/Middlewares` in Clarity are two different things:

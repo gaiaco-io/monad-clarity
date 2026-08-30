@@ -6,7 +6,70 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`Services\CheckoutAdapters\PaddleCheckout`** — a second checkout gateway, alongside
+  `StripeCheckout`. One-time payments through Paddle's Transactions API, refunds through
+  Adjustments, callbacks through Paddle's signed notification scheme. Speaks Paddle's JSON REST
+  API through the existing `Services\HttpClient`; **no new Composer dependency**, signature
+  verification reusing `Utils\HMAC` and `Utils\ConstantTime`. Items go on the wire as
+  non-catalog inline prices and products, so an application never has to seed a Paddle
+  catalogue, and no `billing_cycle` is ever sent — its absence is what keeps a price one-time
+  rather than a subscription. Paddle states amounts as strings in the currency's lowest
+  denomination, which is what `Money` already holds, so nothing converts and the zero-decimal
+  currencies need no special case.
+
+  Three places Paddle does not behave like Stripe, each recorded rather than papered over.
+  **It has no gateway-hosted page by default**, so the adapter takes exactly one of
+  `$hostedCheckoutUrl` (Paddle's own hosted checkout link) or `$paymentPageUrl` (your approved
+  page running Paddle.js) and refuses to create a checkout with neither or both; in the hosted
+  mode `successUrl`/`cancelUrl` come from the link's own configuration and travel in
+  `custom_data` rather than being honoured per checkout. **It supports no idempotency keys on
+  any endpoint**, so `CheckoutRequest::idempotencyKey()` is carried for audit only and a
+  replayed `createCheckout()` creates a second transaction — a draft, so no money moves;
+  `refund()` compensates as far as it can by reading the transaction's line items and prior
+  adjustments and refusing to exceed what is left to refund. **Its refunds are asynchronous**,
+  created `pending_approval` in live and approved by Paddle later, which `RefundResult::$status`
+  carries verbatim with no contract change. `parseCallback()` accepts only `transaction.*`
+  events carrying a `txn_` id and names what it got otherwise — a notification destination
+  delivers every event type subscribed on it, exactly as a Stripe endpoint does.
+
+  List reads are paginated — `per_page=200` and following the cursor while
+  `meta.pagination.has_more`. Found against a live sandbox: Paddle pages `/adjustments` ten at
+  a time, and reading only the first page would have let the over-refund guard under-count
+  earlier refunds on a transaction with more than ten of them, permitting the exact
+  over-refund it exists to stop. A page size the fixtures never returned was invisible to a
+  green suite. Note also that Paddle requires a **default payment link** on the account before
+  it will create any transaction, in either checkout mode — a deployment prerequisite, now in
+  `DeploymentTopology.md`.
+
+  Verified against a live Paddle sandbox, not only against mocks: transaction creation with
+  nested non-catalog items read back field by field, `custom_data` round-tripped, a JPY amount
+  confirmed unscaled, a card payment completed through Paddle.js, and refunds driven against
+  the resulting transaction. That run settled the one question the mocks could not — an
+  adjustment's `items[].amount` is measured against a line item's **tax-inclusive**
+  `totals.total`, not its `subtotal`, which is what the allocator assumes. It is observable
+  only on a taxed transaction, since the two figures are equal until tax applies. It also
+  found that Paddle refuses any further adjustment while one is pending approval, so partial
+  refunds are serialised behind Paddle's review.
+
+  Additive: no facade method, value object, or table definition changed. See
+  `ReleaseNotes_1.3.0.md`, whose §2.1 also records the decision that `ReleaseNotes_1.0.0.md`
+  §9's gateway roster is illustrative rather than closed — Paddle is not one of the nine it
+  names.
+
 ### Changed
+- **The Checkout adapter roster is stated as a rule rather than a closed list.**
+  `ReleasePolicy.md`'s reservation section now says the reservation applies to *every* unbuilt
+  adapter namespace and names the currently-reserved eight as a present fact; `Architecture.md`
+  §8, `API_Contracts.md`, `RepoMap.md`, `PRD.md`, and `CLAUDE.md` follow. Nothing about the
+  rule changes — an unbuilt adapter is still an absent file, and each still ships in its own
+  minor when built end to end. Documentation-only.
+- `TestingStrategy.md` Tier 4 now names Checkout adapters, which until now were placed there
+  only by assertion in `ReleaseNotes_1.2.0.md`, and states the live-gateway bar that a payment
+  adapter must clear before its release is tagged. Tier 5's stale "15 command classes" becomes
+  16, `checkout:install` having made it so in 1.2.0. Documentation-only.
+- `DeploymentTopology.md` adds `api.paddle.com` / `sandbox-api.paddle.com` to the outbound
+  hosts a Checkout deployment may need to reach.
 - `ReleasePolicy.md`'s Packagist publication checklist gains a website-documentation step.
   The docs at `monad.gaiaco.io` live in a separate repo as hand-authored pages plus a
   hardcoded nav, with nothing deriving them from this one — so 1.2.0 shipped Checkout, a
