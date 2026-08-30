@@ -215,6 +215,17 @@ to agree with it. Confirmed end to end:
   rather than against the documentation.
 - **The over-refund guard fires on real data**, and counts a still-pending refund against the
   remaining balance — the conservative direction, and the right one.
+- **Real Paddle-generated webhook signatures verify**, driven through a Cloudflare tunnel to
+  a notification destination subscribed to `transaction.*` *and* several non-transaction event
+  types. A genuine `transaction.created` delivery parsed — proving the semicolon-delimited
+  `ts=`/`h1=` header format, the `ts:body` signed payload, and byte-exact raw-body handling
+  against traffic Paddle actually signed. A genuine `customer.created` delivery was refused by
+  the event guard by name. **Negative control:** the same live deliveries, replayed with only
+  the signing secret changed, were refused with "did not verify" — so a pass means the
+  signature was checked, not that checking was skipped. In that run `customer.created` was
+  refused at the *signature* stage rather than the event guard, confirming the documented
+  ordering: verification happens before any parsing. This is the one property the mocked suite
+  structurally cannot establish, since it signs with the same helper it verifies with.
 - **The partial-refund allocator spans line items correctly against real prior refunds.** With
   1800 already taken off a 2000 line item, a second refund of 700 was allocated 200 to that
   item's remainder and 500 to the next — the exact split the allocator computes, accepted by
@@ -278,10 +289,6 @@ Anyone repeating this verification should use a taxed jurisdiction for the same 
 
 **Outstanding before tagging** (see `ReleasePolicy.md` § Packagist publication checklist):
 
-- **Real Paddle-signed webhooks**, through a tunnel plus the dashboard simulator, confirming
-  both that `transaction.*` events parse and that the other subscribed types are refused.
-  Signature verification is the one thing the mocked suite structurally cannot prove, since it
-  signs with the same helper it verifies with. This is the last unverified path.
 - **One question still open**: whether a hosted checkout link accepts a `transaction_id` for a
   transaction whose `checkout.url` was not pointed at that link. The parameter is documented;
   the interaction is not. The live run is suggestive but not conclusive — `Paddle.Checkout.open`
