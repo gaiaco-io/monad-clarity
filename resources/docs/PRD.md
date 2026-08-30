@@ -55,8 +55,10 @@ cache:clear, logs:clear, setup.
 
 - **Checkout service** and all payment gateway adapters (Fiuu, iPay88, BillPlz, Stripe, Adyen,
   Airwallex, HitPay, Xendit) — deferred; namespace reserved; not on `main`.
-  *(Superseded: Checkout and the Stripe hosted-checkout adapter shipped in 1.2.0. The other
-  eight adapters remain unbuilt with their namespaces reserved — see `ReleaseNotes_1.2.0.md`.)*
+  *(Superseded: Checkout and the Stripe hosted-checkout adapter shipped in 1.2.0, and a Paddle
+  Billing adapter in 1.3.0 — a gateway this list never named, which `ReleaseNotes_1.3.0.md`
+  §2.1 records as permitted because §9's roster is illustrative rather than closed. The eight
+  remaining adapters are unbuilt with their namespaces reserved.)*
 - Agentic LLM features: tool orchestration, agents, vector databases, memory, prompt
   pipelines, automatic cross-provider retries.
 - SPA framework support (React/Vue) — not a Monad concern at any layer.

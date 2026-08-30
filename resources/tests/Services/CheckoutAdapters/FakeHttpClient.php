@@ -16,9 +16,10 @@ use Psr\Http\Message\ResponseInterface;
  * a canned response, so a test can assert on both the outgoing wire format and the
  * adapter's parsing of what comes back.
  *
- * Kept separate from the LLM suite's fake of the same name rather than shared: gateway
- * requests are form-encoded where LLM's are JSON, and coupling two suites' test doubles
- * together to save a few lines would make either one harder to change.
+ * Kept separate from the LLM suite's fake of the same name rather than shared: coupling two
+ * suites' test doubles together to save a few lines would make either one harder to change.
+ * Gateways do not agree on a wire format either — Stripe is form-encoded, Paddle is JSON —
+ * so both decoders live here, each named for what it decodes.
  *
  * The request log lives in an ArrayObject for the reason HttpClient's own docblock
  * explains: adapters call withTimeoutSeconds(), which returns a clone, and PHP's shallow
@@ -86,5 +87,22 @@ final class FakeHttpClient extends HttpClient
         parse_str((string) $request->getBody(), $parsed);
 
         return $parsed;
+    }
+
+    /**
+     * The last request's JSON body, decoded. Distinct from decodedLastRequestForm() because
+     * parse_str does not fail on JSON — it returns one nonsense key, so a JSON body run
+     * through the form decoder would produce assertions that are quietly wrong rather than
+     * red.
+     *
+     * @return array<string, mixed>
+     */
+    public function decodedLastRequestBody(): array
+    {
+        $request = $this->lastRequest();
+
+        return $request === null
+            ? []
+            : (array) json_decode((string) $request->getBody(), true, flags: JSON_THROW_ON_ERROR);
     }
 }

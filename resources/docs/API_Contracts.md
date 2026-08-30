@@ -175,8 +175,17 @@ facade so every adapter shares one ledger: `open()`, `recordCallback()`, `record
 `findByGatewayReference()`, `statusHistory()`, `refunds()`. Status rows are insert-only;
 callbacks and refunds are idempotent on the gateway's own identifiers.
 
-Adapters: `Monad\Clarity\Services\CheckoutAdapters\StripeCheckout` (hosted Checkout Sessions).
-The other eight gateway namespaces are reserved and unbuilt. Tables come from
+Adapters: `Monad\Clarity\Services\CheckoutAdapters\StripeCheckout` (hosted Checkout Sessions,
+1.2.0) and `Monad\Clarity\Services\CheckoutAdapters\PaddleCheckout` (Paddle Billing one-time
+transactions, 1.3.0). `PaddleCheckout` takes exactly one of `$hostedCheckoutUrl` or
+`$paymentPageUrl` — Paddle has no gateway-hosted page by default, so that argument decides how
+`CheckoutSession::$redirectUrl` is composed; see `ReleaseNotes_1.3.0.md` §2.2, and §2.3 there
+for the two behaviours Paddle cannot match (no idempotency keys, asynchronous refunds). Its
+`$taxCategory` argument defaults to `standard`, which suits ordinary goods and services only —
+Paddle is the merchant of record, so a merchant selling ebooks, SaaS, or software must pass
+its own category or the sale is taxed wrongly. Its `$baseUri` argument reaches the sandbox
+(`https://sandbox-api.paddle.com`), which shares nothing with live. The
+eight remaining gateway namespaces are reserved and unbuilt. Tables come from
 `php mitosis checkout:install`, never from `setup`.
 
 ## Middlewares\Csrf — `Monad\Clarity\Middlewares\Csrf`
