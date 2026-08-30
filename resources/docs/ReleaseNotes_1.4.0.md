@@ -1,6 +1,6 @@
 # Monad Clarity 1.4.0 Release Notes
 
-**Status:** DRAFT — the sandbox run is done (§5.1) and real webhook signature verification passed (§5.2). What remains before tagging is checklist work, not gateway behaviour.
+**Status:** FROZEN — canonical specification for the 1.4.0 release.
 This document is the source of truth for WHAT ships in 1.4.0. It does not restate 1.0.0, 1.2.0
 or 1.3.0; those remain frozen for what they specified.
 
@@ -414,7 +414,21 @@ And the defect that run found, which no mocked fixture could have:
    setting and the Website-approval list are different things, and only the second governs the
    override.
 
-### 5.3 The rest of the checklist
+### 5.3 The upgrade path, verified against the real 1.3.0
+
+Not asserted from the code — driven against a `create-project` of the skeleton with
+`monad/clarity: 1.3.0` installed from Packagist:
+
+- On **1.3.0**, a second `php mitosis checkout:install` **fails**:
+  `index uq_checkout_transactions_gateway_reference already exists`. The defect §4.1 describes is
+  real and reproducible on the shipped release, not theoretical.
+- Upgrading that same project to 1.4.0 and re-running the command reports
+  **`1 of 4 tables created`** — only `checkout_subscriptions` — and the pre-upgrade rows in
+  `checkout_transactions` are untouched.
+- A third run reports `Checkout is already installed: all four tables were already present.`
+- `php mitosis health` is green on the upgraded project, and on a fresh one.
+
+### 5.4 The rest of the checklist
 
 - `php mitosis health` green on a fresh `create-project` against the **tagged** version.
 - **Website documentation** — checklist item 7. Subscriptions are user-facing and `monad-www`'s

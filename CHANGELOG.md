@@ -6,6 +6,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-08-31
+
 ### Added
 - **`Services\CheckoutAdapters\PaddleSubscription`** — recurring billing, the first thing
   Checkout has been asked to do that a single transaction cannot express. It sits beside
