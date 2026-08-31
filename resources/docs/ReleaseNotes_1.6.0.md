@@ -536,17 +536,21 @@ the shipped package is.
   needed — `v1.6.0` was resolvable within minutes of the push.
 
 Two checklist items were **not** completed at the moment of tagging. Both were closed
-immediately afterwards, and are recorded here with the difference between what 1.5.0 proved
-and what this release proved, rather than flattened into a tick:
+afterwards, and what each one actually proved is recorded below rather than flattened into a
+tick:
 
-- **Item 4, `php mitosis health` against the fresh `create-project` — green, on SQLite.** All
-  five checks pass against the Packagist-resolved `v1.6.0`: configuration, database
-  connectivity, writable storage, migration status, PHP extensions, exit code `0`. `setup` and
-  `migrate` ran first and both succeeded. **1.5.0's §5.2 recorded MySQL and this records
-  SQLite**, which is the narrower claim of the two and is stated as such; SQLite is one of the
-  three drivers the skeleton supports and is what the skeleton's own development environment
-  uses. Nothing in this release touches the database, so the driver is not load-bearing here —
-  but the record says which one ran rather than implying the other.
+- **Item 4, `php mitosis health` against the fresh `create-project` — green, on MySQL and on
+  SQLite.** All five checks pass against the Packagist-resolved `v1.6.0` under both drivers:
+  configuration, database connectivity, writable storage, migration status, PHP extensions,
+  exit code `0`. `setup` and `migrate` ran first each time and both succeeded — so the
+  `sessions` and `caches` tables were created, and a migration applied, on each.
+
+  The SQLite run came first, on the day of the tag; the MySQL run followed once credentials
+  were available, and is the parity run with 1.5.0's §5.2. Recording both is worth more than
+  recording the stronger one alone: it is the only evidence in this repository that a release
+  behaves identically across two of the three supported drivers, and it cost one extra run.
+
+  Both used a throwaway database dropped afterwards, never an existing one.
 - **Items 8 and 9 in the skeleton repository — done.** `RepoMap.md` is byte-identical to this
   repo's copy again; the drift was exactly 1.6.0's two new trees and nothing else. The
   skeleton's README Status line records that `monad/clarity ^1.0` now resolves to `1.6.0`,
