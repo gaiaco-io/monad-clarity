@@ -14,9 +14,34 @@ and the §2.2 note on what `mailerName()` identifies. §1.1's table below also s
 SigV4 option that Fork A closed — read §1.2 of the release notes for the adapter roster as
 built.
 
-**All five phases of §4 are complete.** §7's acceptance gate is met except its last item —
-the live skeleton run against a Mailtrap sandbox, which needs credentials this repo does not
-hold. `Tests\Integration\MailFailoverTest` covers the part of it that needs none.
+**All five phases of §4 are complete, and §7's acceptance gate is fully met** — including
+item 7's live run, carried out against a real Mailtrap sandbox inbox on 2026-08-31. What that
+run proved, which no mocked suite could:
+
+- A message with a text body, an HTML body, an inline `cid:` image, a file attachment, a Cc, a
+  Bcc, a Reply-To and a custom header **arrived intact**. Its attachment's bytes decoded back
+  byte-for-byte, and the received document nested `multipart/alternative` inside
+  `multipart/related` inside `multipart/mixed`, exactly as §2.12 specifies.
+- **§2.12 held on the wire.** The delivered message carried no `Bcc` header and no occurrence
+  of the blind recipient's address anywhere in the document. `Cc: "Doe, Jane" <cc@example.com>`
+  also came through quoted, so the comma inside the display name did not split one recipient
+  into two.
+- **Failover worked against two genuinely different failures**: a real Postmark `401` from a
+  deliberately invalid server token, and a real `Connection refused` from `SocketTransport`
+  against a dead port. Both were classified `Mailer`, both were passed over, and both messages
+  arrived through the standby with the primary's failure recorded in `attempts`.
+- **A `Message` fault stopped the pool dead.** The message SES refused for an unsendable tag
+  **never appeared in the inbox**, which is the end-to-end proof that §2.4's axis does what it
+  claims rather than merely returning the right enum.
+
+One thing the run surfaced that the suite could not: Mailtrap's free plan rate-limits sends,
+and its `429` was correctly classified `Mailer` — so a pool whose *only* remaining member is
+rate-limited reports every mailer as failed. Correct behaviour, and a reminder that §2.15's
+timeout budget is not the only shared resource a pool can exhaust.
+
+The run used a scratch script outside the repository, with the token supplied through the
+environment. No credential is committed anywhere, and none should be: this is deliberately not
+an automated test (`TestingStrategy.md` — no live provider calls in the suite).
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),

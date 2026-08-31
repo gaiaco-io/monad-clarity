@@ -191,6 +191,20 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   carries the **first** failure as its cause: the primary is the mailer whose health the
   operator is actually being told about.
 
+- **Verified live against a Mailtrap sandbox inbox** (2026-08-31), closing the last item of
+  `ReleaseNotes_1.6.0.md` §7's acceptance gate. A message carrying both bodies, an inline
+  `cid:` image, a file attachment, a Cc, a Bcc, a Reply-To and a custom header arrived intact,
+  with the attachment's bytes decoding back byte-for-byte and the parts nested
+  `alternative`-in-`related`-in-`mixed`. **§2.12 held on the wire**: no `Bcc` header and no
+  trace of the blind recipient anywhere in the delivered document, and a display name
+  containing a comma came through quoted rather than splitting one recipient into two.
+  Failover was proven against two genuinely different failures — a real Postmark `401` and a
+  real `Connection refused` from `SocketTransport` — each passed over with the primary's
+  reason recorded in `attempts`. A `Message`-scoped fault stopped the pool dead, and that
+  message never reached the inbox, which is the end-to-end proof of §2.4's axis. Not an
+  automated test, and no credential is committed: `TestingStrategy.md` keeps live provider
+  calls out of the suite.
+
 - Documentation completed for the release: `API_Contracts.md` gains the `Services\Mail`
   surface; `Architecture.md` §7 now records that a facade defines a shared constructor only
   when every implementation genuinely shares one; `DeploymentTopology.md` §4 gains the mailer
