@@ -78,16 +78,33 @@ outside Clarity references them directly. This mirrors Laravel's `artisan` (skel
 Rationale: adopt PSRs where they cost nothing and buy interoperability; bridge rather than
 adopt where the PSR's design assumptions would fight the framework's own elegance principle.
 
-## 7. Service/adapter facade pattern (LLM, Checkout)
+## 7. Service/adapter facade pattern (LLM, Checkout, Mail)
 
 Multi-provider services follow one shape: a thin facade defining the shared contract
-(`Services\LLM.php`, `Services\Checkout.php`) plus a subdirectory of one-class-per-provider
-adapters (`Services\LLMAdapters\*`, `Services\CheckoutAdapters\*`).
+(`Services\LLM.php`, `Services\Checkout.php`, `Services\Mail.php`) plus a subdirectory of
+one-class-per-provider adapters (`Services\LLMAdapters\*`, `Services\CheckoutAdapters\*`,
+`Services\MailAdapters\*`).
 
 Rationale: provider APIs differ enough in request/response shape that a single file per
 service would either grow into an unmaintainable mega-class or hide adapter logic inside
 conditionals — the opposite of "every line has a meaningful purpose." One file per adapter
 keeps each translation layer small, testable, and independently versionable.
+
+**A facade defines the contract. It defines a shared constructor only when every
+implementation genuinely shares one** (amended in 1.6.0 — `ReleaseNotes_1.6.0.md` §2.2).
+`LLM` and `Checkout` both fix `(string $apiKey, HttpClient $httpClient)` on the base, which
+holds because every LLM provider and every payment gateway is an HTTP API reached with one
+bearer credential. `Mail` is where that stopped being true: `Smtp` has no API key and no
+`HttpClient` — it has a host, credentials and an encryption mode, and speaks to a socket —
+while `AmazonSes` has an injected client object and no credential of its own at all. Forcing
+those through a two-argument base would mean an adapter storing its password in a property
+named `$apiKey` and an `$httpClient` it never uses, which is a lie in the type signature told
+to preserve a symmetry that is only skin deep. So `Mail` declares abstract methods and
+nothing else, and what its HTTP adapters share lives in a trait
+(`MailAdapters\SpeaksHttpApi`) that the socket adapter does not use.
+
+The general rule this leaves: put on the base what every implementation has, put in a trait
+what most of them share, and let each adapter declare the rest.
 
 ## 8. Checkout deferral — lifted in 1.2.0
 

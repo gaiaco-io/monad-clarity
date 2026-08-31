@@ -23,6 +23,18 @@ inputs, not just happy-path: token replay, timing-attack resistance (statistical
 functional, for `ConstantTime`), expired/tampered signed URLs, brute-force throttling
 thresholds, rehash-on-verify behaviour for `Hash`.
 
+Also Tier 1, from 1.6.0: **`Services\Mail\Header` and the header-bound validation in
+`Address`, `Message` and `Attachment`**, plus **`Mail\MimeMessage`'s Bcc guarantee**. Mail
+sends on the password-reset path and is assembled from user-supplied data, so the adversarial
+cases are required — CR, LF and NUL in a display name, a subject, a custom header name and
+value, and an attachment filename, each refused rather than sanitised; `Bcc` and every other
+structural header refused as an application-supplied extra; and no `Bcc` header emitted in any
+of the five MIME shapes. A header split by an injected newline forges a `Bcc` the sender never
+wrote, and a `Bcc` header written into the document discloses every blind recipient to every
+other one — both silent, and the second unrecoverable once sent. `MailAdapters\Smtp`'s
+credential handling belongs here too: a test asserts the password reaches neither an exception
+message nor a stack trace.
+
 **Tier 2 — data integrity:** `Services\Schema`, `Services\Migration`, `Services\Session`,
 `Services\Cache` (all three drivers), `Services\DB`, `Services\Scheduler\JobLedger`.
 The ledger's claim is a lock, and a lock test is worthless unless it races two connections to
@@ -54,6 +66,25 @@ demanded there, and a mocked suite is not sufficient evidence to tag a release �
 is also driven live against its gateway's test or sandbox environment before the tag, because
 a suite that signs with the same helper it verifies with cannot prove signature verification
 works. `StripeCheckout`, `PaddleCheckout` and `PaddleSubscription` all ship under that bar.
+
+**`Services\Mail` adapters and `Mail\MailerPool`** sit here too (their security-critical parts
+being Tier 1, above). Mail adapters mock `HttpClient` exactly as the LLM ones do; `Smtp` drives
+a scripted `SmtpTransport` so the whole conversation is asserted without a socket, and
+`AmazonSes` a plain `sendEmail()`-shaped fake, so no live credential appears in the suite.
+Every adapter carries at minimum the two classification cases the pool depends on — its
+provider's auth failure yielding `FailureScope::Mailer`, and a rejected recipient yielding
+`FailureScope::Message` — because a scope decided wrongly is invisible until an outage.
+`MailerPool`'s own tests are the release's centre of gravity: a healthy primary ends the
+search, a `Mailer` fault advances and records both attempts, a `Message` fault stops with the
+next member **never called**, every member failing raises naming all of them, an empty pool is
+refused at construction, and anything that is not a `MailException` propagates rather than
+being failed over. `Tests\Integration\MailFailoverTest` then drives the real adapters through a
+real pool, since three units can each pass and still disagree with one another.
+
+Unlike Checkout, a mocked suite **is** sufficient to tag Mail. Nothing here verifies an
+inbound signature, so the objection that a suite signing with the helper it verifies with
+proves nothing does not apply. The live sandbox run remains in the release gate for
+confidence, not as a correctness argument.
 
 Where an adapter shares code with a sibling, the sibling's existing suite passing **unmodified**
 is the acceptance test for the extraction — 1.4.0 carved `SpeaksPaddle` out of `PaddleCheckout`

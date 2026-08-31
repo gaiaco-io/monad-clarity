@@ -6,6 +6,217 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-31
+
+### Added
+- **`Services\Mail`** — the abstraction seven mailers implement, and the second service the
+  frozen 1.0.0 spec never contemplated (`ReleaseNotes_1.6.0.md` §2.1, approved rather than
+  assumed, as 1.5.0's Scheduler was). Clarity could already mint a signed URL for a password
+  reset and had no way to send it anywhere. **Phase 1 of five: the contract and its value
+  objects.** No adapter ships yet — an unbuilt adapter is an absent file, never a stub.
+
+  **`Mail` declares no constructor**, departing from `LLM` and `Checkout`, which both fix
+  `(string $apiKey, HttpClient $httpClient)` on the base (§2.2). Mail is the first Clarity
+  abstraction where that shape is false for its own implementations: SMTP has no API key and
+  no HttpClient at all, SES takes an injected client, Mailgun needs a domain and a region.
+  Forcing them through a two-argument base would mean an SMTP adapter keeping its password in
+  a property named `$apiKey` — a lie in the type signature told to preserve a symmetry that
+  is only skin deep. One abstract `send()`, plus a **public** `mailerName()`; adding a second
+  abstract method later is semver-major, per the rule §2.4 of 1.3.0 set for Checkout.
+
+  **Failover keys on whose fault it is, not on the status code** (§2.4). `Mail\FailureScope`
+  is `Mailer` or `Message`, and `MailException` takes it as a required argument with no
+  default. A `401` is `Mailer`, because bad credentials on one provider are precisely when a
+  second holding a different credential should take the message; a malformed recipient is
+  `Message`, because failing it over buys seven round trips to reach the same answer.
+  Anything unrecognised is `Mailer`.
+
+  **`MimeMessage` never emits a `Bcc:` header** (§2.12) — blind recipients travel in the SMTP
+  envelope and nowhere else, this being the one failure of the service that is both silent
+  and unrecoverable. `Message` also refuses `Bcc`, and every other structural header, as an
+  application-supplied extra, closing the same hole at the front door. Built now, before
+  either caller exists, because both `Smtp` and `AmazonSes` need the same bytes.
+
+  **Header injection is refused at construction, never sanitised** (§2.13). `Mail\Header`
+  rejects CR, LF and NUL in every header-bound value — the display name, the subject, custom
+  header names and values, attachment filenames — because one unescaped newline turns one
+  header into two and hands the second to the attacker. NUL is included because it truncates
+  below PHP, where an injected header may be invisible here and present on the wire. The same
+  class's other half applies RFC 2047 encoded-words to non-ASCII subjects and display names
+  for MIME output only; the JSON APIs take UTF-8 natively.
+
+  `SentMessage->attempts` **includes the successful final attempt** (§2.7), so the count is
+  the number of mailers tried and a single-adapter send returns exactly one. With no delivery
+  table anywhere in Clarity (§2.8), that trail is the only record failover ever happened.
+
+  **No new Composer dependency, no table, no command, no `DDL.sql` change**, and
+  `CrossRepoContracts.md` §3's command list is untouched.
+
+- **Five HTTP mailers** — `MailAdapters\{Postmark, Resend, SendGrid, Mailtrap, Mailgun}`, and
+  the `MailAdapters\SpeaksHttpApi` trait they share. **Phase 2 of five.** `AmazonSes` and
+  `Smtp` remain absent files.
+
+  A trait rather than a base class, because `Services\Mail` declares no constructor and
+  `Smtp` must inherit none of this — it speaks to a socket and has no `HttpClient` at all.
+  `CheckoutAdapters\SpeaksPaddle` is the precedent; this is the same move one level up, since
+  what is shared is a transport rather than one provider's dialect.
+
+  **A transport failure is translated, not allowed to escape.** `HttpClientException` — DNS,
+  refused connection, TLS, timeout — becomes a `MailException` scoped `Mailer`. Without that,
+  the pool in phase 5 would never see a `MailException` on precisely the failures it exists to
+  survive. Only the send is wrapped: widening the `try` over payload building would report a
+  bug in this library's own JSON encoding as a provider timeout, and a pool would dutifully
+  fail that bug over to six more mailers.
+
+  Error classification stays in one place. The trait owns the §2.4 status default — `400` and
+  `422` are the message's fault, everything else including `401` is the mailer's — and an
+  adapter refines it through `scopeFromErrorBody()` rather than by overriding the policy, so
+  seven files cannot drift apart. Postmark uses that seam to read its own `ErrorCode`.
+
+  Each provider's divergence is handled where it lives, and tested: **Postmark** answers
+  `200` with a non-zero `ErrorCode`, so a 2xx is not sufficient evidence of success, and it
+  takes recipients as comma-separated strings; **SendGrid** answers `202` with an empty body,
+  so its id comes from the `X-Message-Id` header and `decodeJsonBody()` is never called, and
+  its `content[]` must put `text/plain` before `text/html`; **Mailtrap** exposes its sandbox
+  as a named constructor rather than a boolean, because a `sandbox: true` left false in a
+  staging config sends real mail to real people; **Mailgun** is not a JSON API at all — HTTP
+  Basic, a hand-built multipart body when there are attachments, and recipient fields repeated
+  once per address rather than sent as an array.
+
+  Postmark and Mailtrap both **refuse** a message carrying more than one tag rather than
+  silently sending the first, since a tag that vanished is a reporting result nobody can
+  explain six months later. The guard is shared rather than written twice: two adapters with
+  the same limit giving two different answers would make the behaviour depend on which member
+  of a pool happened to take the message.
+
+  `mailerName()` names the provider and the mode, not the instance — two Postmarks with
+  different tokens are both `postmark`, while `Mailtrap::sandbox()` is `mailtrap_sandbox`,
+  since that difference is whether mail reaches a human at all. `MailerPool` will therefore
+  not refuse duplicate names: a primary and a standby account at one provider is a legitimate
+  pool (§2.2).
+
+- **`MailAdapters\Smtp`**, with `Mail\SmtpTransport`, `Mail\SocketTransport` and
+  `Mail\SmtpEncryption`. **Phase 3 of five.** `AmazonSes` remains an absent file.
+
+  The one adapter with no `HttpClient` and no API key — the reason `Services\Mail` declares no
+  constructor at all. It sends `MimeMessage`'s bytes after `DATA`, which is why that class was
+  built in phase 1 rather than here.
+
+  **The transport is an interface**, so the protocol is tested against a scripted server
+  rather than a socket: the whole conversation — `EHLO`, `STARTTLS`, `AUTH`, `MAIL FROM`, a
+  `RCPT TO` per recipient, `DATA`, the dot-terminated body, `QUIT` — is asserted command by
+  command. Without that seam the SMTP adapter would be the one part of Mail with no way to
+  assert its own protocol handling, which is the entire adapter.
+
+  **`STARTTLS` is required, never silently skipped.** A relay that does not advertise it is
+  refused, because a stripped advertisement is indistinguishable from an interception. The
+  opt-out is named at the call site — `SmtpEncryption::None` — rather than a boolean that
+  reads as nothing when left false in a staging config.
+
+  **A refused recipient abandons the whole message** (§2.12a). Delivering to the addresses
+  that were accepted would mean a pool sending it to them twice on failover, and that
+  duplicate is one this library chose to create rather than the transport uncertainty §2.5
+  admits to. `DATA` is never issued.
+
+  **Blind recipients reach the envelope and never a header** — `recipients()` names them in
+  `RCPT TO` while `MimeMessage` writes no `Bcc:`. This is the adapter where both halves of
+  §2.12 are visible at once, and a test asserts the transmitted bytes carry neither.
+
+  No credential reaches an exception: `AUTH PLAIN` transmits base64 of the password, so an
+  adapter reporting "the command X failed" would write it into every log that caught the
+  failure. A test asserts the password appears in neither the message nor the trace. Dot
+  stuffing (RFC 5321 §4.5.2), `HELO` fallback, a capped multi-line reply reader, and a socket
+  released on every path including the failures.
+
+- **`MailAdapters\AmazonSes`** — Amazon SES v2 through an injected client. **Phase 4 of five.**
+  All seven adapters now exist; only `Mail\MailerPool` remains.
+
+  The client is any object exposing `sendEmail(array $args)`, the real `Aws\SesV2Client`
+  method shape, so the genuine SDK needs no translation and a test needs a plain fake —
+  `Services\Files` accepts an `S3Client`-shaped object on exactly these terms (§2.14).
+  **No `aws/aws-sdk-php` entry is added to `composer.json`.** Signing requests in-house was
+  the alternative and was rejected: SigV4 canonicalisation is a security protocol with several
+  ways to be subtly wrong that surface as an opaque `403` rather than a clear error.
+
+  Two signature consequences follow, both deliberate: the client is required and non-nullable
+  where `Files`' is optional, because Files has a filesystem adapter to fall back to and this
+  has nothing; and this is the only adapter with **no `$timeoutSeconds`**, because the injected
+  client owns the transport and accepting a timeout this class cannot enforce would be a lie
+  in the signature.
+
+  **Custom headers force the `Raw` MIME path, as attachments already did.** SES's
+  `Simple.Headers` is narrower than RFC 5322, so routing through `MimeMessage` whenever either
+  is present buys one fidelity guarantee instead of two partial ones — and §2.12's Bcc
+  guarantee holds on that path too, asserted against the transmitted document.
+
+  Since `AwsException` cannot be type-hinted without the SDK, the adapter catches `Throwable`
+  around **the `sendEmail()` call alone** and reads `getAwsErrorCode()` when it is there. That
+  narrowness matters twice: a `TypeError` in this library's own payload construction must not
+  reach a pool as a provider failure, and a `Message`-scoped `MailException` must not be
+  re-wrapped as `Mailer` and sent around six more providers. `MessageRejected` stays `Mailer`
+  because SES uses it for both a refused body and an unverified identity — §2.4's default for
+  the genuinely ambiguous.
+
+  SES tags accept only letters, digits, underscores and dashes where the other five mailers
+  take any string, so a tag like `welcome email` is refused by name rather than surfacing as
+  an opaque `InvalidParameterValue`. Unlike Phase 2's one-tag limit, which two adapters shared
+  and which therefore lives in the trait, this constraint belongs to one provider.
+
+- **`Mail\MailerPool`** — several mailers in priority order, the first healthy one taking the
+  message. **Phase 5 of five; `Services\Mail` is complete.**
+
+  A pool **extends `Mail`, so it is a mailer**: application code holds one type whether it was
+  handed one adapter or seven, and "is multi-mailer enabled?" is answered by which object
+  `config/mail.php` constructs rather than by any flag inside Clarity (§2.6). A pool may hold
+  another pool. **Priority is array order** — not an integer to be sorted, since the list
+  already reads top to bottom in the order it will be tried.
+
+  It advances on `FailureScope::Mailer` and **stops on `FailureScope::Message` without calling
+  the next member**, which is the whole point of §2.4's axis: a `401` gets the standby its
+  turn, while a malformed recipient is not carried to six more providers to reach the same
+  answer one round trip at a time. An empty pool is refused at construction rather than at a
+  first send weeks later, and duplicate mailer names are allowed (§2.2) because a primary and a
+  standby account at one provider is a legitimate pool.
+
+  **Anything that is not a `MailException` propagates.** A `TypeError` or any other bug inside
+  an adapter is not a delivery failure, and failing it over would turn one broken adapter into
+  a defect that surfaces only once every member is broken — the pool's version of the
+  `try`-narrowing the adapters already do.
+
+  A nested pool does not flatten: the winner's own attempt trail is spliced into the outer
+  one and `mailer` stays the **leaf that really sent**, not the pool that delegated. A pool
+  names itself after its members (`pool(postmark+resend)`), which is the only place that name
+  appears — an attempt recorded by an outer pool, where a bare "pool" would not say which of
+  two had failed.
+
+  When every member fails, the exception names all of them with each reason in order, and
+  carries the **first** failure as its cause: the primary is the mailer whose health the
+  operator is actually being told about.
+
+- **Verified live against a Mailtrap sandbox inbox** (2026-08-31), closing the last item of
+  `ReleaseNotes_1.6.0.md` §7's acceptance gate. A message carrying both bodies, an inline
+  `cid:` image, a file attachment, a Cc, a Bcc, a Reply-To and a custom header arrived intact,
+  with the attachment's bytes decoding back byte-for-byte and the parts nested
+  `alternative`-in-`related`-in-`mixed`. **§2.12 held on the wire**: no `Bcc` header and no
+  trace of the blind recipient anywhere in the delivered document, and a display name
+  containing a comma came through quoted rather than splitting one recipient into two.
+  Failover was proven against two genuinely different failures — a real Postmark `401` and a
+  real `Connection refused` from `SocketTransport` — each passed over with the primary's
+  reason recorded in `attempts`. A `Message`-scoped fault stopped the pool dead, and that
+  message never reached the inbox, which is the end-to-end proof of §2.4's axis. Not an
+  automated test, and no credential is committed: `TestingStrategy.md` keeps live provider
+  calls out of the suite.
+
+- Documentation completed for the release: `API_Contracts.md` gains the `Services\Mail`
+  surface; `Architecture.md` §7 now records that a facade defines a shared constructor only
+  when every implementation genuinely shares one; `DeploymentTopology.md` §4 gains the mailer
+  hosts and the fact that **`Smtp` is the first Clarity component needing egress on a port
+  other than 443**, plus the note that a pool's outbound requirement is the union of its
+  members'; `RepoMap.md` gains both Mail trees; `TestingStrategy.md` places the header-injection
+  guards, the Bcc guarantee and SMTP's credential handling in Tier 1, and the adapters and pool
+  in Tier 4. `CrossRepoContracts.md`, `DDL.sql` and `composer.json` are untouched, as §2.8 and
+  §2.16 said they would be.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added
