@@ -195,6 +195,43 @@ Adapters: `Monad\Clarity\Services\LLMAdapters\{OpenAI,Anthropic,DeepSeek,Gemini}
 translating the facade contract to its provider's wire format over HttpClient. No agents, tool
 orchestration, vector databases, memory, prompt pipelines, or cross-provider automatic retries.
 
+## Services\Mail — `Monad\Clarity\Services\Mail` (1.6.0)
+
+Abstract contract, **declaring no constructor** — the first Clarity abstraction whose
+implementations do not share one (`ReleaseNotes_1.6.0.md` §2.2). Two abstract methods, both
+public:
+
+- `send(Mail\Message $message): Mail\SentMessage` — throws `Mail\MailException`.
+- `mailerName(): string` — public, because a pool records it for every member it tries.
+
+Adding a third abstract method is semver-major. A capability only some providers have is a
+public method on the adapter that has it.
+
+Value objects, all in `Monad\Clarity\Services\Mail\*`: `Address` (email, name), `Attachment`
+(filename, contentType, raw bytes, contentId for inline), `Message` (from, to, subject, text,
+html, cc, bcc, replyTo, headers, attachments, tags), `SentMessage` (mailer,
+providerMessageId, attempts, raw), `Attempt`, `FailureScope` (`Mailer`|`Message`),
+`MailException` (carries a required scope), `Header`, `MimeMessage`, `SmtpEncryption`,
+`SmtpTransport`, `SocketTransport`, `MailerPool`.
+
+Adapters, each declaring the constructor its provider actually needs:
+
+- `MailAdapters\Postmark(string $serverToken, HttpClient $httpClient, string $messageStream = 'outbound', int $timeoutSeconds = 30)`
+- `MailAdapters\Resend(string $apiKey, HttpClient $httpClient, int $timeoutSeconds = 30)`
+- `MailAdapters\SendGrid(string $apiKey, HttpClient $httpClient, int $timeoutSeconds = 30)`
+- `MailAdapters\Mailtrap::sending(string $apiToken, HttpClient $httpClient, int $timeoutSeconds = 30)` and
+  `MailAdapters\Mailtrap::sandbox(string $apiToken, string $inboxId, HttpClient $httpClient, int $timeoutSeconds = 30)`
+- `MailAdapters\Mailgun(string $apiKey, string $domain, HttpClient $httpClient, string $baseUri = Mailgun::REGION_US, int $timeoutSeconds = 30)`
+- `MailAdapters\AmazonSes(object $client, ?string $configurationSetName = null)` — the client is
+  any object exposing `sendEmail(array $args)`; no timeout, since the injected client owns it.
+- `MailAdapters\Smtp(string $host, int $port = 587, ?string $username = null, ?string $password = null, SmtpEncryption $encryption = SmtpEncryption::StartTls, ?SmtpTransport $transport = null, int $timeoutSeconds = 30, ?string $ehloDomain = null)`
+
+`Mail\MailerPool(array $mailers)` extends `Mail`, so a pool is a mailer. Priority is array
+order; an empty pool is refused at construction; duplicate mailer names are allowed. It
+advances on `FailureScope::Mailer`, stops on `FailureScope::Message`, and lets anything that
+is not a `MailException` propagate. No delivery table exists anywhere — `SentMessage::attempts`
+is the whole audit surface.
+
 ## Services\Checkout — `Monad\Clarity\Services\Checkout` (1.2.0)
 
 Abstract adapter contract, same shape as `Services\LLM`. Four methods, each taking and

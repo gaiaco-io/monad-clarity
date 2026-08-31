@@ -45,6 +45,29 @@ local-filesystem implementation.
   hardcodes, logs, or persists raw API keys (Logger's redaction utility, `Utils\Redactor`,
   must treat these as sensitive by default).
 - **Authentication (Google SSO)**: outbound HTTPS to Google's OAuth endpoints via HttpClient.
+- **Mail adapters** (1.6.0 onward): outbound HTTPS to each configured mailer —
+  `send.api.mailtrap.io` (or `sandbox.api.mailtrap.io`), `api.postmarkapp.com`,
+  `api.mailgun.net` or `api.eu.mailgun.net`, `api.resend.com`, `api.sendgrid.com`; SES goes
+  out through the injected AWS client, on whatever endpoint that client is configured for.
+
+  **`MailAdapters\Smtp` is the first Clarity component needing egress on a port other than
+  443** — 587 for STARTTLS, 465 for implicit TLS, 25 where a local relay uses it. A host with
+  a restrictive egress policy will have that traffic silently dropped, and the symptom is a
+  connect timeout classified as a mailer fault, which in a pool looks like a provider outage
+  rather than a firewall. Open the port, or configure an HTTPS mailer instead.
+
+  A `MailerPool`'s outbound requirement is the **union** of its members': every host and port
+  any member might use must be reachable, because the pool exists precisely to reach the later
+  ones when the earlier ones fail. A standby mailer that has never been exercised is a standby
+  whose egress has never been proven — worth sending one message through each member directly
+  before trusting the pool.
+
+  Mailer API keys, SMTP passwords and the AWS client's credentials come from application
+  config/`.env` and are treated exactly as provider API keys above — never hardcoded, logged,
+  or persisted, and sensitive to `Utils\Redactor` by default. `Smtp` additionally never places
+  a credential, or the command carrying one, into an exception message: `AUTH PLAIN` transmits
+  base64 of the password, so an adapter reporting the command it sent would write that
+  password into every log that caught the failure.
 - **Checkout adapters** (1.2.0 onward): outbound HTTPS to each configured payment gateway.
   Currently that means Stripe (`api.stripe.com`) via `CheckoutAdapters\StripeCheckout` and
   Paddle (`api.paddle.com`, or `sandbox-api.paddle.com` for the sandbox environment) via

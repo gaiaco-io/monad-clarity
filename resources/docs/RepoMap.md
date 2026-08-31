@@ -158,6 +158,29 @@ Never modified by application developers.
             │   │   │   ├── Anthropic.php
             │   │   │   ├── DeepSeek.php
             │   │   │   └── Gemini.php
+            │   │   ├── Mail                  <!-- value objects + MIME + pool; released 1.6.0 -->
+            │   │   │   ├── Address.php
+            │   │   │   ├── Attachment.php
+            │   │   │   ├── Attempt.php
+            │   │   │   ├── FailureScope.php  <!-- enum: whose fault a send failure was -->
+            │   │   │   ├── Header.php        <!-- injection guard + RFC 2047 encoding -->
+            │   │   │   ├── MailException.php
+            │   │   │   ├── MailerPool.php    <!-- extends Services\Mail; ordered failover -->
+            │   │   │   ├── Message.php
+            │   │   │   ├── MimeMessage.php   <!-- RFC 5322; used by Smtp AND AmazonSes -->
+            │   │   │   ├── SentMessage.php
+            │   │   │   ├── SmtpEncryption.php
+            │   │   │   ├── SmtpTransport.php <!-- interface: the socket seam -->
+            │   │   │   └── SocketTransport.php
+            │   │   ├── MailAdapters          <!-- released 1.6.0; all seven built -->
+            │   │   │   ├── AmazonSes.php     <!-- injected SesV2Client-shaped object -->
+            │   │   │   ├── Mailgun.php
+            │   │   │   ├── Mailtrap.php
+            │   │   │   ├── Postmark.php
+            │   │   │   ├── Resend.php
+            │   │   │   ├── SendGrid.php
+            │   │   │   ├── Smtp.php          <!-- no HttpClient; speaks to a socket -->
+            │   │   │   └── SpeaksHttpApi.php <!-- trait: what the six HTTP mailers share -->
             │   │   └── Scheduler             <!-- cron parser + run ledger; released 1.5.0 -->
             │   │       ├── CronExpression.php
             │   │       ├── JobLedger.php

@@ -160,6 +160,47 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   an opaque `InvalidParameterValue`. Unlike Phase 2's one-tag limit, which two adapters shared
   and which therefore lives in the trait, this constraint belongs to one provider.
 
+- **`Mail\MailerPool`** — several mailers in priority order, the first healthy one taking the
+  message. **Phase 5 of five; `Services\Mail` is complete.**
+
+  A pool **extends `Mail`, so it is a mailer**: application code holds one type whether it was
+  handed one adapter or seven, and "is multi-mailer enabled?" is answered by which object
+  `config/mail.php` constructs rather than by any flag inside Clarity (§2.6). A pool may hold
+  another pool. **Priority is array order** — not an integer to be sorted, since the list
+  already reads top to bottom in the order it will be tried.
+
+  It advances on `FailureScope::Mailer` and **stops on `FailureScope::Message` without calling
+  the next member**, which is the whole point of §2.4's axis: a `401` gets the standby its
+  turn, while a malformed recipient is not carried to six more providers to reach the same
+  answer one round trip at a time. An empty pool is refused at construction rather than at a
+  first send weeks later, and duplicate mailer names are allowed (§2.2) because a primary and a
+  standby account at one provider is a legitimate pool.
+
+  **Anything that is not a `MailException` propagates.** A `TypeError` or any other bug inside
+  an adapter is not a delivery failure, and failing it over would turn one broken adapter into
+  a defect that surfaces only once every member is broken — the pool's version of the
+  `try`-narrowing the adapters already do.
+
+  A nested pool does not flatten: the winner's own attempt trail is spliced into the outer
+  one and `mailer` stays the **leaf that really sent**, not the pool that delegated. A pool
+  names itself after its members (`pool(postmark+resend)`), which is the only place that name
+  appears — an attempt recorded by an outer pool, where a bare "pool" would not say which of
+  two had failed.
+
+  When every member fails, the exception names all of them with each reason in order, and
+  carries the **first** failure as its cause: the primary is the mailer whose health the
+  operator is actually being told about.
+
+- Documentation completed for the release: `API_Contracts.md` gains the `Services\Mail`
+  surface; `Architecture.md` §7 now records that a facade defines a shared constructor only
+  when every implementation genuinely shares one; `DeploymentTopology.md` §4 gains the mailer
+  hosts and the fact that **`Smtp` is the first Clarity component needing egress on a port
+  other than 443**, plus the note that a pool's outbound requirement is the union of its
+  members'; `RepoMap.md` gains both Mail trees; `TestingStrategy.md` places the header-injection
+  guards, the Bcc guarantee and SMTP's credential handling in Tier 1, and the adapters and pool
+  in Tier 4. `CrossRepoContracts.md`, `DDL.sql` and `composer.json` are untouched, as §2.8 and
+  §2.16 said they would be.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added

@@ -14,7 +14,9 @@ and the §2.2 note on what `mailerName()` identifies. §1.1's table below also s
 SigV4 option that Fork A closed — read §1.2 of the release notes for the adapter roster as
 built.
 
-**Phases 1-4 of §4 are complete.** Phase 5 (`MailerPool`) is not started.
+**All five phases of §4 are complete.** §7's acceptance gate is met except its last item —
+the live skeleton run against a Mailtrap sandbox, which needs credentials this repo does not
+hold. `Tests\Integration\MailFailoverTest` covers the part of it that needs none.
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),
