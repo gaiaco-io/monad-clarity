@@ -414,3 +414,102 @@ adds no dependency of its own either; the SMTP adapter is a socket conversation 
 `ext-openssl`, already required; `MimeMessage` is the
 RFC 5322 that would otherwise pull in a package to be tracked and audited for the life of a
 major version. **No `require` entry changes.**
+
+## 3. Explicitly NOT in 1.6.0
+
+- **A queue, or asynchronous sending.** `send()` blocks until the provider answers. Sending
+  off the request path is scheduling work, and `Services\Scheduler` already exists to do it.
+- **Retry within a single mailer.** §2.15. Failover ships first; a bounded backoff would widen
+  §2.5's double-send window and put a sleep on the request path.
+- **Inbound mail, bounce handling, or webhook parsing.** Every provider signs and shapes its
+  events differently, and none of it is needed to *send*. This is where Checkout's
+  `parseCallback()` has no counterpart, deliberately.
+- **A delivery log or `mail_deliveries` table.** §2.8. `SentMessage` describes the send fully,
+  and what an application records about its own mail is its own concern, as `Files` metadata is.
+- **Template rendering.** §2.9. `Services\View` renders; `Mail\Message` takes strings.
+- **A `mail:test` command.** §2.15. The nineteen built-in commands stay nineteen.
+- **Address verification, list management, suppression lists.** Provider-side concerns reached
+  through provider-side APIs, not through a sending abstraction.
+
+## 4. Compatibility
+
+Additive throughout, and semver-minor. No existing signature changed, no value object gained
+or lost a property, no shipped table definition moved. `Services\Console::run()` is untouched,
+the three frozen skeleton entry points are unaffected, and the nineteen built-in command names
+are unchanged — this release adds none.
+
+**`CrossRepoContracts.md` is untouched**, which is unusual for a release of this size and is
+the point of §2.8: Mail owns no table and ships no command, so it crosses no boundary the
+skeleton is promised. `DDL.sql` and `composer.json`'s `require` block are likewise unchanged.
+
+`Architecture.md` §7 is amended rather than extended — it now records that a facade defines a
+shared constructor only when every implementation genuinely shares one (§2.2). That is a
+change to written rationale, not to any shipped signature.
+
+### 4.1 Upgrading from 1.5.0
+
+Nothing is required. An application that never constructs a mailer is byte-for-byte unaffected.
+
+To adopt Mail:
+
+1. Construct an adapter in `config/mail.php` — or a `MailerPool` of several, in the order they
+   should be tried. Both have the type `Services\Mail`, so nothing downstream changes if you
+   later switch between them.
+2. Build a `Mail\Message` and call `send()`. Render any HTML through `Services\View` first;
+   Mail takes strings (§2.9).
+3. If you use SMTP, **check egress on 587 or 465** before trusting it. It is the first Clarity
+   component needing a port other than 443, and a blocked port presents as a connect timeout
+   classified as a mailer fault — which inside a pool reads as a provider outage rather than a
+   firewall (`DeploymentTopology.md` §4).
+
+If you pool, send one message through each member *directly* first. A pool exists to reach its
+later members when the earlier ones fail, so a standby whose credentials and egress have never
+been exercised is a standby nobody has any evidence about.
+
+## 5. Verification
+
+- Full suite green: **1087 tests, 2333 assertions**, `composer lint` clean.
+- Every adapter carries both classification cases the pool depends on — its provider's auth
+  failure yielding `FailureScope::Mailer`, a rejected recipient yielding `Message` — because a
+  scope decided wrongly is invisible until an outage.
+- `MimeMessage` asserted byte-for-byte across all five body shapes, with CRLF discipline proved
+  directly (no LF without a preceding CR, no CR without a following LF) rather than inferred.
+- Header injection tested against CR, LF and NUL in every header-bound field, and every
+  structural header refused as an application-supplied extra.
+- `Smtp` driven through a scripted transport for the whole conversation, including `HELO`
+  fallback, both auth mechanisms, a `STARTTLS`-refusing server raising rather than downgrading,
+  and a test asserting the password reaches neither an exception message nor a stack trace.
+- `Tests\Integration\MailFailoverTest` drives the real adapters through a real pool, since
+  three units can each pass their own suite and still disagree with one another.
+
+### 5.1 Verified live against a Mailtrap sandbox
+
+Run 2026-08-31 against a real sandbox inbox, from a scratch script outside the repository with
+the token supplied through the environment. No credential is committed, and this is
+deliberately not an automated test (`TestingStrategy.md` keeps live provider calls out of the
+suite).
+
+- A message carrying a text body, an HTML body, an inline `cid:` image, a file attachment, a
+  Cc, a Bcc, a Reply-To and a custom header **arrived intact**. The attachment's bytes decoded
+  back byte-for-byte, and the delivered document nested `multipart/alternative` inside
+  `multipart/related` inside `multipart/mixed`.
+- **§2.12 held on the wire**: the delivered message carried no `Bcc` header and no occurrence
+  of the blind recipient's address anywhere in the document. `Cc: "Doe, Jane" <cc@example.com>`
+  arrived quoted, so the comma in the display name did not split one recipient into two.
+- **Failover proved against two genuinely different failures**: a real Postmark `401` from an
+  invalid server token, and a real `Connection refused` from `SocketTransport` against a dead
+  port. Both were classified `Mailer`, both were passed over, and both messages arrived through
+  the standby with the primary's reason recorded in `attempts`.
+- **A `Message` fault stopped the pool dead**, and that message never appeared in the inbox —
+  the end-to-end proof that §2.4's axis does what it claims rather than merely returning the
+  right enum.
+
+One thing the run surfaced that no mocked suite could: the sandbox plan rate-limits sends, and
+its `429` was correctly classified `Mailer` — so a pool whose only remaining member is
+rate-limited reports every mailer as failed. Correct behaviour, and a reminder that §2.15's
+timeout budget is not the only shared resource a pool can exhaust.
+
+### 5.2 Completed at tagging
+
+To be recorded once the Packagist publication checklist in `ReleasePolicy.md` has been worked
+through against the published release, as 1.5.0's §5.2 was.

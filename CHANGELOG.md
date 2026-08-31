@@ -6,6 +6,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-08-31
+
 ### Added
 - **`Services\Mail`** — the abstraction seven mailers implement, and the second service the
   frozen 1.0.0 spec never contemplated (`ReleaseNotes_1.6.0.md` §2.1, approved rather than

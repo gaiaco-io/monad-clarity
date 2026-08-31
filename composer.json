@@ -22,7 +22,7 @@
     "minimum-stability": "stable",
     "extra": {
         "branch-alias": {
-            "dev-main": "1.5.x-dev"
+            "dev-main": "1.6.x-dev"
         }
     },
     "require": {
