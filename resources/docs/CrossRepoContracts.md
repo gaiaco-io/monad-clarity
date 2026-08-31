@@ -56,13 +56,21 @@ these files frozen.
   command classes under `src/Console/` (`Monad\Clarity\Console\*`), and returns a process exit
   code (0 success, non-zero failure).
 - The kernel loads `app/routes/cli.php` from the application, where developers register
-  custom commands. The registration API exposed to `cli.php` is part of this contract.
-- The 16 built-in commands and their names (`make:controller`, `make:model`, `make:migration`,
+  custom commands and — since 1.5.0 — the application's scheduled jobs, via
+  `Scheduler::job()`. The registration API exposed to `cli.php` is part of this contract, and
+  that now covers both. Note the consequence: the file is loaded before *every* dispatch, so a
+  registration that throws breaks every `mitosis` command, not only `schedule:run`.
+- The 19 built-in commands and their names (`make:controller`, `make:model`, `make:migration`,
   `make:service`, `migrate`, `migrate:status`, `migrate:rollback`, `db:seed`, `db:execute`,
-  `test`, `health`, `serve`, `cache:clear`, `logs:clear`, `setup`, `checkout:install`) are
-  stable; removing or renaming one is semver-major. Adding commands is semver-minor.
-  `checkout:install` was added in 1.2.0 (`ReleaseNotes_1.2.0.md` §1.4); the other fifteen
-  date from 1.0.0.
+  `test`, `health`, `serve`, `cache:clear`, `logs:clear`, `setup`, `checkout:install`,
+  `schedule:install`, `schedule:list`, `schedule:run`) are stable; removing or renaming one is
+  semver-major. Adding commands is semver-minor. `checkout:install` was added in 1.2.0
+  (`ReleaseNotes_1.2.0.md` §1.4) and the three `schedule:*` commands in 1.5.0
+  (`ReleaseNotes_1.5.0.md` §1); the other fifteen date from 1.0.0.
+- `schedule:run` is the one command an application is expected to invoke from outside itself,
+  on a one-line crontab entry. Its name is therefore load-bearing in a way the others' are
+  not: it is written into a server's crontab and outlives any deploy, so renaming it would
+  break applications silently rather than at the next `mitosis` invocation.
 - `test` delegates to the bundled PHPUnit against the skeleton's test suite. No bespoke runner.
 - `serve` binds the PHP built-in server to port 8000 using `public/router.php`.
 

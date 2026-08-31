@@ -24,7 +24,12 @@ functional, for `ConstantTime`), expired/tampered signed URLs, brute-force throt
 thresholds, rehash-on-verify behaviour for `Hash`.
 
 **Tier 2 — data integrity:** `Services\Schema`, `Services\Migration`, `Services\Session`,
-`Services\Cache` (all three drivers), `Services\DB`. Tests must cover the DDL in `DDL.sql`
+`Services\Cache` (all three drivers), `Services\DB`, `Services\Scheduler\JobLedger`.
+The ledger's claim is a lock, and a lock test is worthless unless it races two connections to
+one database: `sqlite::memory:` gives two *separate* databases, so both claims succeed and the
+test proves nothing. Use a temp file database and two registered contexts, and assert the loser
+is distinguished by the SQLSTATE integrity class specifically — a dropped table must not read
+as "another node got there first". Tests must cover the DDL in `DDL.sql`
 directly — round-trip a session with `user_id = NULL`, verify the Cache DB driver rejects a
 `cache_key` collision at the same `key_hash` (per `Architecture.md` §9), verify migration
 rollback restores prior schema state exactly.
@@ -36,6 +41,11 @@ distinction, the Jsonify↔Request contract from `CrossRepoContracts.md` §6 exp
 branches: middleware ran / middleware absent), and Mediator's dev vs prod renderer outputs.
 
 **Tier 4 — pure utilities and integrations:** `Utils\Redactor`, `Services\Event`,
+`Services\Scheduler` and `Services\Scheduler\CronExpression` (the parser is pure and carries the
+bulk of the scheduler's cases: every field form, both name vocabularies, every macro, the
+Vixie day-of-month/day-of-week OR rule on all four of its combinations, and each malformed
+expression it refuses — a cron field that parses but matches the wrong days fails silently,
+which is why the rejections are tested as thoroughly as the matches),
 `Services\HttpClient`, `Services\LLM` + adapters, `Services\Checkout` adapters. LLM adapter
 tests mock HttpClient — no live provider API calls in the automated suite (cost, flakiness,
 and secrets exposure). Checkout adapters follow the same rule, with two additions the money
@@ -50,7 +60,7 @@ is the acceptance test for the extraction — 1.4.0 carved `SpeaksPaddle` out of
 and required its 51 tests to stay byte-identical. A test file edited to accommodate a refactor
 has stopped being evidence that the refactor changed nothing.
 
-**Tier 5 — Console:** kernel dispatch (`Services\Console::run()`), each of the 16 command
+**Tier 5 — Console:** kernel dispatch (`Services\Console::run()`), each of the 19 command
 classes individually, using a temp filesystem/SQLite fixture rather than touching a real
 project. `make:*` commands are tested by asserting generated file content and location; `db:*`
 and `migrate*` commands are tested against a throwaway test database.

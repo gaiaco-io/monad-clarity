@@ -93,3 +93,35 @@ Server provisioning, container images, reverse proxy/load balancer configuration
 pipeline definitions, and process supervision (e.g. `php mitosis serve` is a development
 convenience per §8.12, not a production server) belong to the application repository
 (`monad/skeleton`) or the deploying team's own infrastructure documentation, not to Clarity.
+
+## 7. Scheduled jobs (`php mitosis schedule:run`, 1.5.0)
+
+An application using `Services\Scheduler` needs exactly one crontab entry, on every node that
+should be eligible to run jobs:
+
+```
+* * * * * cd /path/to/app && php mitosis schedule:run
+```
+
+Written **without** `> /dev/null 2>&1`, deliberately. The command prints nothing on a tick
+where nothing happened, so its output *is* the alert: MAILTO delivers only the ticks that ran,
+failed, stood down, or reaped an abandoned run. The reflexive redirect throws the failures away
+along with the quiet.
+
+The entry is safe to place on every node. Clarity's guarantee is at most one run per job per
+minute cluster-wide, enforced by a unique index on the `scheduled_runs` table — so the same
+line on three nodes gives three chances that a due job runs and no chance it runs three times.
+It is **not** an at-least-once guarantee: a minute in which every node is down is a minute the
+job does not run, and no later tick makes it up.
+
+Two operational consequences. The `scheduled_runs` table must exist before the entry is
+installed — `php mitosis schedule:install`, once, opt-in and re-runnable — or every tick exits
+1 naming that command. And expressions are read on **PHP's configured timezone**
+(`date_default_timezone_get()` — `php.ini`'s `date.timezone`, or `.env`'s `TIMEZONE` in a
+skeleton app), which is *not* automatically the OS zone the system cron fires in. Nothing
+reconciles the two, so align them deliberately on every node: a host on `+08` with
+`date.timezone = UTC` has cron wake the process at 11:49 while the scheduler asks what is due at
+03:49. Nodes in a cluster must likewise agree with each other — two nodes on different zones are
+two different schedules, not one, and their claims do not collide.
+
+Installing the entry is the deploying team's job, per §6.

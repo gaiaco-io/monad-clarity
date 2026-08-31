@@ -39,6 +39,9 @@ the application skeleton lives in the separate `monad/skeleton` repo.
   adapter that has them.
 - Semver strictly: patch = fixes, minor = additive, major = breaking. Update CHANGELOG.md with every change.
 - Built-in tables use `DATETIME` (second precision) and UUID `char(36)` primary keys by default.
+- Setup-owned tables are exactly `sessions` and `caches`. A feature that needs its own table
+  ships an opt-in, re-runnable `*:install` command instead (`checkout:install`,
+  `schedule:install`) — never an addition to `setup` or to `DDL.sql`.
 - `sessions.user_id` is NULLABLE (guest/pre-login sessions are valid).
 - Cache DB driver: always compare `cache_key` on read; never trust `key_hash` alone.
 - Make minimal changes — do not refactor unrelated code.
@@ -87,6 +90,14 @@ canonical for every document below — where the skeleton repo carries a mirror,
   `mapTransactionStatus()` is abstract on the shared trait (§2.6); and `checkout_subscriptions`
   is mutable, so its idempotency is an honestly weaker monotonic guard rather than the
   unique-index guarantee `TransactionLedger` gives (§2.5).
+- `ReleaseNotes_1.5.0.md` — WHAT ships in 1.5.0 (`Services\Scheduler`, its cron parser and run
+  ledger, `schedule:install` and `schedule:run`), and nine further decisions. Read before
+  touching scheduled work. The three most load-bearing: this is the first service the frozen
+  1.0.0 spec never contemplated, and §2.1 records that scope expansion rather than assuming it
+  (§9's "illustrative roster" hatch does not reach a new service); the guarantee is **at most
+  one run per job per minute cluster-wide, not at-least-once** (§2.4); and `schedule:run`
+  prints nothing when nothing happened, which is why its crontab line is documented without
+  `> /dev/null 2>&1` (§2.8).
 
 **Conflict order:** ReleaseNotes defines requirements → CrossRepoContracts defines boundaries →
 BuildPlan defines sequence → Architecture explains rationale. If two documents disagree, stop
