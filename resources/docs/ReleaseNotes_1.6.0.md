@@ -52,12 +52,18 @@ An unbuilt adapter is an **absent file, never a stub** — the rule the eight re
 ### 1.3 The value objects
 
 `Mail\Address`, `Mail\Attachment`, `Mail\Message`, `Mail\SentMessage`, `Mail\Attempt`,
-`Mail\FailureScope`, `Mail\MailException`, `Mail\Header`, `Mail\MimeMessage`.
+`Mail\FailureScope`, `Mail\MailException`, `Mail\Header`, `Mail\MimeMessage`,
+`Mail\SmtpTransport`, `Mail\SocketTransport`, `Mail\SmtpEncryption`.
 
-`Mail\Header` is not in the original plan's inventory. It was extracted during Phase 1 once
-the injection guard of §2.13 turned out to be needed by three classes rather than one, and
-it now owns both header-safety rules: what may not go into a header at all, and what must be
-RFC 2047 encoded before it can.
+Two of these are additions to the plan's inventory, recorded here so it stays true:
+
+- **`Mail\Header`**, extracted during Phase 1 once the injection guard of §2.13 turned out to
+  be needed by three classes rather than one. It owns both header-safety rules: what may not
+  go into a header at all, and what must be RFC 2047 encoded before it can.
+- **`Mail\SmtpEncryption`**, added during Phase 3. §2.11 requires the no-encryption case to be
+  *named at the call site*, and an enum is how a name is spelled. `encryption:
+  SmtpEncryption::None` cannot be typed by accident; a `bool $secure = true` left false in a
+  config file sends a password in the clear and looks like nothing at all.
 
 ### 1.4 No table, no command
 
@@ -295,6 +301,26 @@ The whole class of encoding bug disappears for a size cost irrelevant to transac
 
 Inside `multipart/alternative`, **text precedes HTML** — RFC 2046 §5.1.4 has clients render
 the *last* part they understand, so that order is what makes HTML win.
+
+### 2.12a A rejected recipient abandons the whole message
+
+Added during Phase 3; `ReleaseNotes_1.0.0.md` had no occasion to consider it and §2.11 did
+not reach it.
+
+If a relay accepts three `RCPT TO` commands and refuses the fourth, `MailAdapters\Smtp`
+**abandons the entire message** — it never issues `DATA` — and raises
+`FailureScope::Message` naming the address that was refused.
+
+Delivering to the three that were accepted is the kinder-looking option and the wrong one.
+A pool that then failed the message over would send it a second time to everyone who had
+already received it, and that duplicate is one this library *chose* to create. §2.5's
+admission is about transport uncertainty — an acknowledgement lost after the fact — not a
+licence to manufacture partial deliveries. One bad address is a defect in the caller's data,
+better reported than half-honoured.
+
+The scope is `Message` because a refused mailbox is refused everywhere. This is the only
+adapter that can discover the problem one recipient at a time; the API providers reject the
+whole payload or accept it.
 
 ### 2.13 Header injection is refused at construction, and non-ASCII is encoded
 

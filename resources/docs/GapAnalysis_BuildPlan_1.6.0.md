@@ -7,10 +7,14 @@ Marshal approved the §2.1 scope expansion and resolved Fork A to the injected
 `SesV2Client`-shaped object; Forks B, C and D took this document's recommended answers. The
 decisions now live, frozen and amended, in `ReleaseNotes_1.6.0.md` §2 — **read that document,
 not this one, for what the release specifies.** §4's phase sequence and §7's acceptance gate
-remain live here. Two decisions were added during Phase 1 and exist only in the release
-notes: §2.13 (header injection refused at construction) and the `Mail\Header` class it needed.
+remain live here. Decisions taken during the build exist only in the release notes and not
+below: §2.13 (header injection refused at construction) with the `Mail\Header` class it
+needed, §2.12a (a rejected recipient abandons the whole message) with `Mail\SmtpEncryption`,
+and the §2.2 note on what `mailerName()` identifies. §1.1's table below also still shows the
+SigV4 option that Fork A closed — read §1.2 of the release notes for the adapter roster as
+built.
 
-**Phases 1 and 2 of §4 are complete.** Phases 3–5 are not started.
+**Phases 1, 2 and 3 of §4 are complete.** Phases 4 and 5 are not started.
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),

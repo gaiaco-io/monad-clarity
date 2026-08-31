@@ -93,6 +93,39 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   not refuse duplicate names: a primary and a standby account at one provider is a legitimate
   pool (§2.2).
 
+- **`MailAdapters\Smtp`**, with `Mail\SmtpTransport`, `Mail\SocketTransport` and
+  `Mail\SmtpEncryption`. **Phase 3 of five.** `AmazonSes` remains an absent file.
+
+  The one adapter with no `HttpClient` and no API key — the reason `Services\Mail` declares no
+  constructor at all. It sends `MimeMessage`'s bytes after `DATA`, which is why that class was
+  built in phase 1 rather than here.
+
+  **The transport is an interface**, so the protocol is tested against a scripted server
+  rather than a socket: the whole conversation — `EHLO`, `STARTTLS`, `AUTH`, `MAIL FROM`, a
+  `RCPT TO` per recipient, `DATA`, the dot-terminated body, `QUIT` — is asserted command by
+  command. Without that seam the SMTP adapter would be the one part of Mail with no way to
+  assert its own protocol handling, which is the entire adapter.
+
+  **`STARTTLS` is required, never silently skipped.** A relay that does not advertise it is
+  refused, because a stripped advertisement is indistinguishable from an interception. The
+  opt-out is named at the call site — `SmtpEncryption::None` — rather than a boolean that
+  reads as nothing when left false in a staging config.
+
+  **A refused recipient abandons the whole message** (§2.12a). Delivering to the addresses
+  that were accepted would mean a pool sending it to them twice on failover, and that
+  duplicate is one this library chose to create rather than the transport uncertainty §2.5
+  admits to. `DATA` is never issued.
+
+  **Blind recipients reach the envelope and never a header** — `recipients()` names them in
+  `RCPT TO` while `MimeMessage` writes no `Bcc:`. This is the adapter where both halves of
+  §2.12 are visible at once, and a test asserts the transmitted bytes carry neither.
+
+  No credential reaches an exception: `AUTH PLAIN` transmits base64 of the password, so an
+  adapter reporting "the command X failed" would write it into every log that caught the
+  failure. A test asserts the password appears in neither the message nor the trace. Dot
+  stuffing (RFC 5321 §4.5.2), `HELO` fallback, a capped multi-line reply reader, and a socket
+  released on every path including the failures.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added
