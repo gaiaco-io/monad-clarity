@@ -386,11 +386,32 @@ that one is answered empirically below rather than by arithmetic.
   unique index, 28 by the in-flight guard — and zero jobs with more than one run row.
 - A second `schedule:run` in the same minute: zero bytes on stdout, zero on stderr, exit 0.
 
-### 5.2 Still outstanding at tagging
+### 5.2 Completed at tagging
 
-- `php mitosis health` green against a fresh `create-project` on the tagged version.
-- The `monad-www` documentation page and its hardcoded nav merged **before** the tag
-  (`ReleasePolicy.md` checklist item 7) — the item that exists because Checkout shipped
-  undocumented in 1.2.0.
-- The MySQL run above repeated on 8.0 specifically, if a host is available. Only the index
-  question depends on the version, and it passed with room to spare on 9.1.0.
+Everything below was exercised against the **published** release resolved from Packagist —
+`composer create-project monad/skeleton`, with `monad/clarity ^1.0` resolving to `v1.5.0` and
+its dist taken from the release commit — never against a path repository or this working copy.
+
+- **`php mitosis health` green**, all five checks, on a fresh `create-project` against MySQL:
+  configuration, database connectivity, writable storage, migration status, PHP extensions.
+  `setup` and `migrate` ran clean first.
+- **The export-ignore list holds in the dist anyone actually installs.** `resources/`,
+  `CLAUDE.md`, `.gitattributes` and `.gitignore` are all absent from
+  `vendor/monad/clarity/`, and `src/` is present with the Scheduler in it. Checked in the
+  installed tree rather than inferred from `.gitattributes`, because the file being correct
+  and the archive being correct are two different claims.
+- **The Scheduler driven end to end from that installed copy**, on MySQL: `schedule:run`
+  before `schedule:install` exits 1 naming the fix; `schedule:install` creates the table;
+  `schedule:list` reports both jobs as never run; `schedule:run` runs the due one and records
+  it; **a second `schedule:run` in the same minute prints nothing and exits 0** — the cluster
+  case, from the shipped artefact. The stored `due_at` is `04:40:00` for a run that happened
+  at `04:40:12`, so the minute normalisation that makes the mutex work survived packaging.
+- **A GitHub Release was published, not merely a tag.** The website's `/changelog` keys on
+  `release/published`, which is why 1.2.0 never appeared there; the delivery is confirmed
+  `200 OK`. The Packagist webhook returned `202` on the tag push.
+- **`monad-www` merged before the tag** (`ReleasePolicy.md` item 7), and the skeleton's
+  mirrors synced after it (item 8), verified byte-identical against the canonical copies.
+
+One thing deliberately not claimed: the MySQL evidence in §5.1 is from **9.1.0**, not 8.0. No
+8.0 host was available. Only the index-length question depends on the version, and it was
+answered empirically — `Sub_part = NULL` on every index row — rather than by arithmetic.
