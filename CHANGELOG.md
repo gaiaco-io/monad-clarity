@@ -6,6 +6,49 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`Services\Mail`** — the abstraction seven mailers implement, and the second service the
+  frozen 1.0.0 spec never contemplated (`ReleaseNotes_1.6.0.md` §2.1, approved rather than
+  assumed, as 1.5.0's Scheduler was). Clarity could already mint a signed URL for a password
+  reset and had no way to send it anywhere. **Phase 1 of five: the contract and its value
+  objects.** No adapter ships yet — an unbuilt adapter is an absent file, never a stub.
+
+  **`Mail` declares no constructor**, departing from `LLM` and `Checkout`, which both fix
+  `(string $apiKey, HttpClient $httpClient)` on the base (§2.2). Mail is the first Clarity
+  abstraction where that shape is false for its own implementations: SMTP has no API key and
+  no HttpClient at all, SES takes an injected client, Mailgun needs a domain and a region.
+  Forcing them through a two-argument base would mean an SMTP adapter keeping its password in
+  a property named `$apiKey` — a lie in the type signature told to preserve a symmetry that
+  is only skin deep. One abstract `send()`, plus a **public** `mailerName()`; adding a second
+  abstract method later is semver-major, per the rule §2.4 of 1.3.0 set for Checkout.
+
+  **Failover keys on whose fault it is, not on the status code** (§2.4). `Mail\FailureScope`
+  is `Mailer` or `Message`, and `MailException` takes it as a required argument with no
+  default. A `401` is `Mailer`, because bad credentials on one provider are precisely when a
+  second holding a different credential should take the message; a malformed recipient is
+  `Message`, because failing it over buys seven round trips to reach the same answer.
+  Anything unrecognised is `Mailer`.
+
+  **`MimeMessage` never emits a `Bcc:` header** (§2.12) — blind recipients travel in the SMTP
+  envelope and nowhere else, this being the one failure of the service that is both silent
+  and unrecoverable. `Message` also refuses `Bcc`, and every other structural header, as an
+  application-supplied extra, closing the same hole at the front door. Built now, before
+  either caller exists, because both `Smtp` and `AmazonSes` need the same bytes.
+
+  **Header injection is refused at construction, never sanitised** (§2.13). `Mail\Header`
+  rejects CR, LF and NUL in every header-bound value — the display name, the subject, custom
+  header names and values, attachment filenames — because one unescaped newline turns one
+  header into two and hands the second to the attacker. NUL is included because it truncates
+  below PHP, where an injected header may be invisible here and present on the wire. The same
+  class's other half applies RFC 2047 encoded-words to non-ASCII subjects and display names
+  for MIME output only; the JSON APIs take UTF-8 natively.
+
+  `SentMessage->attempts` **includes the successful final attempt** (§2.7), so the count is
+  the number of mailers tried and a single-adapter send returns exactly one. With no delivery
+  table anywhere in Clarity (§2.8), that trail is the only record failover ever happened.
+
+  **No new Composer dependency, no table, no command, no `DDL.sql` change**, and
+  `CrossRepoContracts.md` §3's command list is untouched.
 ## [1.5.0] - 2026-08-31
 
 ### Added

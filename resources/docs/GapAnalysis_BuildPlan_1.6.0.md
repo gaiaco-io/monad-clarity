@@ -1,9 +1,16 @@
 # Monad Clarity 1.6.0 — `Services\Mail` Gap Analysis & Sequenced Build Plan
 
-**Status:** DRAFT FOR REVIEW — not frozen, not approved.
-This document proposes a scope expansion and records the reasoning behind every structural
-choice it makes. It becomes `ReleaseNotes_1.6.0.md` only after Marshal approves §2.1 and
-resolves the four open forks in §6. Nothing here is built until then.
+**Status:** APPROVED 2026-08-31 — superseded as the specification by `ReleaseNotes_1.6.0.md`,
+retained as the build sequence.
+
+Marshal approved the §2.1 scope expansion and resolved Fork A to the injected
+`SesV2Client`-shaped object; Forks B, C and D took this document's recommended answers. The
+decisions now live, frozen and amended, in `ReleaseNotes_1.6.0.md` §2 — **read that document,
+not this one, for what the release specifies.** §4's phase sequence and §7's acceptance gate
+remain live here. Two decisions were added during Phase 1 and exist only in the release
+notes: §2.13 (header injection refused at construction) and the `Mail\Header` class it needed.
+
+**Phase 1 of §4 is complete.** Phases 2–5 are not started.
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),
