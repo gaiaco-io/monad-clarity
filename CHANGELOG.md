@@ -6,6 +6,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-08-31
+
 ### Added
 - **`Services\Scheduler`** — the application's schedule, held in code rather than in a crontab.
   The system cron gets one line, for the life of the application:
