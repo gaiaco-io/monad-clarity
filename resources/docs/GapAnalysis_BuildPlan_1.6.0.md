@@ -10,7 +10,7 @@ not this one, for what the release specifies.** §4's phase sequence and §7's a
 remain live here. Two decisions were added during Phase 1 and exist only in the release
 notes: §2.13 (header injection refused at construction) and the `Mail\Header` class it needed.
 
-**Phase 1 of §4 is complete.** Phases 2–5 are not started.
+**Phases 1 and 2 of §4 are complete.** Phases 3–5 are not started.
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),

@@ -50,6 +50,40 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   **No new Composer dependency, no table, no command, no `DDL.sql` change**, and
   `CrossRepoContracts.md` §3's command list is untouched.
 
+- **Five HTTP mailers** — `MailAdapters\{Postmark, Resend, SendGrid, Mailtrap, Mailgun}`, and
+  the `MailAdapters\SpeaksHttpApi` trait they share. **Phase 2 of five.** `AmazonSes` and
+  `Smtp` remain absent files.
+
+  A trait rather than a base class, because `Services\Mail` declares no constructor and
+  `Smtp` must inherit none of this — it speaks to a socket and has no `HttpClient` at all.
+  `CheckoutAdapters\SpeaksPaddle` is the precedent; this is the same move one level up, since
+  what is shared is a transport rather than one provider's dialect.
+
+  **A transport failure is translated, not allowed to escape.** `HttpClientException` — DNS,
+  refused connection, TLS, timeout — becomes a `MailException` scoped `Mailer`. Without that,
+  the pool in phase 5 would never see a `MailException` on precisely the failures it exists to
+  survive. Only the send is wrapped: widening the `try` over payload building would report a
+  bug in this library's own JSON encoding as a provider timeout, and a pool would dutifully
+  fail that bug over to six more mailers.
+
+  Error classification stays in one place. The trait owns the §2.4 status default — `400` and
+  `422` are the message's fault, everything else including `401` is the mailer's — and an
+  adapter refines it through `scopeFromErrorBody()` rather than by overriding the policy, so
+  seven files cannot drift apart. Postmark uses that seam to read its own `ErrorCode`.
+
+  Each provider's divergence is handled where it lives, and tested: **Postmark** answers
+  `200` with a non-zero `ErrorCode`, so a 2xx is not sufficient evidence of success, and it
+  takes recipients as comma-separated strings; **SendGrid** answers `202` with an empty body,
+  so its id comes from the `X-Message-Id` header and `decodeJsonBody()` is never called, and
+  its `content[]` must put `text/plain` before `text/html`; **Mailtrap** exposes its sandbox
+  as a named constructor rather than a boolean, because a `sandbox: true` left false in a
+  staging config sends real mail to real people; **Mailgun** is not a JSON API at all — HTTP
+  Basic, a hand-built multipart body when there are attachments, and recipient fields repeated
+  once per address rather than sent as an array.
+
+  Postmark **refuses** a message carrying more than one tag rather than silently sending the
+  first, since a tag that vanished is a reporting result nobody can explain six months later.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added

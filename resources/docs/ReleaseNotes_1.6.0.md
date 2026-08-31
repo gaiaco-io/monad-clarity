@@ -336,6 +336,13 @@ recommended answers and are recorded here so they are visible rather than assume
   double-send window of §2.5 and put a sleep on the request path. Ship failover first and let
   operational evidence decide.
 
+  The timeout budget is the strongest form of that argument. Each adapter takes its own
+  `$timeoutSeconds`, defaulting to 30, and a pool tries its members in series — so five
+  mailers that all time out is a 150-second worst case on a request path, before any retry
+  multiplies it. An application putting more than two or three mailers in a pool should lower
+  each one's timeout rather than accept the sum, and that is a constructor argument it
+  already has.
+
 ### 2.16 No new Composer dependency
 
 1.4.0 added recurring billing without one; 1.5.0 wrote a cron parser in-house rather than
