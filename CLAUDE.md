@@ -98,6 +98,19 @@ canonical for every document below — where the skeleton repo carries a mirror,
   one run per job per minute cluster-wide, not at-least-once** (§2.4); and `schedule:run`
   prints nothing when nothing happened, which is why its crontab line is documented without
   `> /dev/null 2>&1` (§2.8).
+- `ReleaseNotes_1.6.0.md` — WHAT ships in 1.6.0 (`Services\Mail`, its value objects and MIME
+  builder, seven `MailAdapters\*`, and the `MailerPool` that gives optional failover), and
+  sixteen decisions. Read before touching mail. The three most load-bearing: `Mail` declares
+  **no constructor** — the first Clarity abstraction whose implementations do not share one,
+  since SMTP has neither an API key nor an HttpClient (§2.2); failover keys on **whose fault
+  it is** (`FailureScope::Mailer` vs `::Message`), never on the status code, which is why a
+  `401` fails over and a malformed recipient does not (§2.4); and the guarantee is **at least
+  once, not exactly once** — the honest inverse of the Scheduler's, because no cross-provider
+  idempotency key exists (§2.5). `MimeMessage` never emits a `Bcc:` header and header
+  injection is refused at construction (§2.12, §2.13) — both security-critical.
+- `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
+  acceptance gate. Superseded as specification by the release notes above; still live for
+  sequence and for which phases remain.
 
 **Conflict order:** ReleaseNotes defines requirements → CrossRepoContracts defines boundaries →
 BuildPlan defines sequence → Architecture explains rationale. If two documents disagree, stop

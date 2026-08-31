@@ -282,8 +282,8 @@ argument. Adding a `mail_deliveries` table would be Clarity deciding what an app
 must record about its own mail.
 
 Consequently this release adds **no command**, touches **no** `DDL.sql`, and requires **no**
-change to `CrossRepoContracts.md` §3's stable command list. The eighteen built-in commands
-stay eighteen.
+change to `CrossRepoContracts.md` §3's stable command list. The nineteen built-in commands
+stay nineteen.
 
 ### 2.9 Mail does not render templates
 
@@ -547,7 +547,7 @@ its SMTP endpoint does not. Flagged only so the redundancy is a choice rather th
 
 **Fork C — a `mail:test` command.** One command that sends a fixed message through the
 configured mailer and prints what happened, so a developer can verify credentials without
-writing a script. Genuine developer empathy; also the nineteenth built-in command and a
+writing a script. Genuine developer empathy; also the twentieth built-in command and a
 `CrossRepoContracts.md` §3 addition, for something four lines of a scratch script would do.
 **Recommended: no**, on `CLAUDE.md`'s "if it's not necessary, don't implement it" — and it
 stays available as a later semver-minor if the need proves real, which is the cheaper

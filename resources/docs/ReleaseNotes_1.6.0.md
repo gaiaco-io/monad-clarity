@@ -62,8 +62,8 @@ RFC 2047 encoded before it can.
 ### 1.4 No table, no command
 
 Unlike Checkout and Scheduler, Mail owns no persistent state — see §2.8. `DDL.sql` is
-untouched, `CrossRepoContracts.md` §3's command list is untouched, and the eighteen built-in
-commands stay eighteen.
+untouched, `CrossRepoContracts.md` §3's command list is untouched, and the nineteen built-in
+commands stay nineteen.
 
 ## 2. Resolved specification decisions
 

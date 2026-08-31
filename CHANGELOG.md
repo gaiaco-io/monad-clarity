@@ -49,6 +49,7 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
   **No new Composer dependency, no table, no command, no `DDL.sql` change**, and
   `CrossRepoContracts.md` §3's command list is untouched.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added
