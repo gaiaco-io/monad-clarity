@@ -49,13 +49,14 @@ whether it was handed one adapter or seven.
 An unbuilt adapter is an **absent file, never a stub** — the rule the eight remaining
 `CheckoutAdapters` follow.
 
-### 1.3 The value objects
+### 1.3 The supporting classes
 
 `Mail\Address`, `Mail\Attachment`, `Mail\Message`, `Mail\SentMessage`, `Mail\Attempt`,
 `Mail\FailureScope`, `Mail\MailException`, `Mail\Header`, `Mail\MimeMessage`,
-`Mail\SmtpTransport`, `Mail\SocketTransport`, `Mail\SmtpEncryption`.
+`Mail\SmtpTransport`, `Mail\SocketTransport`, `Mail\SmtpEncryption`, `Mail\MailerPool`.
 
-Two of these are additions to the plan's inventory, recorded here so it stays true:
+Most are value objects; `MailerPool`, `SmtpTransport` and `SocketTransport` are behavioural.
+Two are additions to the plan's inventory, recorded here so it stays true:
 
 - **`Mail\Header`**, extracted during Phase 1 once the injection guard of §2.13 turned out to
   be needed by three classes rather than one. It owns both header-safety rules: what may not

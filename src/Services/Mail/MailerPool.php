@@ -150,15 +150,28 @@ final class MailerPool extends \Monad\Clarity\Services\Mail
         MailException $failure,
         array $attempts,
     ): MailException {
-        $remaining = count($this->mailers) - count($attempts);
+        $untried = count($this->mailers) - count($attempts);
+
+        // Says how many were never asked *and* how many had already failed before this one.
+        // "The remaining mailer was not tried" alone reads, on a three-member pool, as though
+        // the pool skipped one for no reason — when in fact an earlier member had failed over
+        // to this one first.
+        $alreadyFailed = count($attempts) - 1;
 
         return new MailException(
             sprintf(
-                '%s refused the message itself, so the %s not tried: every mailer would refuse it '
-                . 'for the same reason, and asking them would cost a round trip each to reach the '
-                . 'same answer. %s',
+                '%s refused the message itself, so the %s not tried%s: every mailer would refuse '
+                . 'it for the same reason, and asking them would cost a round trip each to reach '
+                . 'the same answer. %s',
                 $mailer->mailerName(),
-                $remaining === 1 ? 'remaining mailer was' : sprintf('remaining %d mailers were', $remaining),
+                $untried === 1 ? 'remaining mailer was' : sprintf('remaining %d mailers were', $untried),
+                $alreadyFailed === 0
+                    ? ''
+                    : sprintf(
+                        ' (%d earlier %s already failed and failed over to this one)',
+                        $alreadyFailed,
+                        $alreadyFailed === 1 ? 'mailer had' : 'mailers had'
+                    ),
                 $failure->getMessage()
             ),
             FailureScope::Message,

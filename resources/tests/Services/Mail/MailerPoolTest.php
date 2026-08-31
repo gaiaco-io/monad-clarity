@@ -118,6 +118,29 @@ final class MailerPoolTest extends TestCase
         }
     }
 
+    /**
+     * The untried count alone is misleading once a mailer has already failed over: on a
+     * three-member pool it reads as though the pool skipped one for no reason.
+     */
+    public function testAMessageFaultAlsoNamesTheMailersThatFailedBeforeIt(): void
+    {
+        $pool = new MailerPool([
+            RecordingMailer::failing('postmark', MailException::mailer('503 Service Unavailable')),
+            RecordingMailer::failing('resend', MailException::message('Recipient address is invalid.')),
+            RecordingMailer::succeeding('smtp', 's-1'),
+        ]);
+
+        try {
+            $pool->send(self::message());
+            self::fail('Expected a MailException.');
+        } catch (MailException $e) {
+            self::assertSame(FailureScope::Message, $e->scope);
+            self::assertStringContainsString('resend refused the message itself', $e->getMessage());
+            self::assertStringContainsString('remaining mailer was not tried', $e->getMessage());
+            self::assertStringContainsString('1 earlier mailer had already failed', $e->getMessage());
+        }
+    }
+
     public function testEveryMailerFailingRaisesNamingAllOfThem(): void
     {
         $first = RecordingMailer::failing('postmark', MailException::mailer('503 Service Unavailable'));
