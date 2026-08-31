@@ -41,7 +41,7 @@ whether it was handed one adapter or seven.
 | `MailAdapters\Mailtrap` | `send.api.mailtrap.io/api/send` | `Api-Token` header | JSON |
 | `MailAdapters\Postmark` | `api.postmarkapp.com/email` | `X-Postmark-Server-Token` header | JSON |
 | `MailAdapters\Mailgun` | `api.mailgun.net/v3/{domain}/messages` | HTTP Basic `api:{key}` | multipart/form-data |
-| `MailAdapters\AmazonSes` | injected `SesV2Client`-shaped object (§2.14) | the client's own | `sendEmail()` array — `Simple`, or `Raw` MIME when there are attachments |
+| `MailAdapters\AmazonSes` | injected `SesV2Client`-shaped object (§2.14) | the client's own | `sendEmail()` array — `Simple`, or `Raw` MIME when there are attachments **or custom headers** |
 | `MailAdapters\Resend` | `api.resend.com/emails` | `Authorization: Bearer` | JSON |
 | `MailAdapters\SendGrid` | `api.sendgrid.com/v3/mail/send` | `Authorization: Bearer` | JSON |
 | `MailAdapters\Smtp` | any host, 587/465/25 | AUTH PLAIN / LOGIN | RFC 5322 over a socket |
@@ -360,6 +360,27 @@ correct for the life of a major version.
 
 No `aws/aws-sdk-php` dependency is added — the adapter is written against the method shape,
 so the real SDK needs no translation and tests use a plain fake.
+
+Two signature consequences, both deliberate. The client is **required and non-nullable**,
+unlike `Files`' `?object $s3Client`: Files has a filesystem adapter to fall back to, so null
+is a mode there, whereas here it is simply a broken mailer. And this is the only adapter with
+**no `$timeoutSeconds`** — the injected client owns the transport and therefore the timeouts,
+and accepting a value this class could not enforce would be a lie in the signature. An
+application tuning a pool's timeout budget (§2.15) sets it on the client it constructs.
+
+Since the adapter cannot type-hint `AwsException`, it catches `Throwable` around **the
+`sendEmail()` call alone** and reads the code through `method_exists($e, 'getAwsErrorCode')`.
+Narrowing the `try` that far matters twice over: a `TypeError` from this library's own payload
+construction must not be reported to a pool as a provider failure, and a `MailException`
+raised by the tag guard below must not be re-wrapped from `Message` to `Mailer` and sent
+around six more providers.
+
+One tag rule is SES-specific and enforced here rather than in `Message`: SES `EmailTags`
+accept only letters, digits, underscores and dashes, where the other five mailers take any
+string. A tag like `welcome email` would otherwise send everywhere except SES and surface as
+an opaque `InvalidParameterValue`, so it is refused with a message naming the tag. Unlike the
+one-tag limit of Phase 2 — which two adapters shared, and which therefore lives in the trait —
+this constraint belongs to one provider.
 
 ### 2.15 Three further decisions, resolved by recommendation
 

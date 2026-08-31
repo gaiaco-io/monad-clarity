@@ -14,7 +14,7 @@ and the §2.2 note on what `mailerName()` identifies. §1.1's table below also s
 SigV4 option that Fork A closed — read §1.2 of the release notes for the adapter roster as
 built.
 
-**Phases 1, 2 and 3 of §4 are complete.** Phases 4 and 5 are not started.
+**Phases 1-4 of §4 are complete.** Phase 5 (`MailerPool`) is not started.
 
 **Scope basis:** `ReleaseNotes_1.0.0.md` (frozen), `ReleaseNotes_1.5.0.md` §2.1 (the
 scope-expansion precedent), `Architecture.md` §7 (facade/adapter rationale),

@@ -126,6 +126,40 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   stuffing (RFC 5321 §4.5.2), `HELO` fallback, a capped multi-line reply reader, and a socket
   released on every path including the failures.
 
+- **`MailAdapters\AmazonSes`** — Amazon SES v2 through an injected client. **Phase 4 of five.**
+  All seven adapters now exist; only `Mail\MailerPool` remains.
+
+  The client is any object exposing `sendEmail(array $args)`, the real `Aws\SesV2Client`
+  method shape, so the genuine SDK needs no translation and a test needs a plain fake —
+  `Services\Files` accepts an `S3Client`-shaped object on exactly these terms (§2.14).
+  **No `aws/aws-sdk-php` entry is added to `composer.json`.** Signing requests in-house was
+  the alternative and was rejected: SigV4 canonicalisation is a security protocol with several
+  ways to be subtly wrong that surface as an opaque `403` rather than a clear error.
+
+  Two signature consequences follow, both deliberate: the client is required and non-nullable
+  where `Files`' is optional, because Files has a filesystem adapter to fall back to and this
+  has nothing; and this is the only adapter with **no `$timeoutSeconds`**, because the injected
+  client owns the transport and accepting a timeout this class cannot enforce would be a lie
+  in the signature.
+
+  **Custom headers force the `Raw` MIME path, as attachments already did.** SES's
+  `Simple.Headers` is narrower than RFC 5322, so routing through `MimeMessage` whenever either
+  is present buys one fidelity guarantee instead of two partial ones — and §2.12's Bcc
+  guarantee holds on that path too, asserted against the transmitted document.
+
+  Since `AwsException` cannot be type-hinted without the SDK, the adapter catches `Throwable`
+  around **the `sendEmail()` call alone** and reads `getAwsErrorCode()` when it is there. That
+  narrowness matters twice: a `TypeError` in this library's own payload construction must not
+  reach a pool as a provider failure, and a `Message`-scoped `MailException` must not be
+  re-wrapped as `Mailer` and sent around six more providers. `MessageRejected` stays `Mailer`
+  because SES uses it for both a refused body and an unverified identity — §2.4's default for
+  the genuinely ambiguous.
+
+  SES tags accept only letters, digits, underscores and dashes where the other five mailers
+  take any string, so a tag like `welcome email` is refused by name rather than surfacing as
+  an opaque `InvalidParameterValue`. Unlike Phase 2's one-tag limit, which two adapters shared
+  and which therefore lives in the trait, this constraint belongs to one provider.
+
 ## [1.5.0] - 2026-08-31
 
 ### Added
