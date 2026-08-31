@@ -78,13 +78,31 @@ final class MailtrapTest extends TestCase
         self::assertSame(['email' => 'support@example.com'], $body['reply_to']);
     }
 
-    public function testTakesTheFirstTagAsTheCategory(): void
+    public function testSendsASingleTagAsTheCategory(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::accepted());
 
-        Mailtrap::sending('t', $fake)->send(self::message(tags: ['welcome', 'onboarding']));
+        Mailtrap::sending('t', $fake)->send(self::message(tags: ['welcome']));
 
         self::assertSame('welcome', $fake->decodedLastRequestBody()['category']);
+    }
+
+    /**
+     * The same answer Postmark gives to the same message. Two adapters sharing a limit must
+     * not differ, or the behaviour depends on which member of a pool happened to take it.
+     */
+    public function testRefusesMoreThanOneTagRatherThanDroppingOne(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::accepted());
+
+        try {
+            Mailtrap::sending('t', $fake)->send(self::message(tags: ['welcome', 'onboarding']));
+            self::fail('Expected a MailException.');
+        } catch (MailException $e) {
+            self::assertSame(FailureScope::Message, $e->scope);
+            self::assertStringContainsString('carries a single tag', $e->getMessage());
+            self::assertSame(0, $fake->requestCount(), 'Refused before any network call.');
+        }
     }
 
     public function testSurvivesAResponseWithNoMessageIds(): void

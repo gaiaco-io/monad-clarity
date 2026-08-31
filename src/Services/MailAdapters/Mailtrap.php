@@ -135,9 +135,12 @@ final class Mailtrap extends Mail
             $payload['headers'] = $message->headers;
         }
 
-        // Mailtrap's "category" is a single string, as Postmark's tag is. Unlike Postmark,
-        // this one is purely for the sandbox's own filtering, so the first is taken rather
-        // than refusing the send — nothing about delivery changes either way.
+        // Mailtrap's "category" is a single string, as Postmark's Tag is, and it is refused
+        // the same way rather than quietly keeping the first — see assertAtMostOneTag(). Two
+        // adapters with the same limit must not give two different answers to one message,
+        // or the behaviour depends on which member of a pool happened to take it.
+        $this->assertAtMostOneTag($message);
+
         if ($message->tags !== []) {
             $payload['category'] = $message->tags[0];
         }

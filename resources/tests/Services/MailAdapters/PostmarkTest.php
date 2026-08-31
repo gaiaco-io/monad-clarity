@@ -115,7 +115,7 @@ final class PostmarkTest extends TestCase
         $fake = new FakeHttpClient(static fn (): Response => self::accepted());
 
         $this->expectException(MailException::class);
-        $this->expectExceptionMessage('Postmark accepts a single tag');
+        $this->expectExceptionMessage('carries a single tag');
 
         (new Postmark('t', $fake))->send(self::message(tags: ['welcome', 'onboarding']));
     }
@@ -186,6 +186,46 @@ final class PostmarkTest extends TestCase
             self::fail('Expected a MailException.');
         } catch (MailException $e) {
             self::assertSame(FailureScope::Message, $e->scope);
+        }
+    }
+
+    /**
+     * Proves the `scopeFromErrorBody()` seam is genuinely dispatched to the adapter's own
+     * override rather than the trait's null default. A 401's status default is Mailer, so
+     * only a real override can turn this into Message — a weaker test using a 422 would pass
+     * either way, because 422 already defaults to Message.
+     */
+    public function testTheAdaptersOwnReadingOfTheBodyBeatsTheStatusDefault(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => new Response(
+            401,
+            [],
+            json_encode(['ErrorCode' => 300, 'Message' => 'Invalid email address.'], JSON_THROW_ON_ERROR)
+        ));
+
+        try {
+            (new Postmark('t', $fake))->send(self::message());
+            self::fail('Expected a MailException.');
+        } catch (MailException $e) {
+            self::assertSame(FailureScope::Message, $e->scope);
+        }
+    }
+
+    /** The path a real outage takes: no ErrorCode to read, so the status default applies. */
+    public function testAnErrorBodyWithNoErrorCodeFallsBackToTheStatusDefault(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => new Response(
+            503,
+            ['Content-Type' => 'text/html'],
+            '<html><body>503 Service Unavailable</body></html>'
+        ));
+
+        try {
+            (new Postmark('t', $fake))->send(self::message());
+            self::fail('Expected a MailException.');
+        } catch (MailException $e) {
+            self::assertSame(FailureScope::Mailer, $e->scope);
+            self::assertStringContainsString('HTTP 503', $e->getMessage());
         }
     }
 

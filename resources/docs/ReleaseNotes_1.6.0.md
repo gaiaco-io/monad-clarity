@@ -110,6 +110,20 @@ shared a provider's dialect; this is the same move one level up.
 `mailerName()` is **public**, not protected: a pool records it on an `Attempt` for every
 member it tries, and that trail is the only record of failover anywhere in Clarity.
 
+**It names the provider and the mode, not the instance.** Two `Postmark` adapters holding
+different server tokens both return `'postmark'`, because from the recipient's side and the
+operator's they are the same provider having a good or a bad day. `Mailtrap::sandbox()` is
+the one place a mode changes the name — to `'mailtrap_sandbox'` — because the difference
+there is not a credential but whether the mail reaches a human at all, and "it sent fine in
+staging" is a far shorter conversation when the record says which one sent it.
+
+Two consequences, settled here because Phase 5 needs them and because applications will
+start logging `$sent->mailer` the day it ships. **`MailerPool` does not refuse duplicate
+mailer names** — a primary and a standby account at the same provider is a legitimate pool,
+and it is exactly what an application does when one sending domain is rate-limited. And a
+name is therefore not a key: the pool identifies its members by position, and `attempts`
+is an ordered list rather than a map.
+
 ### 2.3 Failover is why `Mail` reverses `LLM` §11.4
 
 `ReleaseNotes_1.0.0.md` §11.4 excludes *"automatic retries across providers"* from the LLM

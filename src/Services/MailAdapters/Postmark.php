@@ -118,17 +118,7 @@ final class Postmark extends Mail
             );
         }
 
-        // Postmark takes exactly one tag, not a list. Sending only the first would silently
-        // drop the rest, so more than one is refused: a tag that vanished is a reporting
-        // result nobody can explain six months later.
-        if (count($message->tags) > 1) {
-            throw MailException::message(sprintf(
-                'Postmark accepts a single tag and this message carries %d (%s). Send one, or use '
-                . 'Headers for the rest — silently keeping the first would make a tag disappear.',
-                count($message->tags),
-                implode(', ', $message->tags)
-            ));
-        }
+        $this->assertAtMostOneTag($message);
 
         if ($message->tags !== []) {
             $payload['Tag'] = $message->tags[0];

@@ -81,8 +81,17 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   Basic, a hand-built multipart body when there are attachments, and recipient fields repeated
   once per address rather than sent as an array.
 
-  Postmark **refuses** a message carrying more than one tag rather than silently sending the
-  first, since a tag that vanished is a reporting result nobody can explain six months later.
+  Postmark and Mailtrap both **refuse** a message carrying more than one tag rather than
+  silently sending the first, since a tag that vanished is a reporting result nobody can
+  explain six months later. The guard is shared rather than written twice: two adapters with
+  the same limit giving two different answers would make the behaviour depend on which member
+  of a pool happened to take the message.
+
+  `mailerName()` names the provider and the mode, not the instance — two Postmarks with
+  different tokens are both `postmark`, while `Mailtrap::sandbox()` is `mailtrap_sandbox`,
+  since that difference is whether mail reaches a human at all. `MailerPool` will therefore
+  not refuse duplicate names: a primary and a standby account at one provider is a legitimate
+  pool (§2.2).
 
 ## [1.5.0] - 2026-08-31
 

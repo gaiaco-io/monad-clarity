@@ -8,6 +8,7 @@ use JsonException;
 use Monad\Clarity\Services\HttpClientException;
 use Monad\Clarity\Services\Mail\FailureScope;
 use Monad\Clarity\Services\Mail\MailException;
+use Monad\Clarity\Services\Mail\Message;
 use Nyholm\Psr7\Request;
 use Psr\Http\Message\ResponseInterface;
 
@@ -141,6 +142,32 @@ trait SpeaksHttpApi
         }
 
         return $decoded;
+    }
+
+    /**
+     * Refuse a message carrying more tags than this provider can express.
+     *
+     * Postmark takes one `Tag`, Mailtrap one `category`. Sending the first and dropping the
+     * rest is the tempting move and the wrong one: a tag that vanished is a reporting result
+     * nobody can explain six months later, and it fails differently depending on which mailer
+     * a pool happened to reach. Shared here so the two adapters that have this limit give the
+     * same answer to the same input.
+     *
+     * @throws MailException scoped Message — every mailer with this limit would say the same.
+     */
+    private function assertAtMostOneTag(Message $message): void
+    {
+        if (count($message->tags) <= 1) {
+            return;
+        }
+
+        throw MailException::message(sprintf(
+            '%s carries a single tag and this message has %d (%s). Send one, or move the rest '
+            . 'into headers — silently keeping the first would make a tag disappear.',
+            $this->mailerName(),
+            count($message->tags),
+            implode(', ', $message->tags)
+        ));
     }
 
     /**
