@@ -511,5 +511,38 @@ timeout budget is not the only shared resource a pool can exhaust.
 
 ### 5.2 Completed at tagging
 
-To be recorded once the Packagist publication checklist in `ReleasePolicy.md` has been worked
-through against the published release, as 1.5.0's §5.2 was.
+`v1.6.0` was tagged on 2026-08-31 at `f553e12`. What follows is what was actually verified,
+not what was intended — and everything below was exercised against the **published release
+resolved from Packagist**, a `create-project` with `^1.0` resolving to `v1.6.0`, rather than a
+path repository. A working copy proves the source is right; only the installed artefact proves
+the shipped package is.
+
+- **Docs merged before the tag**, which is what `ReleasePolicy.md` item 7 asks for and the
+  order that matters: `monad-www` gained `services/mail.php` and a Services count of 18 in
+  PR #8, merged before `v1.6.0` existed. Checkout shipped undocumented in 1.2.0 precisely
+  because that order was not kept.
+- **`export-ignore` confirmed in the installed vendor tree**, not inferred from
+  `.gitattributes` — the file being correct and the archive being correct are two claims, and
+  1.5.0's §5.2 made the same distinction. `resources/` and `CLAUDE.md` are absent from the
+  distributed package; all 22 Mail source files are present.
+- **Mail driven end to end from that installed copy.** A pool of a deliberately dead SMTP
+  relay followed by a Mailtrap sandbox delivered through the sandbox, with the socket failure
+  recorded on `attempts` — so failover is proved from the shipped artefact rather than from
+  this working copy.
+- **A GitHub Release was published, not only a tag.** `/changelog` on the website keys on
+  `release/published`, which is why 1.2.0 never appeared there; 1.5.0's §5.2 recorded the same
+  lesson and this release honoured it.
+- **Packagist picked the tag up** through the auto-update webhook, with no manual update
+  needed — `v1.6.0` was resolvable within minutes of the push.
+
+Two checklist items were **not** completed at tagging, and are recorded here rather than
+quietly ticked:
+
+- **Item 4, `php mitosis health` against the fresh `create-project`.** The project was created
+  and its resolution verified, but `health` needs a configured MySQL and the fresh skeleton
+  ships only `.env_example`. It remains to be run in an environment that has one. Nothing in
+  this release touches the database, so the risk is low — but low is not zero, and 1.5.0 ran it.
+- **Items 8 and 9 in the skeleton repository.** This repo's `RepoMap.md` changed, so the
+  skeleton's mirror needs syncing, and the skeleton's README Status line still names the
+  Clarity version it resolved to before this release. Item 9 exists precisely because that
+  line went unbumped through three consecutive releases.
