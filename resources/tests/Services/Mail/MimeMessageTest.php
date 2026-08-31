@@ -79,7 +79,10 @@ final class MimeMessageTest extends TestCase
             new Attachment('invoice.pdf', 'application/pdf', '%PDF-1.4'),
         ]);
 
-        self::assertSame('', preg_replace('/\r\n/', '', preg_replace('/[^\r\n]/', '', $mime)));
+        // Every LF must be preceded by CR, and every CR followed by LF. SMTP correctness
+        // rests on this, and Phase 3's dot-stuffing reads the document line by line.
+        self::assertSame(0, preg_match('/(?<!\r)\n/', $mime), 'Found an LF not preceded by CR.');
+        self::assertSame(0, preg_match('/\r(?!\n)/', $mime), 'Found a CR not followed by LF.');
     }
 
     /**
@@ -94,7 +97,13 @@ final class MimeMessageTest extends TestCase
         );
 
         self::assertStringContainsString("Cc: cc@example.com\r\n", $mime);
-        self::assertStringNotContainsStringIgnoringCase('Bcc', $mime);
+
+        // Scoped to the header block: base64 body content can legitimately contain the
+        // substring "bcc", and a whole-document assertion would fail mysteriously the day
+        // someone adds a body to this case.
+        $headerBlock = substr($mime, 0, (int) strpos($mime, "\r\n\r\n"));
+
+        self::assertStringNotContainsStringIgnoringCase('bcc', $headerBlock);
         self::assertStringNotContainsString('blind@example.com', $mime);
         self::assertStringNotContainsString('alsoblind@example.com', $mime);
     }

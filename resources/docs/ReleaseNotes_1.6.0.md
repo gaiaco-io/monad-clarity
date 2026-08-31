@@ -41,7 +41,7 @@ whether it was handed one adapter or seven.
 | `MailAdapters\Mailtrap` | `send.api.mailtrap.io/api/send` | `Api-Token` header | JSON |
 | `MailAdapters\Postmark` | `api.postmarkapp.com/email` | `X-Postmark-Server-Token` header | JSON |
 | `MailAdapters\Mailgun` | `api.mailgun.net/v3/{domain}/messages` | HTTP Basic `api:{key}` | multipart/form-data |
-| `MailAdapters\AmazonSes` | injected `SesV2Client`-shaped object (§2.14) | the SDK's own | — |
+| `MailAdapters\AmazonSes` | injected `SesV2Client`-shaped object (§2.14) | the client's own | `sendEmail()` array — `Simple`, or `Raw` MIME when there are attachments |
 | `MailAdapters\Resend` | `api.resend.com/emails` | `Authorization: Bearer` | JSON |
 | `MailAdapters\SendGrid` | `api.sendgrid.com/v3/mail/send` | `Authorization: Bearer` | JSON |
 | `MailAdapters\Smtp` | any host, 587/465/25 | AUTH PLAIN / LOGIN | RFC 5322 over a socket |
@@ -339,7 +339,9 @@ recommended answers and are recorded here so they are visible rather than assume
 ### 2.16 No new Composer dependency
 
 1.4.0 added recurring billing without one; 1.5.0 wrote a cron parser in-house rather than
-take one. Every API adapter is a JSON or form POST over the existing `HttpClient`; the SMTP
-adapter is a socket conversation over `ext-openssl`, already required; `MimeMessage` is the
+take one. The five HTTP adapters are a JSON or form POST over the existing `HttpClient`;
+`AmazonSes` delegates transport entirely to the client object it is handed (§2.14), so it
+adds no dependency of its own either; the SMTP adapter is a socket conversation over
+`ext-openssl`, already required; `MimeMessage` is the
 RFC 5322 that would otherwise pull in a package to be tracked and audited for the life of a
 major version. **No `require` entry changes.**

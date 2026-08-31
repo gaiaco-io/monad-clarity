@@ -86,7 +86,7 @@ final readonly class Message
             throw new InvalidArgumentException('A Message requires at least one "to" recipient.');
         }
 
-        if (($text === null || trim($text) === '') && ($html === null || trim($html) === '')) {
+        if (!$this->hasText() && !$this->hasHtml()) {
             throw new InvalidArgumentException(
                 'A Message requires a text body, an HTML body, or both. A message with neither is '
                 . 'accepted by some providers and silently discarded by others.'
@@ -119,6 +119,23 @@ final readonly class Message
         }
 
         return $recipients;
+    }
+
+    /**
+     * Whether there is a text body worth sending.
+     *
+     * The constructor's "at least one body" rule and MimeMessage's choice of body structure
+     * are the same question, so they ask it in the same place. Two copies of this predicate
+     * that drifted apart would let a Message exist that MimeMessage cannot render.
+     */
+    public function hasText(): bool
+    {
+        return $this->text !== null && trim($this->text) !== '';
+    }
+
+    public function hasHtml(): bool
+    {
+        return $this->html !== null && trim($this->html) !== '';
     }
 
     public function hasAttachments(): bool

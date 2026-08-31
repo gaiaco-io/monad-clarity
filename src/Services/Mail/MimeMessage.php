@@ -6,6 +6,7 @@ namespace Monad\Clarity\Services\Mail;
 
 use DateTimeImmutable;
 use DateTimeInterface;
+use LogicException;
 use Monad\Clarity\Utils\CryptographicToken;
 
 /**
@@ -120,17 +121,20 @@ final class MimeMessage
      */
     private static function alternative(Message $message): array
     {
-        $hasText = $message->text !== null && trim($message->text) !== '';
-        $hasHtml = $message->html !== null && trim($message->html) !== '';
-
-        $text = $hasText ? self::textEntity('text/plain', (string) $message->text) : null;
-        $html = $hasHtml ? self::textEntity('text/html', (string) $message->html) : null;
+        $text = $message->hasText() ? self::textEntity('text/plain', (string) $message->text) : null;
+        $html = $message->hasHtml() ? self::textEntity('text/html', (string) $message->html) : null;
 
         if ($text !== null && $html !== null) {
             return self::multipart('alternative', [$text, $html]);
         }
 
-        return $text ?? $html;
+        // Message refuses to exist without at least one body, so this cannot be reached — but
+        // it is asserted rather than assumed, because the alternative to a clear failure here
+        // is a null propagating into the caller's array access.
+        return $text ?? $html ?? throw new LogicException(
+            'A Message reached MimeMessage with neither a text nor an HTML body, which its own '
+            . 'constructor forbids.'
+        );
     }
 
     /**
