@@ -535,14 +535,27 @@ the shipped package is.
 - **Packagist picked the tag up** through the auto-update webhook, with no manual update
   needed — `v1.6.0` was resolvable within minutes of the push.
 
-Two checklist items were **not** completed at tagging, and are recorded here rather than
-quietly ticked:
+Two checklist items were **not** completed at the moment of tagging. Both were closed
+immediately afterwards, and are recorded here with the difference between what 1.5.0 proved
+and what this release proved, rather than flattened into a tick:
 
-- **Item 4, `php mitosis health` against the fresh `create-project`.** The project was created
-  and its resolution verified, but `health` needs a configured MySQL and the fresh skeleton
-  ships only `.env_example`. It remains to be run in an environment that has one. Nothing in
-  this release touches the database, so the risk is low — but low is not zero, and 1.5.0 ran it.
-- **Items 8 and 9 in the skeleton repository.** This repo's `RepoMap.md` changed, so the
-  skeleton's mirror needs syncing, and the skeleton's README Status line still names the
-  Clarity version it resolved to before this release. Item 9 exists precisely because that
-  line went unbumped through three consecutive releases.
+- **Item 4, `php mitosis health` against the fresh `create-project` — green, on SQLite.** All
+  five checks pass against the Packagist-resolved `v1.6.0`: configuration, database
+  connectivity, writable storage, migration status, PHP extensions, exit code `0`. `setup` and
+  `migrate` ran first and both succeeded. **1.5.0's §5.2 recorded MySQL and this records
+  SQLite**, which is the narrower claim of the two and is stated as such; SQLite is one of the
+  three drivers the skeleton supports and is what the skeleton's own development environment
+  uses. Nothing in this release touches the database, so the driver is not load-bearing here —
+  but the record says which one ran rather than implying the other.
+- **Items 8 and 9 in the skeleton repository — done.** `RepoMap.md` is byte-identical to this
+  repo's copy again; the drift was exactly 1.6.0's two new trees and nothing else. The
+  skeleton's README Status line records that `monad/clarity ^1.0` now resolves to `1.6.0`,
+  verified against a real `create-project` rather than assumed. `CrossRepoContracts.md` needed
+  nothing, as §2.8 predicted.
+
+One thing item 8's "worth a skim for staleness" clause turned up, which no diff would have
+caught: the skeleton's `config/mail.php` still defined a `MAILER` constant that nothing read,
+written when Clarity had no Mail service — the same dangling file §2.1 cites as evidence that
+the demand for this release was already in the codebase. It now builds a `Services\Mail`, and
+`MAIL_MAILERS` carries the §2.6 decision: one name for one mailer, a comma-separated list for
+a pool in that order.
