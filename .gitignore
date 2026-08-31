@@ -3,3 +3,7 @@ composer.lock
 .DS_Store
 .phpunit.cache/
 .phpunit.result.cache
+
+# Claude Code local state: settings.local.json and any git worktrees it creates
+# under .claude/worktrees/. Never part of the package.
+.claude/
