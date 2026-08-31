@@ -138,6 +138,50 @@ Tiny synchronous dispatcher. Built-in event names (stable identifiers, extend fr
 when a transaction settles as successful — once per transaction, never on a redelivered callback)*,
 `user.registered`, `file.uploaded`, `migration.completed`.
 
+## Services\Scheduler — `Monad\Clarity\Services\Scheduler` (1.5.0)
+
+The application's schedule, held in code. Jobs are registered in `app/routes/cli.php`, which
+the console kernel loads before every dispatch; the system cron gets one line —
+`* * * * * cd /path/to/app && php mitosis schedule:run` — and never changes again.
+
+- `job(string $name, string $expression, callable $work, int $staleAfterMinutes = 60): void`
+- `jobs(): array<string, Scheduler\ScheduledJob>`
+- `due(DateTimeInterface $moment): list<Scheduler\ScheduledJob>`
+- `reset(): void`
+
+`$expression` is five cron fields (`*`, a number, `a-b`, a step on a star or a range, a
+comma-separated list; `JAN`–`DEC` and `SUN`–`SAT` names) or one of `@yearly`/`@annually`,
+`@monthly`, `@weekly`, `@daily`/`@midnight`, `@hourly`. A step on a single value (`5/15`) is
+refused rather than guessed at — it means `5-59/15` in Vixie cron and minute 5 alone read
+literally, and either guess is a silently wrong schedule. Day-of-month and day-of-week are **OR'd when both are
+restricted** — the Vixie rule, so `0 0 13 * FRI` means the 13th *and* every Friday. A
+malformed expression, a duplicate name, or a staleness window below one minute throws
+`Scheduler\SchedulerException` at registration, not at the tick that would have run the job.
+
+Expressions are evaluated on PHP's configured timezone (`date_default_timezone_get()`), which
+is not automatically the OS zone the system cron fires in — align the two per node.
+Only the current minute is evaluated: there is no catch-up for ticks a node missed.
+
+State lives in `Scheduler\JobLedger` (`scheduled_runs` table, created by
+`php mitosis schedule:install`, opt-in and re-runnable). Its guarantee is **at most one run
+per job per minute, cluster-wide** — a unique index on `(job, due_at)`, so the second node to
+try for a slot loses it — and deliberately not at-least-once.
+
+- `claim(string $job, DateTimeInterface $dueAt): ?string` — null means another node holds the
+  slot. Anything that is not a unique-index collision propagates: a missing table must never
+  read as a lost claim.
+- `hasRunInFlight(string $job, DateTimeInterface $staleBefore): bool`
+- `reapStale(string $job, DateTimeInterface $staleBefore): int`
+- `complete(string $runId, int $durationMs): void` / `fail(string $runId, int $durationMs, string $reason): void`
+- `lastRun(string $job): ?array` / `prune(DateTimeInterface $before): int`
+
+Three commands: `php mitosis schedule:install` creates the table, `schedule:run` is the
+heartbeat the crontab calls every minute, and `schedule:list` prints one aligned line per
+registered job — name, expression, and what became of its last run. All three take `--context`;
+`schedule:run` also takes `--verbose`. `schedule:list` always prints and always exits 0, and
+where the table is missing it still lists the schedule, saying once that history is unavailable
+— the expressions come from the registry and need no database.
+
 ## Services\HttpClient — `Monad\Clarity\Services\HttpClient` (PSR-18)
 
 cURL-backed abstract HTTP client. Used internally by LLM adapters and Authentication's Google
@@ -311,4 +355,4 @@ in this list depends on application state.
 ## Services\Console — `Monad\Clarity\Services\Console`
 
 `Console::run(array $argv): int` — see `CrossRepoContracts.md` §2–3 for the full stability
-contract and the list of 15 stable command names.
+contract and the list of 19 stable command names.

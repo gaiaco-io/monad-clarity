@@ -50,12 +50,15 @@ final class ConsoleTest extends TestCase
         self::assertStringContainsString('available commands', $output);
     }
 
-    public function testCommandNamesListsAllSixteenBuiltIns(): void
+    public function testCommandNamesListsAllNineteenBuiltIns(): void
     {
-        self::assertCount(16, Console::commandNames());
+        self::assertCount(19, Console::commandNames());
         self::assertContains('migrate', Console::commandNames());
         self::assertContains('cache:clear', Console::commandNames());
         self::assertContains('checkout:install', Console::commandNames());
+        self::assertContains('schedule:install', Console::commandNames());
+        self::assertContains('schedule:list', Console::commandNames());
+        self::assertContains('schedule:run', Console::commandNames());
     }
 
     public function testRegisterAcceptsAClosureAndReceivesParsedArguments(): void

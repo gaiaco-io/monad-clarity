@@ -103,6 +103,13 @@ built. `ReleaseNotes_1.3.0.md` §2.1 records that decision and the reasoning beh
    between repos and still describe a file that moved or a path that was never really
    updated to match its own PSR-4 casing.
 
+9. `README.md`'s **Status** line bumped to the version being tagged, in both this repo and
+   the skeleton — and, in the skeleton's, the version `monad/clarity ^1.0` now resolves to.
+   This item exists because the line went unbumped through 1.2.0, 1.3.0 and 1.4.0: Clarity's
+   README still claimed `1.1.0` and the skeleton's claimed a Clarity that resolved to
+   `1.0.1`, three releases behind. It is the first thing a visitor reads and the last thing
+   anyone remembers, so it is a checklist item rather than a habit.
+
 ## Repository authority
 
 `monad/clarity` is canonical for: this document, `CrossRepoContracts.md`, `RepoMap.md`,

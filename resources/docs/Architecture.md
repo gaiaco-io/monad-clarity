@@ -55,7 +55,7 @@ exit(Monad\Clarity\Services\Console::run($argv));
 
 The console **kernel** — argument parsing, command dispatch, `app/routes/cli.php` loading,
 output formatting, exit codes — lives at `Monad\Clarity\Services\Console`
-(`src/Services/Console.php`). The 15 built-in **command classes** live under
+(`src/Services/Console.php`). The 19 built-in **command classes** live under
 `Monad\Clarity\Console\*` (`src/Console/`).
 
 Rationale for the split within Clarity itself: `Services\Console::run()` is the one symbol
@@ -161,3 +161,34 @@ No agents, tool orchestration, vector databases, memory, or prompt pipelines in 
 service (§11.4) — it is a thin, provider-agnostic request/response contract, not an
 agentic framework. No SPA framework assumptions anywhere in the core. No implicit "magic" in
 View rendering (§24.4) — resolution, data merging, and layout application are explicit steps.
+
+## 12. Scheduler — where the schedule lives, and why it is one crontab line (1.5.0)
+
+`Services\Scheduler` follows §8's stateful shape, not §7's facade/adapter one: §7 is for
+*multi-provider* services, and a scheduler has no providers, so there is no
+`SchedulerAdapters\*` and never will be. The facade holds the registry; `Scheduler\JobLedger`
+holds the persistence beside it; `Console\ScheduleRun` is the only thing that joins them.
+
+Three decisions worth recording:
+
+- **Monad owns the schedule, cron owns only the heartbeat.** One crontab line
+  (`* * * * * php mitosis schedule:run`) forever; job definitions live in
+  `app/routes/cli.php`, which the kernel already loads before every dispatch. The alternative
+  — one crontab entry per job — needs no cron-expression parser, but puts the schedule on the
+  server instead of in the codebase, where it is invisible to code review, absent from a
+  deploy, and has to be edited by hand on every node. The parser is written in-house, as
+  1.4.0 wrote recurring billing without a new Composer dependency.
+- **The lock is a database row, because the framework promises horizontal scaling.**
+  `DeploymentTopology.md` §2 obliges any new stateful feature to have a shared-backend story;
+  a lock file under `storage/` would mean every due job fires once per node. The claim is an
+  atomic INSERT against a unique `(job, due_at)` index — the shape `Checkout\SubscriptionLedger`
+  already uses to settle two simultaneous deliveries, portable to MySQL, PostgreSQL and
+  SQLite alike, and needing neither a transaction nor `SELECT ... FOR UPDATE`.
+- **`scheduled_runs` is not setup-owned.** It is created by `schedule:install`, re-runnable and
+  opt-in, exactly as the checkout tables are and for the same reason (§8, and
+  `CrossRepoContracts.md` §8): an application that schedules nothing carries no table it never
+  reads. The setup-owned set stays exactly `sessions` and `caches`.
+
+Clarity supplies the command; it does not supervise anything. Installing the crontab entry is
+the deploying team's job, and `DeploymentTopology.md` §6 keeps process supervision out of this
+repo's scope — there is no daemon here, and there will not be one.

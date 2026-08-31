@@ -18,6 +18,9 @@ use Monad\Clarity\Console\MakeService;
 use Monad\Clarity\Console\Migrate;
 use Monad\Clarity\Console\MigrateRollback;
 use Monad\Clarity\Console\MigrateStatus;
+use Monad\Clarity\Console\ScheduleInstall;
+use Monad\Clarity\Console\ScheduleList;
+use Monad\Clarity\Console\ScheduleRun;
 use Monad\Clarity\Console\Serve;
 use Monad\Clarity\Console\Setup;
 use Monad\Clarity\Console\Test;
@@ -25,7 +28,7 @@ use Throwable;
 
 /**
  * The `mitosis` CLI kernel. `run(array $argv): int` is the frozen contract
- * (CrossRepoContracts.md §2–3) that the skeleton's `mitosis` stub calls directly; the 15
+ * (CrossRepoContracts.md §2–3) that the skeleton's `mitosis` stub calls directly; the 19
  * built-in command classes under `Console\*` are internal and freely reorganisable.
  *
  * Application-defined commands are wired via `app/routes/cli.php`, loaded (if configured)
@@ -54,6 +57,9 @@ abstract class Console
         'logs:clear' => LogsClear::class,
         'setup' => Setup::class,
         'checkout:install' => CheckoutInstall::class,
+        'schedule:install' => ScheduleInstall::class,
+        'schedule:list' => ScheduleList::class,
+        'schedule:run' => ScheduleRun::class,
     ];
 
     /** @var array<string, callable|string> */

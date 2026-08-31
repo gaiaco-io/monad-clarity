@@ -118,6 +118,7 @@ Never modified by application developers.
             │   │   ├── Cache.php
             │   │   ├── Event.php
             │   │   ├── HttpClient.php
+            │   │   ├── Scheduler.php        <!-- job registry; released 1.5.0 -->
             │   │   ├── Checkout               <!-- value objects + ledger; released 1.2.0 -->
             │   │   │   ├── CallbackEvent.php
             │   │   │   ├── CheckoutException.php
@@ -152,11 +153,17 @@ Never modified by application developers.
             │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
             │   │   │        ships in its own minor when built end to end — never a stub. -->
-            │   │   └── LLMAdapters
-            │   │       ├── OpenAI.php
-            │   │       ├── Anthropic.php
-            │   │       ├── DeepSeek.php
-            │   │       └── Gemini.php
+            │   │   ├── LLMAdapters
+            │   │   │   ├── OpenAI.php
+            │   │   │   ├── Anthropic.php
+            │   │   │   ├── DeepSeek.php
+            │   │   │   └── Gemini.php
+            │   │   └── Scheduler             <!-- cron parser + run ledger; released 1.5.0 -->
+            │   │       ├── CronExpression.php
+            │   │       ├── JobLedger.php
+            │   │       ├── RunState.php
+            │   │       ├── ScheduledJob.php
+            │   │       └── SchedulerException.php
             │   ├── Utils
             │   │   ├── CryptographicToken.php
             │   │   ├── Encryption.php
@@ -180,6 +187,9 @@ Never modified by application developers.
             │       ├── Serve.php
             │       ├── Setup.php
             │       ├── CheckoutInstall.php   <!-- checkout:install; added 1.2.0 -->
+            │       ├── ScheduleInstall.php   <!-- schedule:install; added 1.5.0 -->
+            │       ├── ScheduleList.php      <!-- schedule:list; added 1.5.0 -->
+            │       ├── ScheduleRun.php       <!-- schedule:run; added 1.5.0 -->
             │       ├── CacheClear.php
             │       └── LogsClear.php
             ├── CHANGELOG.md
@@ -202,6 +212,7 @@ Never modified by application developers.
                 │   ├── ReleaseNotes_1.2.0.md
                 │   ├── ReleaseNotes_1.3.0.md
                 │   ├── ReleaseNotes_1.4.0.md
+                │   ├── ReleaseNotes_1.5.0.md
                 │   ├── ReleasePolicy.md
                 │   ├── RepoMap.md             <!-- this file -->
                 │   └── TestingStrategy.md

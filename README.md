@@ -4,8 +4,9 @@ Core library of the Monad Framework — an MVC-based PHP framework for solo deve
 teams. Clarity provides the middlewares, services, and console tooling that
 [`monad/skeleton`](https://github.com/gaiaco-io/monad-skeleton) applications run on.
 
-**Status:** `1.1.0`. The initial release, `1.0.0`, was planned under the milestone name
-26.07; releases are now named by their semver version only.
+**Status:** `1.4.0`, published on Packagist. [CHANGELOG.md](CHANGELOG.md) is the
+authoritative record of what each release added. The initial release, `1.0.0`, was planned
+under the milestone name 26.07; releases are now named by their semver version only.
 
 ## Requirements
 

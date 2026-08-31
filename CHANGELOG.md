@@ -6,6 +6,113 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`Services\Scheduler`** — the application's schedule, held in code rather than in a crontab.
+  The system cron gets one line, for the life of the application:
+  `* * * * * cd /path/to/app && php mitosis schedule:run`. Everything else lives in
+  `app/routes/cli.php`, which the console kernel already loads before every dispatch, so jobs
+  are registered beside an application's custom commands, travel with a deploy, and are visible
+  to code review. Adding or retiming a job is a code change, never a server change.
+
+  The demand was already here. `Session::purgeExpired()` has carried the docblock *"A
+  maintenance operation for a scheduled task, not the request path"* since 1.0.0, and its only
+  caller in the whole repository was its own test. `ReleaseNotes_1.0.0.md` §14.2.7 specifies log
+  rotation with no runner named anywhere. `caches.expires_at` rows were never swept. This is the
+  first service the frozen 1.0.0 spec never contemplated at all, and `ReleaseNotes_1.5.0.md` §2.1
+  records that scope decision rather than assuming it.
+
+  **No new Composer dependency.** `Scheduler\CronExpression` is a five-field parser written
+  here, as 1.4.0 added recurring billing without one. It supports stars, numbers, ranges, steps,
+  lists, `JAN`–`DEC`, `SUN`–`SAT`, both `0` and `7` for Sunday, and the `@daily`-style macros —
+  and it implements the Vixie rule that **day-of-month and day-of-week are OR'd when both are
+  restricted**, so `0 0 13 * FRI` means the 13th *and* every Friday. Getting that wrong is
+  silent: the expression parses either way and simply fires on the wrong days. For the same
+  reason a step on a single value (`5/15`) is refused rather than guessed at — it reads as
+  `5-59/15` in Vixie cron and as minute 5 alone read literally, and the message names the range
+  to write instead.
+
+  **The lock is a database row, because the framework promises horizontal scaling.**
+  `Scheduler\JobLedger` claims a job's slot with an atomic `INSERT` against a unique index on
+  `(job, due_at)` — the shape `Checkout\SubscriptionLedger` already uses to settle two
+  simultaneous deliveries, portable across MySQL, PostgreSQL and SQLite, needing neither a
+  transaction nor `SELECT ... FOR UPDATE`. A lock file under `storage/` would have been per-node,
+  and on three nodes every due job would fire three times.
+
+  **The guarantee is at most one run per job per minute, cluster-wide — not at-least-once.** A
+  minute in which every node is down is a minute the job does not run, and no later tick makes it
+  up. Said plainly because the weaker half is the half an operator eventually depends on.
+  Overlap is prevented separately (a job with a run still in flight stands down), and a run whose
+  process died is reaped after that job's own `staleAfterMinutes` window — per job, because a
+  four-hour report and a ten-second sweep cannot share one threshold.
+
+- **`php mitosis schedule:install`** — creates the `scheduled_runs` table. Opt-in and re-runnable,
+  guarded on `hasTable` rather than the DDL's `IF NOT EXISTS`, which covers the table but not the
+  indexes. Not folded into `setup`: the setup-owned set stays exactly `sessions` and `caches`, as
+  it did for the checkout tables.
+
+- **`php mitosis schedule:run`** — the heartbeat. Runs each due job inside its own try/catch, so
+  one failure does not take the rest of the tick with it, and exits non-zero if any job failed or
+  any abandoned run was reaped. **It prints nothing when nothing happened**: every line becomes a
+  cron email, and a heartbeat that greets the operator sixty times an hour teaches them to filter
+  it, after which the one line that mattered is filtered too. Which is also why the crontab entry
+  is documented *without* `> /dev/null 2>&1` — silence is the signal, and the kernel writes errors
+  to stdout like everything else.
+
+  Expressions are read on the server's local clock, matching what cron itself reads. Only the
+  current minute is evaluated: there is no catch-up for ticks a node missed, deliberately, because
+  a catch-up window is queue behaviour. Daylight saving then falls out of the unique key
+  correctly — on the day the clocks go back, local 02:30 happens twice, both occurrences share one
+  `due_at`, and the second stands down.
+
+  Adding commands is semver-minor (`CrossRepoContracts.md` §3), but `schedule:run`'s name is
+  written into a server's crontab and outlives every deploy, so renaming it would break
+  applications silently — §3 now says so.
+
+- **`php mitosis schedule:list`** — the schedule, made inspectable without reading
+  `app/routes/cli.php`. One aligned line per registered job: its name, its expression, and how
+  its last run went — completed with its duration, failed with its reason, still running since
+  when, or never run at all. Reasons are exception messages, so whitespace is collapsed and the
+  text is cut at 100 characters with an ellipsis; one embedded newline would otherwise turn a
+  row into two, and the width is chosen so the framework's own reaped-run message survives
+  whole.
+
+  **It always prints, which is exactly the opposite of `schedule:run`.** That command's silence
+  is a property of sitting on a crontab, where every line becomes an email. This one is only ever
+  typed by a person who has just asked a question, and an answer of nothing at all is no answer.
+
+  **A missing `scheduled_runs` table costs the operator one column, not the answer.**
+  Expressions come from the registry and need no database, so the schedule is still listed; one
+  line says the history is unavailable and names `schedule:install`, and the exit code stays 0.
+  `schedule:run` fails loudly in the same situation because a heartbeat that cannot claim a slot
+  has nothing left it can do. `schedule:list` exits 0 in every case for the same reason — a job
+  that failed at 03:15 is a fact this report exists to state, not a failure of the reporting.
+
+  It was deferred at first, on the sound argument that adding a stable command name later is
+  semver-minor while removing one is semver-major. The conclusion was still wrong: the schedule
+  was the one thing in the release an operator could not see without opening a code file.
+  `ReleaseNotes_1.5.0.md` §1.5 records the reversal rather than absorbing it quietly.
+
+  These three are the seventeenth, eighteenth and nineteenth built-in commands.
+
+  **Job names are lowercase identifiers** — `[a-z0-9]` grouped with `:`, `-`, `.` or `_` — and
+  anything else is refused at registration. Not house style for its own sake: the registry's
+  duplicate-name guard is a PHP array key and those are case-sensitive, while
+  `scheduled_runs.job` inherits its server's collation and MySQL's default is case- *and*
+  accent-insensitive. So `reports:build` and `Reports:Build` would register as two jobs and
+  then collide on one row, where one of them silently stops running — on MySQL and not on
+  SQLite. Found by running the release against a live MySQL server, not by reading the code.
+
+### Changed
+- `README.md`'s **Status** line, which still said `1.1.0` — three releases behind, unbumped
+  through 1.2.0, 1.3.0 and 1.4.0. Now `1.4.0`, with a pointer to `CHANGELOG.md` as the
+  authoritative record so a reader has a correct answer even when the line next lags.
+  `ReleasePolicy.md`'s publication checklist gains a ninth item covering it in both repos:
+  the line went stale three times running because nothing on the checklist asked for it.
+- `CrossRepoContracts.md` §3, `API_Contracts.md`, `Architecture.md` §5 and `TestingStrategy.md`
+  corrected to the real built-in command count. Two of the four still said 15 against an
+  authoritative 16; all four now say 19.
+
+
 ## [1.4.0] - 2026-08-31
 
 ### Added
