@@ -453,6 +453,70 @@ final class SmtpTest extends TestCase
         self::assertContains('EHLO relay.internal', $transport->commands());
     }
 
+    /** Most relays name no queue id at all, and null is the honest answer. */
+    public function testAReplyWithNoQueueIdYieldsANullMessageId(): void
+    {
+        $transport = new ScriptedTransport([
+            ...self::script(),
+            '235 Authenticated',
+            '250 OK',
+            '250 Accepted',
+            '354 Go ahead',
+            '250 Ok',
+        ]);
+
+        self::assertNull(self::smtp($transport)->send(self::message())->providerMessageId);
+    }
+
+    /**
+     * `SIZE 35882577` is one capability with a limit, not two capabilities. Parsing the
+     * flattened reply text rather than its lines would register the number as a capability
+     * of its own, which reads fine until someone adds a SIZE check.
+     */
+    public function testParsesAnExtensionsParametersRatherThanTreatingThemAsExtensions(): void
+    {
+        $transport = new ScriptedTransport([
+            '220 ready',
+            '250-mail.example.com Hello',
+            '250-SIZE 35882577',
+            '250-STARTTLS',
+            '250 AUTH=PLAIN LOGIN',
+            '220 Go ahead',
+            '250-Hello',
+            '250 AUTH=PLAIN LOGIN',
+            '235 Authenticated',
+            '250 OK',
+            '250 Accepted',
+            '354 Go ahead',
+            '250 Ok',
+        ]);
+
+        // The AUTH=PLAIN form is the older advertisement; PLAIN must still be recognised, and
+        // SIZE's limit must not have been mistaken for a mechanism on the way.
+        self::smtp($transport)->send(self::message());
+
+        self::assertContains(
+            'AUTH PLAIN ' . base64_encode("\0user\0secret-password"),
+            $transport->commands()
+        );
+
+        $parse = new \ReflectionMethod(Smtp::class, 'parseExtensions');
+
+        self::assertSame(
+            [
+                'SIZE' => ['35882577'],
+                'STARTTLS' => [],
+                'AUTH' => ['PLAIN', 'LOGIN'],
+            ],
+            $parse->invoke(null, [
+                'mail.example.com Hello',
+                'SIZE 35882577',
+                'STARTTLS',
+                'AUTH=PLAIN LOGIN',
+            ])
+        );
+    }
+
     public function testRefusesAUsernameWithoutAPassword(): void
     {
         $this->expectException(InvalidArgumentException::class);

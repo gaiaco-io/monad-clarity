@@ -15,6 +15,7 @@ use Monad\Clarity\Services\Mail\SentMessage;
 use Monad\Clarity\Services\Mail\SmtpEncryption;
 use Monad\Clarity\Services\Mail\SmtpTransport;
 use Monad\Clarity\Services\Mail\SocketTransport;
+use Throwable;
 
 /**
  * Any SMTP relay, spoken directly.
@@ -156,10 +157,10 @@ final class Smtp extends Mail
     {
         $this->command($transport, 'EHLO ' . $domain);
 
-        [$code, $text] = $this->reply($transport);
+        [$code, , $lines] = $this->reply($transport);
 
         if ($code === 250) {
-            $this->extensions = self::parseExtensions($text);
+            $this->extensions = self::parseExtensions($lines);
 
             return;
         }
@@ -305,7 +306,7 @@ final class Smtp extends Mail
 
     /**
      * @param list<int> $accepted
-     * @return array{0: int, 1: string}
+     * @return array{0: int, 1: string, 2: list<string>}
      */
     private function expect(SmtpTransport $transport, array $accepted, string $stage): array
     {
@@ -349,9 +350,11 @@ final class Smtp extends Mail
     }
 
     /**
-     * Read one reply, joining a multi-line one into a single text.
+     * Read one reply: its code, the lines joined for a human-readable message, and the lines
+     * themselves — which `parseExtensions()` needs, since only the line structure says where
+     * one advertised capability ends and the next begins.
      *
-     * @return array{0: int, 1: string}
+     * @return array{0: int, 1: string, 2: list<string>}
      */
     private function reply(SmtpTransport $transport): array
     {
@@ -374,7 +377,7 @@ final class Smtp extends Mail
 
             // A hyphen after the code means another line follows; a space (or nothing) ends it.
             if ($matches[2] !== '-') {
-                return [$code, trim(implode(' ', $lines))];
+                return [$code, trim(implode(' ', $lines)), $lines];
             }
         }
 
@@ -385,37 +388,58 @@ final class Smtp extends Mail
         ));
     }
 
+    /**
+     * `Throwable`, not `MailException`, and deliberately so. This runs inside a `finally`, so
+     * anything escaping here *replaces* the real failure with a write error — the caller
+     * would be told the socket could not be written to, having never learned that the relay
+     * refused the recipient. A transport is also free to fail in ways this adapter does not
+     * define: `Services\Mediator` promotes PHP warnings to `ErrorException`, so an `fwrite`
+     * to a peer that has already hung up arrives here as neither a `MailException` nor a
+     * return value. Nothing this can throw is worth the error it would hide.
+     */
     private function tryQuit(SmtpTransport $transport): void
     {
         try {
             $transport->write('QUIT' . self::CRLF);
-        } catch (MailException) {
+        } catch (Throwable) {
             // The connection is already gone; close() is what actually matters.
         }
     }
 
     /**
+     * One extension per reply line, keyword first and its parameters after — `AUTH PLAIN
+     * LOGIN` is one capability with two mechanisms, and `SIZE 35882577` is one capability
+     * with a limit, not two capabilities named `SIZE` and `35882577`.
+     *
+     * Parsed per line rather than from the flattened reply text, because only the line
+     * structure says where one capability ends and the next begins. The first line is the
+     * relay's own greeting and never a capability.
+     *
+     * @param list<string> $lines
      * @return array<string, list<string>>
      */
-    private static function parseExtensions(string $text): array
+    private static function parseExtensions(array $lines): array
     {
         $extensions = [];
 
-        foreach (explode(' ', $text) as $index => $word) {
-            if ($index === 0 || $word === '') {
-                // The first word is the server's own greeting, not a capability.
+        foreach (array_slice($lines, 1) as $line) {
+            $words = preg_split('/\s+/', trim($line), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+
+            if ($words === []) {
                 continue;
             }
 
-            $extensions[strtoupper($word)] = [];
-        }
+            $keyword = (string) array_shift($words);
 
-        // AUTH's mechanisms follow it on the same advertised line, so recover them from the
-        // flattened text rather than losing them to the word split above.
-        if (preg_match('/\bAUTH[= ]([A-Za-z0-9 _-]+)/', $text, $matches) === 1) {
-            $extensions['AUTH'] = array_values(array_filter(
-                explode(' ', trim($matches[1])),
-                static fn (string $mechanism): bool => preg_match('/^[A-Za-z0-9_-]+$/', $mechanism) === 1
+            // Older relays advertise `AUTH=PLAIN LOGIN` rather than `AUTH PLAIN LOGIN`.
+            if (str_contains($keyword, '=')) {
+                [$keyword, $first] = explode('=', $keyword, 2);
+                array_unshift($words, $first);
+            }
+
+            $extensions[strtoupper($keyword)] = array_values(array_filter(
+                $words,
+                static fn (string $word): bool => $word !== ''
             ));
         }
 
