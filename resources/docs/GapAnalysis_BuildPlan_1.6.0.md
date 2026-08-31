@@ -136,8 +136,10 @@ a single bearer credential. **Mail is the first Clarity abstraction where that i
 
 - `Smtp` has no API key and no `HttpClient` at all — it has a host, port, username,
   password, and encryption mode, and it speaks to a socket.
-- `AmazonSes` has an access key **and** a secret **and** a region; the secret is not a
-  bearer token and is never transmitted.
+- `AmazonSes` has an injected `SesV2Client`-shaped object and no credential of its own at
+  all — Fork A resolved that way, so it has neither an API key nor an `HttpClient` nor a
+  timeout this class could enforce. (This bullet originally proposed an access key, secret
+  and region, on the in-house SigV4 option Fork A closed.)
 - `Mailgun` has a key **and** a sending domain **and** a region base URI.
 - `Mailtrap` forks on whether it is addressing the live sending API or a sandbox inbox.
 

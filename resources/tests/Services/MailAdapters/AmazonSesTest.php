@@ -75,6 +75,31 @@ final class AmazonSesTest extends TestCase
         self::assertSame(['support@example.com'], $client->lastArguments['ReplyToAddresses']);
     }
 
+    /**
+     * SES takes RFC 5322 display-name form wherever it takes an address, so a named
+     * recipient or reply-to keeps its name rather than being flattened to the bare mailbox.
+     */
+    public function testKeepsDisplayNamesOnEveryAddressField(): void
+    {
+        $client = new FakeSesV2Client(['MessageId' => 'id']);
+
+        (new AmazonSes($client))->send(self::message(
+            to: [new Address('to@example.com', 'To Person')],
+            cc: [new Address('cc@example.com', 'Doe, Jane')],
+            replyTo: new Address('support@example.com', 'Support'),
+        ));
+
+        $args = $client->lastArguments;
+
+        self::assertSame('App <app@example.com>', $args['FromEmailAddress']);
+        self::assertSame(['To Person <to@example.com>'], $args['Destination']['ToAddresses']);
+        self::assertSame(['Support <support@example.com>'], $args['ReplyToAddresses']);
+
+        // A name carrying an RFC 5322 special must be quoted, or the comma reads as an
+        // address separator and one recipient becomes two.
+        self::assertSame(['"Doe, Jane" <cc@example.com>'], $args['Destination']['CcAddresses']);
+    }
+
     /** Simple content cannot carry an attachment, so the whole message becomes RFC 5322. */
     public function testAttachmentsForceRawMimeContent(): void
     {
