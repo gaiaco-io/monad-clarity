@@ -107,7 +107,9 @@ final class PaddleSubscription extends Checkout
      *        sale is taxed. The `standard` default is right for ordinary goods and services
      *        and **wrong for most subscriptions**: a recurring charge is usually SaaS,
      *        software, or ebooks, each of which has a category of its own that must be passed.
-     *        Unused in catalogue mode — a catalogue product carries its own.
+     *        In catalogue mode the checkout itself ignores it — a catalogue product carries its
+     *        own — but changePlan() onto an inline plan still reads it, so it is worth setting
+     *        even here. See forCatalogPrice().
      * @param string $baseUri `https://sandbox-api.paddle.com` for the sandbox.
      * @param string|null $catalogPriceId A recurring `pri_...` the merchant already maintains
      *        in Paddle, which switches this adapter into catalogue mode. The price states the
@@ -137,11 +139,21 @@ final class PaddleSubscription extends Checkout
     /**
      * A subscription on a plan the merchant publishes in the Paddle dashboard.
      *
-     * The plan's terms are read from the catalogue rather than restated here, which is why
-     * this constructor takes no billing cycle, no trial period and no tax category: naming a
-     * `pri_...` is the whole description of what is being sold. Prefer it to the primary
-     * constructor for catalogue mode — it is the same object either way, but this one cannot
-     * be handed a cycle that contradicts the price.
+     * The plan's terms are read from the catalogue rather than restated here, which is why this
+     * constructor takes no billing cycle and no trial period: naming a `pri_...` is the whole
+     * description of what is being sold. Prefer it to the primary constructor for catalogue
+     * mode — it is the same object either way, but this one cannot be handed a cycle that
+     * contradicts the price.
+     *
+     * @param string $taxCategory **Not** used by the catalogue checkout, which takes its
+     *        category from the catalogue product. It is here for one path only: a later
+     *        changePlan() onto a `SubscriptionItem::inline()` plan, which describes its price
+     *        here and so must state how it is taxed here too. 1.7.0 omitted this argument, which
+     *        pinned that path to `standard` — ordinary goods, and wrong for the SaaS, software
+     *        or ebook a recurring charge usually is. Pass the same category the catalogue
+     *        product carries, so a customer moved onto a bespoke plan is taxed as before.
+     *        It is last in the list because this method shipped in 1.7.0 and reordering its
+     *        parameters in a patch would break a positional caller.
      */
     public static function forCatalogPrice(
         string $apiKey,
@@ -151,6 +163,7 @@ final class PaddleSubscription extends Checkout
         ?string $hostedCheckoutUrl = null,
         ?string $paymentPageUrl = null,
         string $baseUri = self::DEFAULT_BASE_URI,
+        string $taxCategory = self::DEFAULT_TAX_CATEGORY,
     ): self {
         return new self(
             $apiKey,
@@ -159,6 +172,7 @@ final class PaddleSubscription extends Checkout
             webhookSecret: $webhookSecret,
             hostedCheckoutUrl: $hostedCheckoutUrl,
             paymentPageUrl: $paymentPageUrl,
+            taxCategory: $taxCategory,
             baseUri: $baseUri,
             catalogPriceId: $catalogPriceId,
         );
@@ -230,7 +244,7 @@ final class PaddleSubscription extends Checkout
             gatewayReference: $this->requireString($transaction, 'id'),
             redirectUrl: $this->redirectUrlFor($transaction, $request),
             status: $this->mapTransactionStatus($transaction),
-            amount: $this->amountOf($transaction, $request->amount),
+            amount: $this->amountOf($transaction, $this->amountFallback($request)),
             paymentReference: null,
             raw: $transaction,
         );

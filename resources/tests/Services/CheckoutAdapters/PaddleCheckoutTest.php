@@ -781,6 +781,30 @@ final class PaddleCheckoutTest extends TestCase
     }
 
     // ---------------------------------------------------------------------------------
+    // 1.7.1 — the inert request amount is no longer a fallback in catalogue mode
+    // ---------------------------------------------------------------------------------
+
+    public function testCatalogueModeRaisesRatherThanReportingTheInertRequestAmount(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['details' => []]));
+        $adapter = $this->catalogAdapter($fake);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/carried no details\.totals\.grand_total/');
+
+        $adapter->createCheckout($this->checkoutRequest());
+    }
+
+    public function testInlineModeStillFallsBackToTheRequestAmount(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['details' => []]));
+
+        $session = $this->adapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertSame(2500, $session->amount->minorUnits);
+    }
+
+    // ---------------------------------------------------------------------------------
     // Fixtures
     // ---------------------------------------------------------------------------------
 

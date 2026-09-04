@@ -299,6 +299,85 @@ final class PaddleSubscriptionTest extends TestCase
         self::assertSame('USD', $snapshot->amount->currency);
     }
 
+    // ------------------------------- 1.7.1 — the three catalogue follow-ups
+
+    /**
+     * 1.7.0 passed CheckoutRequest::$amount as amountOf()'s fallback on both paths. In catalogue
+     * mode that amount is inert and documented as `Money(0, $currency)`, so a response missing
+     * its totals reported a fabricated zero — in a currency the catalogue price need not even
+     * use — as though it were the sum charged. A broken response must raise instead.
+     */
+    public function testCatalogueModeRaisesRatherThanReportingTheInertRequestAmount(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['details' => []]));
+        $adapter = $this->catalogAdapter($fake);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/carried no details\.totals\.grand_total/');
+
+        $adapter->createCheckout(new CheckoutRequest(
+            reference: 'order-9',
+            amount: new Money(0, 'EUR'),
+            successUrl: 'https://shop.test/thanks',
+            cancelUrl: 'https://shop.test/cancelled',
+        ));
+    }
+
+    /** Inline mode keeps its fallback, where the request's amount is the truth the caller sent. */
+    public function testInlineModeStillFallsBackToTheRequestAmount(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['details' => []]));
+
+        $session = $this->adapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertSame(2500, $session->amount->minorUnits);
+        self::assertSame('USD', $session->amount->currency);
+    }
+
+    /**
+     * The catalogue checkout takes its tax category from the catalogue product, but a later
+     * changePlan() onto an inline plan describes its price locally and so must state the tax
+     * locally too. 1.7.0's forCatalogPrice() exposed no argument for it, pinning that path to
+     * `standard` — ordinary goods, and wrong for the SaaS a recurring charge usually is.
+     */
+    public function testForCatalogPriceCarriesItsTaxCategoryIntoAnInlinePlanChange(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::subscriptionResponse());
+
+        PaddleSubscription::forCatalogPrice(
+            'pdl_sdbx_apikey_test',
+            $fake,
+            self::CATALOG_PRICE_ID,
+            self::WEBHOOK_SECRET,
+            paymentPageUrl: self::PAYMENT_PAGE_URL,
+            taxCategory: 'saas',
+        )->changePlan(
+            self::SUBSCRIPTION_ID,
+            [SubscriptionItem::inline(
+                new LineItem('Bespoke plan', new Money(5000, 'USD')),
+                new BillingCycle(BillingInterval::Year)
+            )],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        self::assertSame('saas', $fake->decodedLastRequestBody()['items'][0]['price']['product']['tax_category']);
+    }
+
+    /** A catalogue price change carries no tax category at all — the catalogue product owns it. */
+    public function testACataloguePlanChangeStatesNoTaxCategory(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::subscriptionResponse());
+
+        $this->catalogAdapter($fake)->changePlan(
+            self::SUBSCRIPTION_ID,
+            [SubscriptionItem::catalogPrice('pri_other_plan')],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        $item = $fake->decodedLastRequestBody()['items'][0];
+        self::assertSame(['price_id' => 'pri_other_plan', 'quantity' => 1], $item);
+    }
+
     // ------------------------------------------------- retrieveStatus (inherited) — §9.6.3
 
     /**
