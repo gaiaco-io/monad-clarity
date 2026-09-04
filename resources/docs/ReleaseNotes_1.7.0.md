@@ -148,7 +148,52 @@ by hand:
   was archived afterwards.
 - **`custom_data` is unchanged** — reference, idempotency key and both URLs travel as in 1.3.0.
 
-## 3. Acceptance gate
+## 3. Completed at tagging
+
+`v1.7.0` was tagged on 2026-09-04 at `d07422f`. What follows is what was actually verified, not
+what was intended — and everything below was exercised against the **published release resolved
+from Packagist**, a `create-project` with `^1.0` resolving to `v1.7.0`, rather than a path
+repository. A working copy proves the source is right; only the installed artefact proves the
+shipped package is.
+
+- **Docs merged before the tag**, which is what `ReleasePolicy.md` item 7 asks for and the order
+  that matters: `monad-www` PR #9 added the catalogue-prices subsection to the Checkout page and
+  was merged five seconds before the Clarity PR, and both before the tag existed. No nav change
+  was needed — Checkout already had an entry and no page was added.
+- **`export-ignore` confirmed in the installed vendor tree**, not inferred from `.gitattributes`,
+  which is the distinction 1.5.0 and 1.6.0 both drew. `resources/` and `CLAUDE.md` are absent
+  from the distributed package; `src/` is complete.
+- **The catalogue path driven from that installed copy.** The shipped adapter built
+  `items: [{price_id, quantity: 1}]`, omitted `currency_code`, reported the gateway's `99000`
+  against a request stating `0 EUR`, and left inline mode sending both its currency and its
+  billing cycle. All three construction guards fired from the installed artefact — product id,
+  no plan source, and two plan sources.
+- **A GitHub Release was published, not only a tag.** `/changelog` on the website keys on
+  `release/published`, which is why 1.2.0 never appeared there; 1.5.0 and 1.6.0 both recorded
+  the same lesson and this release honoured it.
+- **Packagist picked the tag up** through the auto-update webhook with no manual update —
+  `v1.7.0` was resolvable within a minute of the push, carrying the `1.7.x-dev` branch alias.
+- **Item 4, `php mitosis health` — green, on SQLite and on MySQL.** All five checks pass against
+  the Packagist-resolved `v1.7.0` under both drivers: configuration, database connectivity,
+  writable storage, migration status, PHP extensions. `setup`, `migrate`, `checkout:install` and
+  `schedule:install` ran first each time and all four succeeded, so the nine expected tables were
+  present on each. Both used a throwaway database dropped afterwards, never an existing one.
+
+  Unlike 1.6.0, whose MySQL run had to wait for credentials, both drivers were covered on the
+  day of the tag — the parity 1.6.0's §5.2 argued was worth one extra run.
+- **Items 8 and 9 in the skeleton repository — done, in PR #10.** `RepoMap.md` is byte-identical
+  to this repo's copy again. The drift was three lines, and only one was this release's:
+  `ReleaseNotes_1.6.0.md` and `GapAnalysis_BuildPlan_1.6.0.md` had **never been added**, in
+  either repo, so 1.6.0's own §5.2 claim of byte-identity was true of a tree that was already
+  missing two of its files. Both are now listed. `CrossRepoContracts.md` needed nothing: 1.7.0
+  narrows nothing it defines.
+
+One thing worth stating plainly rather than leaving to inference: **the three pull requests were
+reviewed by nobody but their author.** #11 changes code that decides what a customer is charged.
+The currency omission in `SpeaksPaddle::currencyParams()` is the line to read first if this
+release is ever reviewed after the fact.
+
+## 4. Acceptance gate
 
 - [x] `createCheckout()` accepts a catalogue price id on both Paddle adapters.
 - [x] Catalogue mode sends `price_id` and no inline price, cycle, trial or currency.
@@ -156,3 +201,4 @@ by hand:
 - [x] Every 1.6.0 call site is unaffected — the full suite passes unchanged.
 - [x] Tests written in the same phase, including both halves of the currency rule.
 - [x] Verified against the live Paddle sandbox on all six catalogue prices.
+- [x] Tagged, released and published to Packagist; health green on both drivers — see §3.
