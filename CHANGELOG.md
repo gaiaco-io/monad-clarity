@@ -40,6 +40,27 @@ hazard that cannot be checked in code. No API is removed or narrowed.
   id does not say whether it recurs, and only Paddle knows. Give a recurring price to
   `PaddleSubscription`.
 
+### Verified at tagging
+`v1.7.1` was tagged at `0e22188`. A patch gets no frozen specification document — 1.7.0's
+remains the spec, per `ReleasePolicy.md` — so what the checklist actually proved is recorded
+here instead of in a note of its own.
+
+Suite green at 1111 tests / 2371 assertions, +6 over 1.7.0 and one per fix per adapter. Both
+halves of the amount rule are asserted rather than only the new one: catalogue mode raises on a
+totals-less response, inline mode still falls back to the request's amount. Against the
+Packagist-resolved `v1.7.1` in a fresh `create-project`, `php mitosis health` is green on
+**SQLite and MySQL**, nine tables present on each after `setup`, `migrate`, `checkout:install`
+and `schedule:install`; both used a throwaway database dropped afterwards. The docs went first,
+as item 7 requires — `monad-www` PR #10 merged before the tag existed. A GitHub Release was
+published, not only a tag, and Packagist picked it up through the webhook.
+
+The live sandbox re-check covered the path the fix touches: the catalogue happy path still
+reports the catalogue's own currency against a request stating another, and does not throw.
+
+**These fixes exist because 1.7.0 was reviewed after it was tagged rather than before.** Both
+defects were in shipped code for a day. The review that found them is the one 1.7.0's §3
+recorded as never having happened.
+
 ## [1.7.0] - 2026-09-04
 
 ### Added
