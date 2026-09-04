@@ -125,7 +125,7 @@ final class PaddleCheckout extends Checkout
             gatewayReference: $this->requireString($transaction, 'id'),
             redirectUrl: $this->redirectUrlFor($transaction, $request),
             status: $this->mapTransactionStatus($transaction),
-            amount: $this->amountOf($transaction, $request->amount),
+            amount: $this->amountOf($transaction, $this->amountFallback($request)),
             // Paddle refunds act on the transaction itself, so there is no second
             // identifier for the underlying payment — which is the only thing this field
             // exists to carry.

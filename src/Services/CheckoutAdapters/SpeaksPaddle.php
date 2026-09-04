@@ -320,6 +320,13 @@ trait SpeaksPaddle
      * accident; PaddleSubscription passes its configured plan. In catalogue mode the price
      * carries its own cycle, so neither argument is read and neither adapter can override it.
      *
+     * **That last clause cuts both ways, and it is a caller's responsibility rather than a
+     * check this code can make.** A recurring `pri_...` given to PaddleCheckout produces a real
+     * subscription, on an adapter with no cancel(), pause() or changePlan() to manage it, and
+     * whose `past_due` means a dead payment rather than the dunning 1.4.0 §2.6 established it
+     * means for a subscription. Nothing here can refuse it: a price id does not say whether it
+     * recurs, and only Paddle knows. Give a recurring price to PaddleSubscription.
+     *
      * @return list<array<string, mixed>>
      */
     private function itemParams(
@@ -709,6 +716,22 @@ trait SpeaksPaddle
         // Better the gateway's own event name than nothing: the failure_reason column
         // exists so an operator can tell why a payment failed without opening a dashboard.
         return $eventType;
+    }
+
+    /**
+     * What `CheckoutSession::$amount` may fall back to when Paddle's response carries no total.
+     *
+     * In inline mode that is the request's own amount, which is the truth: the caller stated it
+     * and the adapter sent it. **In catalogue mode there is no fallback**, because the request's
+     * amount is inert there (`ReleaseNotes_1.7.0.md` §2.3) — the documented idiom is
+     * `Money(0, $currency)`, so falling back to it would report a fabricated zero, in a currency
+     * the catalogue price need not even be denominated in, as though it were the sum charged.
+     * A missing total is a broken response, and the exception amountOf() raises for one is the
+     * honest answer. 1.7.0 shipped the fallback on both paths; that was the defect this fixes.
+     */
+    private function amountFallback(CheckoutRequest $request): ?Money
+    {
+        return $this->catalogPriceId !== null ? null : $request->amount;
     }
 
     /**

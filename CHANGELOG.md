@@ -6,6 +6,40 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-05
+
+Three follow-ups to 1.7.0's catalogue-price route, found by a code review of the release
+after it was tagged. Two were defects in shipped behaviour; the third is documentation of a
+hazard that cannot be checked in code. No API is removed or narrowed.
+
+### Fixed
+- **Catalogue mode no longer falls back onto the request amount it never believed.** Both
+  `createCheckout()` implementations passed `CheckoutRequest::$amount` as the fallback for
+  `CheckoutSession::$amount` when Paddle's response carried no `details.totals.grand_total`.
+  In catalogue mode that amount is inert, and `ReleaseNotes_1.7.0.md` §2.3 documents the idiom
+  for it as `Money(0, $currency)` — so a malformed response reported a fabricated zero, in a
+  currency the catalogue price need not even be denominated in, as though it were the sum
+  charged. It now raises, which is what a broken response deserves and what
+  `retrieveStatus()` already did on the same data. Inline mode keeps its fallback, where the
+  request's amount is the truth the caller sent; both halves are asserted.
+
+- **`PaddleSubscription::forCatalogPrice()` accepts a `$taxCategory`.** It did not, which
+  pinned the adapter to `standard`. That is harmless for the catalogue checkout, which takes
+  its category from the catalogue product — but `changePlan()` onto a
+  `SubscriptionItem::inline()` plan describes its price locally and reads `$taxCategory` for
+  the tax. A merchant who built a SaaS adapter with `forCatalogPrice()` and later moved a
+  customer to a bespoke plan therefore had that recurring charge taxed as ordinary goods, by
+  Paddle, as merchant of record. The argument is last in the signature because the method
+  shipped in 1.7.0 and reordering its parameters in a patch would break a positional caller.
+
+### Changed
+- **`PaddleCheckout` documents that a recurring catalogue price will create a real
+  subscription on it** — one it has no `cancel()`, `pause()` or `changePlan()` to manage, and
+  whose `past_due` it maps to `Failed` rather than the `Pending` that 1.4.0 §2.6 established
+  dunning means. This is documented rather than refused because it cannot be checked: a price
+  id does not say whether it recurs, and only Paddle knows. Give a recurring price to
+  `PaddleSubscription`.
+
 ## [1.7.0] - 2026-09-04
 
 ### Added

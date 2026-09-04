@@ -295,10 +295,13 @@ plan — pass exactly one, or the constructor throws:
 
 - **Inline** — `new PaddleSubscription($apiKey, $http, new BillingCycle(BillingInterval::Month), trialPeriod: null, webhookSecret: …, paymentPageUrl: …, taxCategory: 'saas')`.
   The application describes the plan and needs no Paddle catalogue.
-- **Catalogue** (1.7.0) — `PaddleSubscription::forCatalogPrice($apiKey, $http, 'pri_…', webhookSecret: …, paymentPageUrl: …)`.
-  The price in Paddle states the amount, currency, billing cycle, trial and tax category, so
-  none of those is passed here. `PaddleCheckout` takes the same `catalogPriceId:` argument for
-  one-time sales. In catalogue mode `CheckoutRequest::$amount` is neither sent nor believed —
+- **Catalogue** (1.7.0) — `PaddleSubscription::forCatalogPrice($apiKey, $http, 'pri_…', webhookSecret: …, paymentPageUrl: …, taxCategory: 'saas')`.
+  The price in Paddle states the amount, currency, billing cycle and trial, so none of those is
+  passed here. `PaddleCheckout` takes the same `catalogPriceId:` argument for one-time sales.
+  `taxCategory` (1.7.1) is the one apparent exception, and only apparent: the catalogue checkout
+  ignores it and reads the catalogue product's, but a later `changePlan()` onto an inline plan
+  states its price locally and so must state its tax locally too.
+  In catalogue mode `CheckoutRequest::$amount` is neither sent nor believed —
   pass `new Money(0, $currency)` and read the real figure off the returned
   `CheckoutSession::$amount`; a request carrying `lineItems` is refused rather than silently
   overridden. See `ReleaseNotes_1.7.0.md` §2.
