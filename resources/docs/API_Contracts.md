@@ -289,9 +289,19 @@ would be semver-major per `ReleaseNotes_1.3.0.md` §2.4:
 
 Note two gateway constraints the adapter enforces locally rather than letting a caller discover them: `resume()` accepts only `SubscriptionEffectiveFrom::Immediately`, and `pause()`'s `$onResume` requires a `$resumeAt`. While any change is scheduled Paddle refuses every further change to that subscription, which is what `removeScheduledChange()` exists for.
 
-Constructed with its billing cycle, because `createCheckout()`'s signature is fixed and
-`CheckoutRequest` is frozen: `new PaddleSubscription($apiKey, $http, new BillingCycle(BillingInterval::Month), trialPeriod: null, webhookSecret: …, paymentPageUrl: …, taxCategory: 'saas')`.
-One instance means one plan's terms.
+Constructed with its plan's terms, because `createCheckout()`'s signature is fixed and
+`CheckoutRequest` is frozen. One instance means one plan, and there are two ways to say which
+plan — pass exactly one, or the constructor throws:
+
+- **Inline** — `new PaddleSubscription($apiKey, $http, new BillingCycle(BillingInterval::Month), trialPeriod: null, webhookSecret: …, paymentPageUrl: …, taxCategory: 'saas')`.
+  The application describes the plan and needs no Paddle catalogue.
+- **Catalogue** (1.7.0) — `PaddleSubscription::forCatalogPrice($apiKey, $http, 'pri_…', webhookSecret: …, paymentPageUrl: …)`.
+  The price in Paddle states the amount, currency, billing cycle, trial and tax category, so
+  none of those is passed here. `PaddleCheckout` takes the same `catalogPriceId:` argument for
+  one-time sales. In catalogue mode `CheckoutRequest::$amount` is neither sent nor believed —
+  pass `new Money(0, $currency)` and read the real figure off the returned
+  `CheckoutSession::$amount`; a request carrying `lineItems` is refused rather than silently
+  overridden. See `ReleaseNotes_1.7.0.md` §2.
 
 **`createCheckout()` returns a `txn_`, never a `sub_`** — there is no `POST /subscriptions`, and
 Paddle creates the subscription when the transaction is paid. Bridge with

@@ -18,8 +18,9 @@ use Monad\Clarity\Utils\HMAC;
 
 /**
  * Everything two Paddle adapters do identically: the signed-callback scheme, the `data`
- * envelope, cursor pagination, inline non-catalog items, and the three transaction-scoped
- * operations that read the same endpoints whether the money is one-time or recurring.
+ * envelope, cursor pagination, both ways of naming what is being sold — a catalogue price id
+ * or an inline non-catalog price — and the three transaction-scoped operations that read the
+ * same endpoints whether the money is one-time or recurring.
  *
  * Extracted rather than duplicated because the largest thing in here is the over-refund
  * guard, and 1.3.0's sandbox run found a real pagination defect inside it that 49 passing
@@ -29,9 +30,9 @@ use Monad\Clarity\Utils\HMAC;
  * `Console\GeneratesFiles` is the precedent for a trait shared between sibling classes.
  *
  * **Usable only inside a `Services\Checkout` subclass** that also declares `$webhookSecret`,
- * `$taxCategory` and `$baseUri`. It reaches the base class's `$apiKey`, `$httpClient`,
- * `assertSuccessful()`, `decodeJsonBody()` and `header()`, and states the two things that
- * genuinely differ between adapters as abstract methods rather than assuming either.
+ * `$taxCategory`, `$baseUri` and `$catalogPriceId`. It reaches the base class's `$apiKey`,
+ * `$httpClient`, `assertSuccessful()`, `decodeJsonBody()` and `header()`, and states the two
+ * things that genuinely differ between adapters as abstract methods rather than assuming either.
  *
  * Note what is deliberately absent: no reference to a gateway-name constant. A trait naming
  * a constant its using class defines would stamp one adapter's gateway onto the other's
@@ -297,15 +298,27 @@ trait SpeaksPaddle
     }
 
     /**
-     * Items go on the wire as non-catalog prices and products — created inline, used once,
-     * and never added to the merchant's Paddle catalogue. That is what keeps a Monad
-     * application from having to seed a catalogue before it can take a payment, and it
-     * means CheckoutRequest is the whole description of the sale.
+     * There are two honest ways to tell Paddle what is being sold, and an adapter is
+     * constructed for one of them.
      *
-     * A `billing_cycle` is what separates the two adapters: its **absence** makes a price
-     * one-time, and its presence makes the transaction create a subscription once the
-     * customer pays. PaddleCheckout passes neither argument and so can never make one by
-     * accident; PaddleSubscription passes its configured plan.
+     * **Inline** (the default) sends non-catalog prices and products — created inline, used
+     * once, and never added to the merchant's Paddle catalogue. That is what keeps a Monad
+     * application from having to seed a catalogue before it can take a payment, and it means
+     * CheckoutRequest is the whole description of the sale.
+     *
+     * **Catalogue** sends a `price_id` the merchant already maintains in the Paddle
+     * dashboard, and nothing else — no name, no amount, no currency, no billing cycle, no
+     * tax category. Every one of those lives on the price, which is the point: an
+     * application that bills published plans should not restate their prices in its own
+     * code, because the two then disagree the first time one of them changes. It is the
+     * one-time and subscription counterpart of `SubscriptionItem::catalogPrice()`, which
+     * has always been the plan-change path's way of saying the same thing.
+     *
+     * **In inline mode a `billing_cycle` is what separates the two adapters**: its **absence**
+     * makes a price one-time, and its presence makes the transaction create a subscription once
+     * the customer pays. PaddleCheckout passes neither argument and so can never make one by
+     * accident; PaddleSubscription passes its configured plan. In catalogue mode the price
+     * carries its own cycle, so neither argument is read and neither adapter can override it.
      *
      * @return list<array<string, mixed>>
      */
@@ -314,6 +327,10 @@ trait SpeaksPaddle
         ?BillingCycle $billingCycle = null,
         ?BillingCycle $trialPeriod = null
     ): array {
+        if ($this->catalogPriceId !== null) {
+            return [$this->catalogItemParam($request)];
+        }
+
         if ($request->lineItems === []) {
             return [$this->itemParam($request->reference, $request->amount, 1, $billingCycle, $trialPeriod)];
         }
@@ -364,6 +381,82 @@ trait SpeaksPaddle
         }
 
         return ['quantity' => $quantity, 'price' => $price];
+    }
+
+    /**
+     * A catalogue price is named and nothing more.
+     *
+     * Quantity is fixed at 1 — deliberately, and this is the boundary of the feature rather
+     * than an oversight. Quantity is per-checkout data, and `CheckoutRequest` is semver-frozen
+     * with nowhere to carry it (`ReleaseNotes_1.4.0.md` §2.4). Reading it off `$lineItems`
+     * would be worse than not supporting it: a line item exists to state a unit price, so a
+     * caller would be restating the catalogue's price to communicate a number that has nothing
+     * to do with it — the exact duplication catalogue mode exists to remove. A seat count is
+     * set after the fact through `changePlan()` with
+     * `SubscriptionItem::catalogPrice($priceId, $quantity)`, which has carried a quantity since
+     * 1.4.0.
+     *
+     * @return array<string, mixed>
+     * @throws CheckoutException if the request also carries line items.
+     */
+    private function catalogItemParam(CheckoutRequest $request): array
+    {
+        if ($request->lineItems !== []) {
+            throw new CheckoutException(sprintf(
+                'This %s was constructed with the catalogue price %s, so the Paddle catalogue states what '
+                    . 'this sale costs — but the CheckoutRequest also carries %d line item(s) naming their own '
+                    . 'prices. Those are two answers to one question, and honouring either would silently '
+                    . 'discard the other. Pass a request without line items, or construct the adapter without '
+                    . 'a catalogue price to bill the items inline.',
+                substr(static::class, (int) strrpos(static::class, '\\') + 1),
+                $this->catalogPriceId,
+                count($request->lineItems)
+            ));
+        }
+
+        return ['price_id' => $this->catalogPriceId, 'quantity' => 1];
+    }
+
+    /**
+     * The transaction's currency — sent in inline mode, omitted in catalogue mode.
+     *
+     * Omitted rather than passed through, because Paddle does **not** refuse a `currency_code`
+     * that disagrees with the catalogue price's own. Confirmed against the live sandbox: a
+     * USD price of 4900 sent with `currency_code: EUR` was accepted and silently converted to
+     * 4218 EUR, and to 7668 JPY. So passing `CheckoutRequest::$amount`'s currency through
+     * would let a caller re-denominate the merchant's published price at Paddle's rate, and
+     * the wrong currency would surface as a wrong charge rather than as an error. With the
+     * field absent Paddle bills the price exactly as published — confirmed the same way.
+     *
+     * @return array<string, string>
+     */
+    private function currencyParams(CheckoutRequest $request): array
+    {
+        return $this->catalogPriceId !== null ? [] : ['currency_code' => $request->amount->currency];
+    }
+
+    /**
+     * Paddle price ids are `pri_`-prefixed. The check exists for one specific mistake: the
+     * Paddle dashboard shows a product's id beside its prices, and a `pro_` passed here would
+     * otherwise fail at the API with a message about an entity that cannot be found, naming an
+     * id the merchant can see plainly exists.
+     *
+     * @throws CheckoutException if $catalogPriceId is present but is not a price id.
+     */
+    private static function assertCatalogPriceId(?string $catalogPriceId): void
+    {
+        if ($catalogPriceId === null || str_starts_with($catalogPriceId, 'pri_')) {
+            return;
+        }
+
+        throw new CheckoutException(str_starts_with($catalogPriceId, 'pro_')
+            ? sprintf(
+                '"%s" is a Paddle product id, not a price id. A product is the thing being sold and a price '
+                    . 'is what it costs on one billing cycle, so a checkout needs the price — the pri_... '
+                    . 'shown beneath the product in Paddle > Catalog > Products.',
+                $catalogPriceId
+            )
+            : sprintf('A catalogue checkout needs a Paddle price id (pri_...), got "%s".', $catalogPriceId));
     }
 
     /**

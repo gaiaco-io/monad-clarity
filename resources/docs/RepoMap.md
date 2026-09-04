@@ -230,12 +230,15 @@ Never modified by application developers.
                 │   ├── DDL.sql
                 │   ├── DeploymentTopology.md
                 │   ├── GapAnalysis_BuildPlan_1.0.0.md
+                │   ├── GapAnalysis_BuildPlan_1.6.0.md
                 │   ├── PRD.md
                 │   ├── ReleaseNotes_1.0.0.md
                 │   ├── ReleaseNotes_1.2.0.md
                 │   ├── ReleaseNotes_1.3.0.md
                 │   ├── ReleaseNotes_1.4.0.md
                 │   ├── ReleaseNotes_1.5.0.md
+                │   ├── ReleaseNotes_1.6.0.md
+                │   ├── ReleaseNotes_1.7.0.md
                 │   ├── ReleasePolicy.md
                 │   ├── RepoMap.md             <!-- this file -->
                 │   └── TestingStrategy.md

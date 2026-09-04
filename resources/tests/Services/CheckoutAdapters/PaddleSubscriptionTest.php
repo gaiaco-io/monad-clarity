@@ -36,6 +36,7 @@ final class PaddleSubscriptionTest extends TestCase
     private const WEBHOOK_SECRET = 'pdl_ntfset_test_secret';
     private const PAYMENT_PAGE_URL = 'https://shop.test/subscribe';
     private const SUBSCRIPTION_ID = 'sub_test_123';
+    private const CATALOG_PRICE_ID = 'pri_test_pro_monthly';
 
     // ---------------------------------------------------------------- createCheckout — §9.6.1
 
@@ -118,6 +119,184 @@ final class PaddleSubscriptionTest extends TestCase
         $this->expectExceptionMessageMatches('/This PaddleSubscription was constructed without a checkout URL/');
 
         $adapter->createCheckout($this->checkoutRequest());
+    }
+
+    // ------------------------------------------- createCheckout, catalogue mode — Q-015
+
+    public function testCatalogueModeNamesThePriceAndSendsNothingElseAboutIt(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->catalogAdapter($fake)->createCheckout($this->checkoutRequest());
+
+        $items = $fake->decodedLastRequestBody()['items'];
+        self::assertSame([['price_id' => self::CATALOG_PRICE_ID, 'quantity' => 1]], $items);
+    }
+
+    /**
+     * The whole point of catalogue mode: the price in Paddle is the only statement of what
+     * this costs, so nothing that could contradict it goes on the wire.
+     */
+    public function testCatalogueModeSendsNoInlinePriceBillingCycleOrTrialPeriod(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->catalogAdapter($fake)->createCheckout($this->checkoutRequest());
+
+        $item = $fake->decodedLastRequestBody()['items'][0];
+        self::assertArrayNotHasKey('price', $item);
+        self::assertSame(['price_id', 'quantity'], array_keys($item));
+    }
+
+    /**
+     * Confirmed against the live sandbox: Paddle does not refuse a currency_code that
+     * disagrees with the catalogue price's own — it silently converts, turning a USD price of
+     * 4900 into 4218 EUR. Sending CheckoutRequest's currency would therefore let a caller
+     * re-denominate a published price by accident, so the field is omitted entirely.
+     */
+    public function testCatalogueModeOmitsCurrencyCodeSoTheCataloguePriceIsBilledAsPublished(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->catalogAdapter($fake)->createCheckout(new CheckoutRequest(
+            reference: 'order-9',
+            amount: new Money(0, 'EUR'),
+            successUrl: 'https://shop.test/thanks',
+            cancelUrl: 'https://shop.test/cancelled',
+        ));
+
+        self::assertArrayNotHasKey('currency_code', $fake->decodedLastRequestBody());
+    }
+
+    /** The inverse, asserted just as explicitly — inline mode still states its currency. */
+    public function testInlineModeStillSendsCurrencyCode(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->adapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertSame('USD', $fake->decodedLastRequestBody()['currency_code']);
+    }
+
+    /**
+     * CheckoutRequest::$amount is inert in catalogue mode — it is neither sent nor believed.
+     * The session reports what Paddle priced the transaction at, not what the caller guessed.
+     */
+    public function testCatalogueModeReportsTheAmountPaddlePricedNotTheOneRequested(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(
+            ['details' => ['totals' => ['grand_total' => '9900']]]
+        ));
+
+        $session = $this->catalogAdapter($fake)->createCheckout(new CheckoutRequest(
+            reference: 'order-9',
+            amount: new Money(0, 'USD'),
+            successUrl: 'https://shop.test/thanks',
+            cancelUrl: 'https://shop.test/cancelled',
+        ));
+
+        self::assertSame(9900, $session->amount->minorUnits);
+    }
+
+    public function testCatalogueModeRefusesARequestThatAlsoCarriesLineItems(): void
+    {
+        $adapter = $this->catalogAdapter();
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/two answers to one question/');
+
+        $adapter->createCheckout($this->checkoutRequest([new LineItem('Pro plan', new Money(2500, 'USD'))]));
+    }
+
+    public function testForCatalogPriceBuildsAnAdapterThatBillsThatPrice(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        PaddleSubscription::forCatalogPrice(
+            'pdl_sdbx_apikey_test',
+            $fake,
+            self::CATALOG_PRICE_ID,
+            self::WEBHOOK_SECRET,
+            paymentPageUrl: self::PAYMENT_PAGE_URL,
+        )->createCheckout($this->checkoutRequest());
+
+        self::assertSame(self::CATALOG_PRICE_ID, $fake->decodedLastRequestBody()['items'][0]['price_id']);
+    }
+
+    public function testConstructorRefusesNeitherABillingCycleNorACataloguePrice(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/needs to know what it bills/');
+
+        new PaddleSubscription('pdl_sdbx_apikey_test', $this->fake(), null);
+    }
+
+    public function testConstructorRefusesBothABillingCycleAndACataloguePrice(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/two answers to one question/');
+
+        new PaddleSubscription(
+            'pdl_sdbx_apikey_test',
+            $this->fake(),
+            new BillingCycle(BillingInterval::Month),
+            catalogPriceId: self::CATALOG_PRICE_ID,
+        );
+    }
+
+    /**
+     * Refused rather than ignored. A trial passed here would be silently dropped, and the
+     * merchant would discover it as a customer charged on day one of a fourteen-day trial.
+     */
+    public function testConstructorRefusesATrialPeriodAlongsideACataloguePrice(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/A trial belongs to the price in Paddle/');
+
+        new PaddleSubscription(
+            'pdl_sdbx_apikey_test',
+            $this->fake(),
+            null,
+            new BillingCycle(BillingInterval::Day, 14),
+            catalogPriceId: self::CATALOG_PRICE_ID,
+        );
+    }
+
+    public function testConstructorNamesTheProductPriceConfusionWhenGivenAProductId(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/is a Paddle product id, not a price id/');
+
+        new PaddleSubscription('pdl_sdbx_apikey_test', $this->fake(), null, catalogPriceId: 'pro_01abc');
+    }
+
+    public function testConstructorRefusesSomethingThatIsNoPaddleIdAtAll(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/needs a Paddle price id \(pri_\.\.\.\)/');
+
+        new PaddleSubscription('pdl_sdbx_apikey_test', $this->fake(), null, catalogPriceId: 'Pro plan');
+    }
+
+    /**
+     * Catalogue mode is the first path where CheckoutRequest::$amount cannot cover for a
+     * missing total: retrieveStatus() reads a transaction with no request beside it, so
+     * amountOf() has no fallback and would throw. The live run showed Paddle prices every
+     * transaction server-side, draft included, so the round trip reports the catalogue's
+     * figure — asserted here the way 1.3.0 asserted its own retrieveStatus() round trip.
+     */
+    public function testACatalogueTransactionRoundTripsThroughRetrieveStatus(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse([
+            'status' => 'completed',
+            'details' => ['totals' => ['grand_total' => '99000']],
+        ]));
+
+        $snapshot = $this->catalogAdapter($fake)->retrieveStatus('txn_test_123');
+
+        self::assertSame(TransactionStatus::Success, $snapshot->status);
+        self::assertSame(99000, $snapshot->amount->minorUnits);
+        self::assertSame('USD', $snapshot->amount->currency);
     }
 
     // ------------------------------------------------- retrieveStatus (inherited) — §9.6.3
@@ -1079,6 +1258,22 @@ final class PaddleSubscriptionTest extends TestCase
             self::WEBHOOK_SECRET,
             paymentPageUrl: self::PAYMENT_PAGE_URL,
         );
+    }
+
+    private function catalogAdapter(?FakeHttpClient $fake = null): PaddleSubscription
+    {
+        return PaddleSubscription::forCatalogPrice(
+            'pdl_sdbx_apikey_test',
+            $fake ?? $this->fake(),
+            self::CATALOG_PRICE_ID,
+            self::WEBHOOK_SECRET,
+            paymentPageUrl: self::PAYMENT_PAGE_URL,
+        );
+    }
+
+    private function fake(): FakeHttpClient
+    {
+        return new FakeHttpClient(static fn (): Response => self::transactionResponse());
     }
 
     /**
