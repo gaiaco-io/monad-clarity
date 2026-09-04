@@ -6,6 +6,44 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-09-04
+
+### Added
+- **A catalogue-price route into `Checkout::createCheckout()`** (`ReleaseNotes_1.7.0.md`).
+  Both Paddle adapters take a `catalogPriceId`, and `PaddleSubscription::forCatalogPrice()`
+  is the named constructor for it. Given one, `createCheckout()` sends
+  `items: [{price_id, quantity: 1}]` and says nothing else about the sale — the price in
+  Paddle states the amount, currency, billing cycle, trial and tax category.
+
+  Closes a gap reported downstream as Q-015 and verified here: `price_id` appeared in exactly
+  one place framework-wide, on the `changePlan()` path. So `SubscriptionItem::catalogPrice()`
+  had let an application **move** a subscription onto a published plan since 1.4.0 while
+  giving it no way to **start** one there — leaving an application billing published plans to
+  restate every price in its own code.
+
+  `CheckoutRequest` was deliberately **not** reopened. The plan is adapter configuration, which
+  is `ReleaseNotes_1.4.0.md` §2.4 applied unchanged: one instance means one plan's terms, so a
+  merchant with three tiers on two cycles constructs six adapters.
+
+  **Catalogue mode omits `currency_code`** (§2.4), which is the release's load-bearing finding.
+  Paddle does not refuse a currency that disagrees with a catalogue price — it silently
+  converts, turning a `4900` USD price into `4218` EUR and `7668` JPY. Passing the request's
+  currency through would let a caller re-denominate a published price, surfacing as a wrong
+  charge rather than an error. Inline mode still sends it.
+
+  Quantity is fixed at 1 (§2.5) — a stated boundary, not a gateway limit. Seat counts are set
+  through `changePlan()` with `SubscriptionItem::catalogPrice($priceId, $quantity)`.
+
+  Contradictions are refused at construction rather than resolved: a billing cycle **and** a
+  catalogue price, neither of them, or a trial period alongside a catalogue price (§2.6). A
+  `pro_` product id gets its own message.
+
+  Verified against a live Paddle sandbox on all six prices of a three-plan catalogue (§2.7).
+
+### Changed
+- `PaddleSubscription::$billingCycle` widened to `?BillingCycle` so catalogue mode can pass
+  none. Additive: it stays positionally required, and every existing call site is unaffected.
+
 ## [1.6.0] - 2026-08-31
 
 ### Added

@@ -41,11 +41,12 @@ use Monad\Clarity\Services\HttpClient;
  * guard exist once rather than twice.
  *
  * **A subscription is born from a transaction, not created by an API call.** There is no
- * `POST /subscriptions`. createCheckout() sends a transaction whose inline price carries a
- * billing cycle, and Paddle creates the subscription when the customer actually pays. So the
- * reference createCheckout() returns is a `txn_`, and the `sub_` every operation below acts on
- * does not exist yet. Two routes lead from one to the other, and an application should handle
- * both because either delivery can be dropped:
+ * `POST /subscriptions`. createCheckout() sends a transaction for a recurring price — either a
+ * catalogue `pri_...` this adapter was constructed with, or an inline price carrying the
+ * billing cycle it was constructed with — and Paddle creates the subscription when the
+ * customer actually pays. So the reference createCheckout() returns is a `txn_`, and the `sub_`
+ * every operation below acts on does not exist yet. Two routes lead from one to the other, and
+ * an application should handle both because either delivery can be dropped:
  *
  *   subscriptionReferenceOf($event)   reads `subscription_id` off a settled transaction
  *   parseSubscriptionCallback($body)  reads it off the `subscription.created` delivery,
@@ -81,13 +82,21 @@ final class PaddleSubscription extends Checkout
     private const GATEWAY = 'paddle_subscription';
 
     /**
-     * @param BillingCycle $billingCycle How often this adapter's subscriptions charge. It is
-     *        adapter configuration rather than part of CheckoutRequest because the inherited
-     *        createCheckout() signature is fixed and CheckoutRequest is frozen — and because
-     *        one adapter instance meaning one plan's terms is the honest reading anyway. A
-     *        merchant with monthly and annual tiers constructs two of these.
+     * One adapter instance means one plan's terms, in both of its two modes — a merchant with
+     * monthly and annual tiers constructs two of these, and one with three tiers on two cycles
+     * constructs six. That is adapter configuration rather than request data because the
+     * inherited createCheckout() signature is fixed and CheckoutRequest is frozen
+     * (`ReleaseNotes_1.4.0.md` §2.4), and because it is the honest reading anyway.
+     *
+     * @param BillingCycle|null $billingCycle How often this adapter's subscriptions charge,
+     *        for an inline plan. **Pass null when passing $catalogPriceId** — a catalogue price
+     *        states its own cycle, and a second answer here could only contradict it. Exactly
+     *        one of the two is required; prefer the forCatalogPrice() constructor over passing
+     *        nulls positionally.
      * @param BillingCycle|null $trialPeriod A free period before the first charge, if the plan
      *        offers one. Same shape as a billing cycle, because it is the same kind of measure.
+     *        Inline mode only — a catalogue price carries its own trial, and a plan configured
+     *        with one produces a first transaction of zero rather than no transaction at all.
      * @param string $webhookSecret Signing secret for this notification destination
      *        (`pdl_ntfset_...`). Empty disables both callback parsers with an explicit error
      *        rather than silently accepting unverified callbacks.
@@ -98,20 +107,97 @@ final class PaddleSubscription extends Checkout
      *        sale is taxed. The `standard` default is right for ordinary goods and services
      *        and **wrong for most subscriptions**: a recurring charge is usually SaaS,
      *        software, or ebooks, each of which has a category of its own that must be passed.
+     *        Unused in catalogue mode — a catalogue product carries its own.
      * @param string $baseUri `https://sandbox-api.paddle.com` for the sandbox.
+     * @param string|null $catalogPriceId A recurring `pri_...` the merchant already maintains
+     *        in Paddle, which switches this adapter into catalogue mode. The price states the
+     *        amount, the currency, the billing cycle, the trial and the tax category, so none
+     *        of those is passed here and none can drift out of step with the dashboard.
+     * @throws CheckoutException if neither or both of $billingCycle and $catalogPriceId are
+     *         given, or if $catalogPriceId is not a price id.
      */
     public function __construct(
         string $apiKey,
         HttpClient $httpClient,
-        private readonly BillingCycle $billingCycle,
+        private readonly ?BillingCycle $billingCycle,
         private readonly ?BillingCycle $trialPeriod = null,
         private readonly string $webhookSecret = '',
         private readonly ?string $hostedCheckoutUrl = null,
         private readonly ?string $paymentPageUrl = null,
         private readonly string $taxCategory = self::DEFAULT_TAX_CATEGORY,
         private readonly string $baseUri = self::DEFAULT_BASE_URI,
+        private readonly ?string $catalogPriceId = null,
     ) {
+        self::assertCatalogPriceId($catalogPriceId);
+        self::assertOnePlanSource($billingCycle, $trialPeriod, $catalogPriceId);
+
         parent::__construct($apiKey, $httpClient);
+    }
+
+    /**
+     * A subscription on a plan the merchant publishes in the Paddle dashboard.
+     *
+     * The plan's terms are read from the catalogue rather than restated here, which is why
+     * this constructor takes no billing cycle, no trial period and no tax category: naming a
+     * `pri_...` is the whole description of what is being sold. Prefer it to the primary
+     * constructor for catalogue mode — it is the same object either way, but this one cannot
+     * be handed a cycle that contradicts the price.
+     */
+    public static function forCatalogPrice(
+        string $apiKey,
+        HttpClient $httpClient,
+        string $catalogPriceId,
+        string $webhookSecret = '',
+        ?string $hostedCheckoutUrl = null,
+        ?string $paymentPageUrl = null,
+        string $baseUri = self::DEFAULT_BASE_URI,
+    ): self {
+        return new self(
+            $apiKey,
+            $httpClient,
+            billingCycle: null,
+            webhookSecret: $webhookSecret,
+            hostedCheckoutUrl: $hostedCheckoutUrl,
+            paymentPageUrl: $paymentPageUrl,
+            baseUri: $baseUri,
+            catalogPriceId: $catalogPriceId,
+        );
+    }
+
+    /**
+     * A plan's terms come from exactly one place. Neither is a silent no-op that would send
+     * Paddle a one-time price and quietly never create a subscription; both would be two
+     * answers to "how often does this charge", and Paddle would honour the catalogue's while
+     * the adapter's constructor argument said otherwise.
+     *
+     * @throws CheckoutException
+     */
+    private static function assertOnePlanSource(
+        ?BillingCycle $billingCycle,
+        ?BillingCycle $trialPeriod,
+        ?string $catalogPriceId
+    ): void {
+        if (($billingCycle === null) === ($catalogPriceId === null)) {
+            throw new CheckoutException($billingCycle === null
+                ? 'A PaddleSubscription needs to know what it bills. Pass a $billingCycle to describe the '
+                    . 'plan inline, or a $catalogPriceId (pri_...) to bill a plan you publish in Paddle — '
+                    . 'PaddleSubscription::forCatalogPrice() is the readable way to do the latter.'
+                : sprintf(
+                    'This PaddleSubscription was constructed with both a $billingCycle and the catalogue '
+                        . 'price %s. The catalogue price already states how often it charges, so these are two '
+                        . 'answers to one question and Paddle would honour the catalogue\'s. Pass one.',
+                    $catalogPriceId
+                ));
+        }
+
+        if ($catalogPriceId !== null && $trialPeriod !== null) {
+            throw new CheckoutException(sprintf(
+                'This PaddleSubscription was constructed with both a $trialPeriod and the catalogue price %s. '
+                    . 'A trial belongs to the price in Paddle, so set it there — passing one here would be '
+                    . 'ignored, which is worse than being refused.',
+                $catalogPriceId
+            ));
+        }
     }
 
     /**
@@ -128,7 +214,7 @@ final class PaddleSubscription extends Checkout
 
         $params = [
             'items' => $this->itemParams($request, $this->billingCycle, $this->trialPeriod),
-            'currency_code' => $request->amount->currency,
+            ...$this->currencyParams($request),
             'collection_mode' => 'automatic',
             'custom_data' => $this->customData($request),
         ];

@@ -23,6 +23,7 @@ final class PaddleCheckoutTest extends TestCase
     private const WEBHOOK_SECRET = 'pdl_ntfset_test_secret';
     private const HOSTED_CHECKOUT_URL = 'https://pay.paddle.io/checkout/hsc_01jt8s46kx4nv91002z7vy4ecj_1as3scas9c';
     private const PAYMENT_PAGE_URL = 'https://shop.test/pay';
+    private const CATALOG_PRICE_ID = 'pri_test_starter_monthly';
 
     // ---------------------------------------------------------------------------------
     // createCheckout — §9.6.1
@@ -712,6 +713,74 @@ final class PaddleCheckoutTest extends TestCase
     }
 
     // ---------------------------------------------------------------------------------
+    // createCheckout, catalogue mode — Q-015
+    // ---------------------------------------------------------------------------------
+
+    public function testCatalogueModeNamesThePriceAndSendsNothingElseAboutIt(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->catalogAdapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertSame(
+            [['price_id' => self::CATALOG_PRICE_ID, 'quantity' => 1]],
+            $fake->decodedLastRequestBody()['items']
+        );
+    }
+
+    /**
+     * Paddle silently converts a catalogue price into a currency_code that disagrees with it
+     * rather than refusing one — confirmed live — so the field is omitted and the published
+     * price is billed as published. See SpeaksPaddle::currencyParams().
+     */
+    public function testCatalogueModeOmitsCurrencyCode(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->catalogAdapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertArrayNotHasKey('currency_code', $fake->decodedLastRequestBody());
+    }
+
+    public function testInlineModeStillSendsCurrencyCode(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse());
+
+        $this->adapter($fake)->createCheckout($this->checkoutRequest());
+
+        self::assertSame('USD', $fake->decodedLastRequestBody()['currency_code']);
+    }
+
+    public function testCatalogueModeRefusesARequestThatAlsoCarriesLineItems(): void
+    {
+        $adapter = $this->catalogAdapter();
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/two answers to one question/');
+
+        $adapter->createCheckout(new CheckoutRequest(
+            reference: 'ORDER-1001',
+            amount: new Money(2500, 'USD'),
+            successUrl: 'https://shop.test/success',
+            cancelUrl: 'https://shop.test/cancel',
+            lineItems: [new LineItem('Pro plan', new Money(2500, 'USD'))],
+        ));
+    }
+
+    public function testConstructorNamesTheProductPriceConfusionWhenGivenAProductId(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/is a Paddle product id, not a price id/');
+
+        new PaddleCheckout(
+            'pdl_sdbx_apikey_test',
+            new FakeHttpClient(static fn (): Response => self::transactionResponse()),
+            self::WEBHOOK_SECRET,
+            catalogPriceId: 'pro_test_starter',
+        );
+    }
+
+    // ---------------------------------------------------------------------------------
     // Fixtures
     // ---------------------------------------------------------------------------------
 
@@ -732,6 +801,17 @@ final class PaddleCheckoutTest extends TestCase
             $fake ?? new FakeHttpClient(static fn (): Response => self::transactionResponse()),
             self::WEBHOOK_SECRET,
             paymentPageUrl: self::PAYMENT_PAGE_URL,
+        );
+    }
+
+    private function catalogAdapter(?FakeHttpClient $fake = null): PaddleCheckout
+    {
+        return new PaddleCheckout(
+            'pdl_sdbx_apikey_test',
+            $fake ?? new FakeHttpClient(static fn (): Response => self::transactionResponse()),
+            self::WEBHOOK_SECRET,
+            hostedCheckoutUrl: self::HOSTED_CHECKOUT_URL,
+            catalogPriceId: self::CATALOG_PRICE_ID,
         );
     }
 

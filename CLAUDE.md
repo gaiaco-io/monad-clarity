@@ -108,6 +108,14 @@ canonical for every document below — where the skeleton repo carries a mirror,
   once, not exactly once** — the honest inverse of the Scheduler's, because no cross-provider
   idempotency key exists (§2.5). `MimeMessage` never emits a `Bcc:` header and header
   injection is refused at construction (§2.12, §2.13) — both security-critical.
+- `ReleaseNotes_1.7.0.md` — WHAT ships in 1.7.0 (the catalogue-price route into
+  `createCheckout()`, `catalogPriceId` on both Paddle adapters, `forCatalogPrice()`), and seven
+  decisions. Read before touching how a sale is priced. The three most load-bearing: the plan
+  stays **adapter configuration** rather than reopening the frozen `CheckoutRequest`, which is
+  1.4.0 §2.4 applied unchanged (§2.2); **catalogue mode omits `currency_code`**, because Paddle
+  silently *converts* a disagreeing currency instead of refusing it (§2.4); and
+  `CheckoutRequest::$amount` is **inert** in catalogue mode, so the idiom is `Money(0, $currency)`
+  and the real figure is read back off `CheckoutSession::$amount` (§2.3).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

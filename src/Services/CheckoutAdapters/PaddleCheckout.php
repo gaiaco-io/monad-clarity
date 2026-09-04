@@ -17,10 +17,11 @@ use Monad\Clarity\Services\HttpClient;
  * Paddle's signed notification scheme.
  *
  * Everything this adapter shares with PaddleSubscription — the signed-callback scheme, the
- * `data` envelope, cursor pagination, inline non-catalog items, and the three
- * transaction-scoped operations that read the same endpoints either way — lives in the
- * SpeaksPaddle trait. What is left here is what is genuinely one-time-only: the two checkout
- * modes, and a `past_due` that means a dead payment rather than a retry in progress.
+ * `data` envelope, cursor pagination, both ways of naming what is sold — a catalogue price
+ * id or an inline non-catalog price — and the three transaction-scoped operations that read
+ * the same endpoints either way — lives in the SpeaksPaddle trait. What is left here is what
+ * is genuinely one-time-only: the two checkout modes, and a `past_due` that means a dead
+ * payment rather than a retry in progress.
  *
  * Paddle states amounts as strings in the currency's lowest denomination — which is exactly
  * what Money already holds — so nothing here converts, and the zero-decimal currencies
@@ -69,12 +70,21 @@ final class PaddleCheckout extends Checkout
      * @param string $taxCategory Paddle tax category for the products this adapter bills.
      *        `standard` covers ordinary goods and services; a merchant selling ebooks, SaaS,
      *        or software has a category of its own and must pass it, because Paddle is the
-     *        merchant of record and this is what decides how the sale is taxed.
+     *        merchant of record and this is what decides how the sale is taxed. Unused in
+     *        catalogue mode — a catalogue product carries its own.
      * @param string $baseUri `https://sandbox-api.paddle.com` for the sandbox, which is a
      *        wholly separate environment — separate keys, catalogue, notification
      *        destinations, and refunds approved automatically rather than by review. Nothing
      *        crosses between the two, so pointing an adapter at it is this argument and
      *        nothing else.
+     * @param string|null $catalogPriceId A `pri_...` the merchant already maintains in Paddle,
+     *        which switches this adapter into catalogue mode: the price states the amount, the
+     *        currency and the tax category, and CheckoutRequest states only who is buying and
+     *        where to send them afterwards. Leave it null and the sale is described inline from
+     *        the request, needing no catalogue at all. Pass it as a named argument —
+     *        `new PaddleCheckout($key, $http, $secret, paymentPageUrl: $url,
+     *        catalogPriceId: 'pri_...')` — since the arguments before it all have defaults that
+     *        catalogue mode does not disturb. See itemParams() for what each mode sends.
      */
     public function __construct(
         string $apiKey,
@@ -84,7 +94,10 @@ final class PaddleCheckout extends Checkout
         private readonly ?string $paymentPageUrl = null,
         private readonly string $taxCategory = self::DEFAULT_TAX_CATEGORY,
         private readonly string $baseUri = self::DEFAULT_BASE_URI,
+        private readonly ?string $catalogPriceId = null,
     ) {
+        self::assertCatalogPriceId($catalogPriceId);
+
         parent::__construct($apiKey, $httpClient);
     }
 
@@ -94,7 +107,7 @@ final class PaddleCheckout extends Checkout
 
         $params = [
             'items' => $this->itemParams($request),
-            'currency_code' => $request->amount->currency,
+            ...$this->currencyParams($request),
             'collection_mode' => 'automatic',
             'custom_data' => $this->customData($request),
         ];
