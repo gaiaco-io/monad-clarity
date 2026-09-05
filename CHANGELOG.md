@@ -6,6 +6,13 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- **`RepoMap.md` records the skeleton's two new files** — `config/checkout.php` and
+  `scripts/setup-env.php`. Both landed in `monad/skeleton` when Checkout was wired into it
+  (skeleton PR #12), and this document is maintained canonically here, so the entries are
+  added on this side and mirrored across rather than the other way round. Caught by
+  `ReleasePolicy.md`'s pre-tag item 8, which exists for exactly this drift.
+
 ## [1.7.1] - 2026-09-05
 
 Three follow-ups to 1.7.0's catalogue-price route, found by a code review of the release

@@ -36,6 +36,7 @@ developer forever — never updated via Composer again (only `monad/clarity` is)
 │       └── Users
 ├── config
 │   ├── bootstrap.php        <!-- thin: autoload + .env + hand config to Clarity kernel -->
+│   ├── checkout.php         <!-- credentials + adapter for the gateway CHECKOUT_GATEWAY names -->
 │   ├── database.php
 │   ├── dir.php
 │   ├── llm.php
@@ -59,7 +60,8 @@ developer forever — never updated via Composer again (only `monad/clarity` is)
 │   ├── reports
 │   └── tests
 ├── scripts
-│   └── copy-assets.js
+│   ├── copy-assets.js
+│   └── setup-env.php         <!-- post-create-project-cmd: writes .env, generates APP_SECRET -->
 ├── storage
 │   ├── cache
 │   ├── logs
