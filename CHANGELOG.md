@@ -89,8 +89,10 @@ built as specified and mutually exclusive, and that the workspace header is sent
 asked for — **not that Anthropic accepts any of these wire bodies.**
 
 A live run was attempted on 2026-09-07, the first in this repo's history, and got no further
-than the 400 that produced `workspaceId`: no call reached a model, so nothing about the wire
-format was confirmed and `OpenAI`, `Gemini` and `DeepSeek` were never reached. 1.7.2's premise —
+than the 400 that produced `workspaceId`. Re-run with a workspace set, it cleared that error and
+stopped at the account's credit balance instead — which confirms the new header is accepted and
+confirms nothing at all about the request body, since no call has yet reached a model.
+`OpenAI`, `Gemini` and `DeepSeek` were never reached. 1.7.2's premise —
 that a non-default `temperature` is refused — is likewise still unverified against a live model.
 `ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
 

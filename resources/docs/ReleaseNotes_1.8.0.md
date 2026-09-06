@@ -181,6 +181,13 @@ Neither is in scope here; both are recorded so they are not lost.
       workspace. §1.3 exists because of that run, and the run halted there rather than
       continuing to `OpenAI`, `Gemini` and `DeepSeek`.
 
+      **Re-run the same day with `workspaceId` set: the workspace error is gone.** The same key
+      that could not get past scoping now reaches the account's billing check and stops there
+      (`"Your credit balance is too low to access the Anthropic API"`). That is as far as this
+      release could take it, and it is worth stating precisely: it confirms §1.3 sends a header
+      Anthropic accepts, and it confirms nothing whatsoever about the request *body* — no call
+      has yet reached a model.
+
       So what a live key must still confirm, once re-run with `workspaceId` set: that a
       plain-text call succeeds with `temperature` omitted (1.7.2's premise, still untested
       against a live model); that `ForcedTool` and `NativeSchema` are each accepted on a model
