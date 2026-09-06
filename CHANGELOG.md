@@ -16,7 +16,7 @@ sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.
 ### Added
 - **`Services\LLMAdapters\AnthropicStructuredOutput`** — a two-case enum naming which wire
   mechanism satisfies `LLMRequest::$responseSchema`: `ForcedTool` (a synthetic tool with
-  `tool_choice` forced to it, Anthropic's documented pattern since 2023 and what every release
+  `tool_choice` forced to it, Anthropic's documented pattern and what every release
   before this one used) or `NativeSchema` (`output_config.format`, Anthropic's native
   schema-constrained decoding, with the answer arriving as ordinary JSON text). It lives beside
   the adapter rather than in `Services\LLM\` because it is Anthropic's problem alone — `OpenAI`,
@@ -134,7 +134,8 @@ narrowed, and no production behaviour outside the Anthropic adapter changes.
   `additionalProperties: false` required on every object — so schemas accepted today would
   start being refused. Whether the adapter should change mechanism, or offer both as adapter
   configuration in the shape `ReleaseNotes_1.7.0.md` §2.2 established, is a release decision.
-  Recorded here; unchanged in code.
+  Recorded here; unchanged in code. **Resolved in 1.8.0, above** — both mechanisms ship, the
+  caller chooses at construction, and the default stays the forced tool.
 
 ### Documentation
 - **`RepoMap.md` records the skeleton's two new files** — `config/checkout.php` and

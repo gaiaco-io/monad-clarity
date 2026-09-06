@@ -22,7 +22,7 @@ enum AnthropicStructuredOutput
     /**
      * A synthetic tool whose `input_schema` is the caller's schema, with `tool_choice` forced
      * to it; the answer is read out of the resulting `tool_use` block. Anthropic's documented
-     * pattern since 2023, it accepts any JSON Schema the caller can write, and it is refused
+     * pattern, it accepts any JSON Schema the caller can write, and it is refused
      * by the newest models, which reject `tool_choice` of type "tool" or "any".
      *
      * The default, because it is what every caller has been getting since 1.0.0.

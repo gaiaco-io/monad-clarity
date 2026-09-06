@@ -18,7 +18,7 @@ A two-case enum naming the mechanism:
 
 - `ForcedTool` — a synthetic tool whose `input_schema` is the caller's schema, `tool_choice`
   forced to it, the answer read out of the resulting `tool_use` block. Anthropic's documented
-  pattern since 2023 and what every Clarity release before this one used.
+  pattern, and what every Clarity release before this one used.
 - `NativeSchema` — `output_config.format`, Anthropic's native schema-constrained decoding. The
   answer arrives as ordinary JSON text.
 
@@ -114,8 +114,8 @@ nobody has observed.
 ### 2.5 An enum, not a boolean
 
 `structuredOutput: NativeSchema` says at the call site what `useNativeStructuredOutputs: true`
-would not, and a third mechanism — Anthropic has added two in three years — costs one case
-rather than a second boolean. The `match` on it is exhaustive, so adding a case fails loudly at
+would not, and a third mechanism — Anthropic has shipped two so far, and this release exists
+because the second arrived — costs one case rather than a second boolean. The `match` on it is exhaustive, so adding a case fails loudly at
 the two places that must handle it instead of silently taking an `else`.
 
 ### 2.6 The stop reason is named on all four structured failures
