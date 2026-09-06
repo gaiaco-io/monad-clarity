@@ -168,8 +168,13 @@ Neither is in scope here; both are recorded so they are not lost.
 1. **`stop_reason` is not on `LLMResponse`.** A reply with `stop_reason: max_tokens` that *did*
    produce parseable content still returns as an ordinary success, and the caller cannot tell a
    complete answer from a truncated one. Surfacing it is additive and belongs in a minor.
-2. **The live smoke test.** Still the top open item from 1.0.0's Phase 6. First attempted during
-   this release and blocked before it could verify anything — see §3.
+2. **The live smoke test.** First run during this release: `Anthropic` is green, the other three
+   are blocked on credentials rather than code — see §3.
+3. **`Gemini` should pass its key in an `x-goog-api-key` header, not the query string.** That is
+   the form Google's own API-key documentation uses, and it would keep the key out of the URL —
+   where `HttpClient`'s PSR-7 exception can carry it into an error renderer. Not done here
+   because the adapter has no working credential to verify it against (§3), and this release
+   would rather leave a known improvement open than ship an unverified change to an auth path.
 
 ## 3. Acceptance gate
 
@@ -233,11 +238,27 @@ Neither is in scope here; both are recorded so they are not lost.
       forced `tool_choice` — `claude-opus-5` accepts it, so §2.1's premise is confirmed only on
       the half that works.
 
-      `Gemini` is the one failure that is not about money, and it raises a question §1.3 has
-      already answered once for Anthropic: `generativelanguage.googleapis.com` also accepts an
-      OAuth bearer token, and this adapter can only send `?key=`. Whether that is a second gap
-      of the same shape, or simply the wrong credential supplied, is not yet established — do
-      not build for it until a correct API key has been tried.
+      `Gemini`'s failure is the one not about money, and it briefly looked like a second gap of
+      the `workspaceId` shape. **It is not, and the cause is outside this repo.** The same
+      credential was sent three ways — `?key=`, the `x-goog-api-key` header, and
+      `Authorization: Bearer` — and all three returned the *identical* 401. A credential the
+      endpoint rejects in every auth form it offers is not one the adapter is holding wrongly.
+
+      The credential is 110 characters beginning `AQ.`, Google's newer AI Studio *authorization
+      key* format, which has replaced the legacy `AIza…` API key for newly created accounts.
+      Google's developer forum carries many reports through mid-2026 of `AQ.` keys returning
+      `401 ACCESS_TOKEN_TYPE_UNSUPPORTED` from `generativelanguage.googleapis.com` — via the
+      official SDKs as well as raw cURL — on accounts that can no longer issue `AIza` keys at
+      all. Our three-way probe is consistent with those reports. **Nothing in Clarity can fix
+      this**, and `Gemini` therefore stays unverified rather than being declared broken.
+
+      One real finding survives it, and is deliberately *not* acted on here (see §2.7 item 3):
+      Google's own API-key documentation passes the key in an **`x-goog-api-key` header**, while
+      this adapter puts it in the query string. That is the legacy form, and it is also why the
+      key can reach a URL — the leak hazard `HttpClient`'s PSR-7 exception carries. Worth
+      changing, but not on an adapter that currently has no working credential to verify the
+      change against. Shipping an unverified auth change is the mistake this whole exercise
+      exists to prevent.
 
       The lesson is already worth recording: **the very first live call found a gap that had
       been in shipped code since 1.0.0 and that no mocked test could have found**, because the
