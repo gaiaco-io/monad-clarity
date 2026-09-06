@@ -6,6 +6,75 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-06
+
+Closes the one defect 1.7.2 documented rather than fixed: `LLMAdapters\Anthropic`'s
+structured-output mechanism is refused by Anthropic's newest models. Both mechanisms now ship
+and the caller picks. Purely additive — an application that does not name the new argument
+sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.md`.
+
+### Added
+- **`Services\LLMAdapters\AnthropicStructuredOutput`** — a two-case enum naming which wire
+  mechanism satisfies `LLMRequest::$responseSchema`: `ForcedTool` (a synthetic tool with
+  `tool_choice` forced to it, Anthropic's documented pattern since 2023 and what every release
+  before this one used) or `NativeSchema` (`output_config.format`, Anthropic's native
+  schema-constrained decoding, with the answer arriving as ordinary JSON text). It lives beside
+  the adapter rather than in `Services\LLM\` because it is Anthropic's problem alone — `OpenAI`,
+  `Gemini` and `DeepSeek` each have exactly one mechanism and gain nothing from it.
+
+- **`Anthropic::__construct` takes it**, last in the signature and defaulted to `ForcedTool`.
+  Last because `$endpoint` shipped in 1.0.0 and reordering a positional caller's arguments would
+  break them — 1.7.1's rule for `forCatalogPrice()`'s `$taxCategory`, applied again. The two
+  mechanisms are mutually exclusive on the wire, and the mode is **inert** when
+  `$responseSchema` is null: a native-mode adapter making a plain-text call sends neither
+  `output_config` nor `tools`. All three properties are asserted.
+
+  **Why both rather than a swap** (`ReleaseNotes_1.8.0.md` §2.1): the forced tool is refused by
+  the newest models, the native mode is absent from several older ones the forced tool still
+  serves, and a model id does not say which it supports. Swapping wholesale would have fixed the
+  new models by breaking the old — not a fix, and not a minor. Choosing per request would have
+  meant a hardcoded model list, the kind that goes wrong the week after it is written and goes
+  wrong silently. So the choice belongs to whoever knows the target model, made once, at
+  construction. Where the framework cannot know, it must not pretend to — the same conclusion
+  1.7.1 reached about a recurring catalogue price.
+
+  **Why the default did not move to the mechanism Anthropic now recommends** (§2.3): a minor may
+  add, but it may not change what existing code does. Every caller who has passed a
+  `responseSchema` since 1.0.0 got the forced tool and keeps getting it.
+
+### Changed
+- **Native mode's parse failures name the `stop_reason`,** as 1.7.2's three failures already
+  did. Anthropic documents that native-mode output "may not match your schema" on a refusal and
+  "may be incomplete" on `max_tokens`; both reach the adapter as text that will not parse, and
+  `json_decode` cannot tell a declined answer from a truncated one. The caller reading the
+  exception should not have to guess either.
+
+- **`Anthropic`'s text extraction is now shared between the plain-text and native-structured
+  paths** rather than duplicated — native mode's answer is ordinary text, so it splits across
+  blocks like any other reply, and decoding only the first block would fail on a perfectly good
+  answer. Internal; no behaviour change to the plain-text path.
+
+### Deliberately not done
+- **The adapter neither validates nor strips a schema against native mode's documented
+  restrictions** (no recursion, no numeric or string bounds, `additionalProperties: false` on
+  every object). Validating means walking arbitrary JSON Schema against a list this repo cannot
+  keep current; stripping means silently sending something weaker than the caller wrote.
+  Whatever Anthropic does with an unsupported keyword surfaces through `assertSuccessful()`,
+  which already carries the provider's own response body. What it actually does is a
+  live-smoke-test item, not a claim made here (§2.4).
+
+- **`stop_reason` is still not on `LLMResponse`.** A reply truncated by `max_tokens` that *did*
+  produce parseable content still returns as an ordinary success, and the caller cannot tell it
+  from a complete one. Additive, and recorded as a named open item in §2.7 rather than smuggled
+  into this release.
+
+### Not verified against a live provider
+Suite green at 1125 tests / 2405 assertions, +8 over 1.7.2. Those eight prove the two mechanisms
+are built as specified and are mutually exclusive — **not that Anthropic accepts either wire
+body**, which no test in this repo can show while `TestingStrategy.md` Tier 4 stands. The gate
+in `ReleaseNotes_1.8.0.md` §3 names the three things a live key must confirm before production
+reliance on `NativeSchema`, and leaves that box unticked.
+
 ## [1.7.2] - 2026-09-06
 
 Four defects in `LLMAdapters\Anthropic`, found by a review of the LLM service — untouched in

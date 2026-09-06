@@ -195,6 +195,14 @@ Adapters: `Monad\Clarity\Services\LLMAdapters\{OpenAI,Anthropic,DeepSeek,Gemini}
 translating the facade contract to its provider's wire format over HttpClient. No agents, tool
 orchestration, vector databases, memory, prompt pipelines, or cross-provider automatic retries.
 
+`Anthropic` takes one further constructor argument, last in the signature and defaulted
+(1.8.0): `structuredOutput: LLMAdapters\AnthropicStructuredOutput` — `ForcedTool` (the default,
+and the behaviour of every release before 1.8.0) or `NativeSchema`. It selects which of
+Anthropic's two wire mechanisms expresses `LLMRequest::$responseSchema`; neither reaches every
+Anthropic model, so the choice belongs to the caller who knows the target model
+(`ReleaseNotes_1.8.0.md` §2.1). The mode is inert when `$responseSchema` is null, and no other
+adapter has an equivalent — OpenAI, Gemini and DeepSeek each have exactly one mechanism.
+
 ## Services\Mail — `Monad\Clarity\Services\Mail` (1.6.0)
 
 Abstract contract, **declaring no constructor** — the first Clarity abstraction whose

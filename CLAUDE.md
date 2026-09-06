@@ -116,6 +116,17 @@ canonical for every document below — where the skeleton repo carries a mirror,
   silently *converts* a disagreeing currency instead of refusing it (§2.4); and
   `CheckoutRequest::$amount` is **inert** in catalogue mode, so the idiom is `Money(0, $currency)`
   and the real figure is read back off `CheckoutSession::$amount` (§2.3).
+- `ReleaseNotes_1.8.0.md` — WHAT ships in 1.8.0 (`LLMAdapters\AnthropicStructuredOutput`, and
+  the `structuredOutput` constructor argument on `Anthropic`), and seven decisions. Read before
+  touching how an LLM adapter asks for structured JSON. The three most load-bearing: **both
+  mechanisms ship because neither reaches every Anthropic model**, and a model id does not say
+  which it supports, so the choice is the caller's and is made at construction (§2.1); the
+  default stays `ForcedTool` as a **compatibility decision rather than a preference** — a minor
+  may add but may not change what existing code does, so the mechanism Anthropic now recommends
+  is opt-in (§2.3); and the adapter **neither validates nor strips** a schema against native
+  mode's documented restrictions, because checking would mean walking arbitrary JSON Schema
+  against a list this repo cannot keep current and stripping would silently weaken what the
+  caller wrote — Anthropic's own response is the evidence (§2.4).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

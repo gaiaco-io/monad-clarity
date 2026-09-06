@@ -158,6 +158,7 @@ Never modified by application developers.
             │   │   ├── LLMAdapters
             │   │   │   ├── OpenAI.php
             │   │   │   ├── Anthropic.php
+            │   │   │   ├── AnthropicStructuredOutput.php  <!-- enum; released 1.8.0 -->
             │   │   │   ├── DeepSeek.php
             │   │   │   └── Gemini.php
             │   │   ├── Mail                  <!-- value objects + MIME + pool; released 1.6.0 -->
