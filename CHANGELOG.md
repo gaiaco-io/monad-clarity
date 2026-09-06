@@ -88,22 +88,29 @@ Suite green at 1128 tests / 2410 assertions, +11 over 1.7.2. Those prove both me
 built as specified and mutually exclusive, and that the workspace header is sent only when
 asked for — **not that Anthropic accepts any of these wire bodies.**
 
-All four adapters were driven against live credentials on 2026-09-07, the first time in this
-repo's history. **None reached a model** — Anthropic and OpenAI and DeepSeek each stopped on an
-empty account balance (400, 429 and 402 respectively), and Gemini on a credential that is not a
-Generative Language API key (401).
+### Verified live, for the first time in this repo's history
+All four adapters were driven against live credentials on 2026-09-07.
 
-That verified the error path and nothing else, but the error path it verified thoroughly: four
-providers, four unrelated failure shapes, and every adapter turned each into an `LLMException`
-naming its own provider and carrying the provider's own body — `assertSuccessful()` and
-`decodeJsonBody()` exercised against reality rather than a fixture. Three of the four also
-proved endpoint, auth and headers correct by reaching a billing decision, which is a request the
-provider understood.
+**`Anthropic` is green, 5/5, against `claude-opus-5`** — plain text with `temperature` omitted,
+a system instruction honoured, structured output through **both** `ForcedTool` and
+`NativeSchema` each returning a correctly decoded object, and an invalid key raising rather than
+returning silence. `workspaceId` is confirmed by the disappearance of the scoping 400 that
+produced it. This is the first Clarity LLM adapter ever confirmed to work against its provider,
+and it closes the gate item open since 1.0.0's Phase 6 — for one adapter of four.
 
-**The request body and the response parsing remain entirely unverified**, which is the point of
-the exercise. 1.7.2's premise — that a non-default `temperature` is refused — and Phase 6's
-doubt about OpenAI's `max_tokens` are both exactly as open as they were.
-`ReleaseNotes_1.8.0.md` §3 lists the rest and stays unticked. 1.7.2's premise —
+The run also settled two questions this repo had only reasoned about. Anthropic refuses an
+unsupported schema keyword with a precise, actionable 400 (`ReleaseNotes_1.8.0.md` §2.4, which
+now records the provider's exact words in place of the argument), and it refuses a *non-default*
+`temperature` while **accepting an explicit `1.0`** — which contradicted the 1.7.2 entry above
+and has been corrected there rather than quietly left standing.
+
+**The other three remain unverified**, all for reasons outside the code: `OpenAI` (429, no
+credit), `DeepSeek` (402, no credit), `Gemini` (401, the credential is not a Generative Language
+API key). Their error paths *are* verified — four providers, four unrelated failure shapes, and
+every adapter turned each into an `LLMException` naming its own provider and carrying the
+provider's body, exercising `assertSuccessful()` and `decodeJsonBody()` against reality rather
+than a fixture. Phase 6's doubt about OpenAI's `max_tokens` is exactly as open as it was.
+`ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked. 1.7.2's premise —
 that a non-default `temperature` is refused — is likewise still unverified against a live model.
 `ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
 
@@ -119,12 +126,21 @@ narrowed, and no production behaviour outside the Anthropic adapter changes.
 ### Fixed
 - **The default temperature is no longer sent.** `LLMRequest::$temperature` defaults to
   `1.0`, which is also Anthropic's own default — so naming it and omitting it are the same
-  request to the model. Only omitting it is accepted across Anthropic's current lineup,
-  whose newer models reject a non-default `temperature` outright. Every Clarity caller who
-  never touched the field was therefore stating an opinion they did not have, on every
-  request, in the one place it could be refused. A caller who *does* set a temperature still
-  has it sent verbatim: they asked for it by name, and the model they named decides what to
-  make of it. Both halves are asserted — omitted at the default, present at `0.5`.
+  request to the model, and the adapter now says nothing rather than stating an opinion the
+  caller never had. A caller who *does* set a temperature still has it sent verbatim: they
+  asked for it by name, and the model they named decides what to make of it. Both halves are
+  asserted — omitted at the default, present at `0.5`.
+
+  **Corrected 2026-09-07, after the live smoke test.** This entry originally claimed that
+  "only omitting it is accepted across Anthropic's current lineup". That is **false** on the
+  model actually tested: `claude-opus-5` accepts an explicit `temperature: 1.0` with HTTP 200,
+  and refuses `0.2` with `` "`temperature` is deprecated for this model." `` The rejection is
+  therefore **value-based, not presence-based**, and on this model the change fixed no
+  observable breakage — pre-1.7.2 code sending `1.0` unconditionally worked, and a caller
+  choosing `0.2` gets the same 400 before and after. Keep the change: it is honest about what
+  the caller asked for, and Anthropic's own migration notes say `temperature` is not accepted
+  *at all* on some other models in the family, where omitting it would be load-bearing. But it
+  is hygiene plus future-proofing, not the live defect this entry first implied.
 
 - **A reply carrying no text block now raises instead of reporting `''`.**
   `extractContent()` returned an empty string when it found no `text` block. Two real

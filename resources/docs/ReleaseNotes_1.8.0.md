@@ -128,11 +128,21 @@ them client-side and validate locally instead.
 
 **Clarity sends raw JSON and does neither.** Checking would mean walking an arbitrary JSON Schema
 to enforce a list this repo cannot keep current, and stripping would mean silently sending a
-weaker constraint than the caller wrote. Whatever Anthropic does with an unsupported keyword —
-refuse, ignore, or something else — arrives through `assertSuccessful()`, which already carries
-the provider's own response body into the exception message. That is better evidence than a
-guess made here, and §3 names it as a live-smoke-test item rather than asserting behaviour
-nobody has observed.
+weaker constraint than the caller wrote. Whatever Anthropic does with an unsupported keyword
+arrives through `assertSuccessful()`, which already carries the provider's own response body into
+the exception message.
+
+**Answered by the live smoke test, 2026-09-07.** Anthropic *refuses*, precisely, and says why:
+
+```
+HTTP 400  output_config.format.schema: For 'number' type, property 'minimum' is not supported
+```
+
+That settles the decision in its favour on the evidence rather than the argument. The provider
+names the offending type, the offending keyword and the offending path — better than any message
+this repo could have produced by walking the schema itself, and it reaches the caller unaltered.
+Client-side validation would have duplicated it; client-side stripping would have hidden it and
+silently run the caller's request under a weaker constraint than they wrote.
 
 ### 2.5 An enum, not a boolean
 
@@ -186,14 +196,27 @@ Neither is in scope here; both are recorded so they are not lost.
       That confirms §1.3 sends a header Anthropic accepts, and confirms nothing whatsoever about
       the request *body*.
 
-      All four adapters were then driven against live credentials. **None reached a model:**
+      All four adapters were then driven against live credentials:
 
-      | Adapter | Response | Cause |
-      |---|---|---|
-      | `Anthropic` | 400 `"credit balance is too low"` | account has no credit |
-      | `OpenAI` | 429 `credit_balance_exhausted` | account has no credit |
-      | `Gemini` | 401 `"Expected OAuth 2 access token…"` | credential is not a Generative Language API key |
-      | `DeepSeek` | 402 `"Insufficient Balance"` | account has no credit |
+      | Adapter | Result |
+      |---|---|
+      | `Anthropic` | **5/5 green** against `claude-opus-5`, once the account was credited |
+      | `OpenAI` | 429 `credit_balance_exhausted` — account has no credit |
+      | `Gemini` | 401 `"Expected OAuth 2 access token…"` — credential is not a Generative Language API key |
+      | `DeepSeek` | 402 `"Insufficient Balance"` — account has no credit |
+
+      **`Anthropic` is verified end to end** — plain text with `temperature` omitted, a system
+      instruction honoured, structured output through **both** `ForcedTool` and `NativeSchema`
+      each returning a correctly decoded object, and an invalid key raising rather than
+      returning silence. `workspaceId` is confirmed: the scoping 400 that produced it is gone.
+      This is the first Clarity LLM adapter ever confirmed to work against the provider it
+      targets.
+
+      Two open questions were answered in the same run, and both are recorded where they were
+      asked — §2.4 above for the schema keyword, and the 1.7.2 CHANGELOG entry for
+      `temperature`, whose original claim the run proved wrong and which now carries the
+      correction. The short version: Anthropic refuses an unsupported schema keyword with a
+      precise 400, and refuses a *non-default* temperature while accepting an explicit `1.0`.
 
       **What this did verify, and it is not nothing.** Four providers returned four different
       failure shapes — three status families, four unrelated JSON bodies — and every adapter
@@ -203,14 +226,12 @@ Neither is in scope here; both are recorded so they are not lost.
       their endpoint, auth mechanism and headers correct by getting *past* authentication to a
       billing decision — a 402 or a 429 on balance is a request the provider understood.
 
-      **What remains entirely unverified is the request body and the response parsing** — which
-      is the whole point of the exercise. Still outstanding: a plain-text call succeeding with
-      `temperature` omitted (1.7.2's premise); `ForcedTool` and `NativeSchema` each accepted on a
-      model that supports them; the forced tool *refused* on a model that rejects it; what
-      Anthropic does with a schema keyword native mode documents as unsupported (§2.4);
-      `OpenAI`'s `max_tokens` versus `max_completion_tokens`, the standing doubt from Phase 6;
-      `Gemini`'s assistant-role translation and its key-as-query-parameter convention; and
-      `DeepSeek`'s best-effort JSON mode.
+      **Still outstanding**, and why this box stays unticked: `OpenAI`'s `max_tokens` versus
+      `max_completion_tokens`, the standing doubt from Phase 6; `Gemini`'s assistant-role
+      translation and its key-as-query-parameter convention; `DeepSeek`'s best-effort JSON mode;
+      and, on Anthropic, the forced tool being *refused* on one of the newest models that reject
+      forced `tool_choice` — `claude-opus-5` accepts it, so §2.1's premise is confirmed only on
+      the half that works.
 
       `Gemini` is the one failure that is not about money, and it raises a question §1.3 has
       already answered once for Anthropic: `generativelanguage.googleapis.com` also accepts an
