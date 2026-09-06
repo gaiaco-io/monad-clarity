@@ -88,11 +88,22 @@ Suite green at 1128 tests / 2410 assertions, +11 over 1.7.2. Those prove both me
 built as specified and mutually exclusive, and that the workspace header is sent only when
 asked for — **not that Anthropic accepts any of these wire bodies.**
 
-A live run was attempted on 2026-09-07, the first in this repo's history, and got no further
-than the 400 that produced `workspaceId`. Re-run with a workspace set, it cleared that error and
-stopped at the account's credit balance instead — which confirms the new header is accepted and
-confirms nothing at all about the request body, since no call has yet reached a model.
-`OpenAI`, `Gemini` and `DeepSeek` were never reached. 1.7.2's premise —
+All four adapters were driven against live credentials on 2026-09-07, the first time in this
+repo's history. **None reached a model** — Anthropic and OpenAI and DeepSeek each stopped on an
+empty account balance (400, 429 and 402 respectively), and Gemini on a credential that is not a
+Generative Language API key (401).
+
+That verified the error path and nothing else, but the error path it verified thoroughly: four
+providers, four unrelated failure shapes, and every adapter turned each into an `LLMException`
+naming its own provider and carrying the provider's own body — `assertSuccessful()` and
+`decodeJsonBody()` exercised against reality rather than a fixture. Three of the four also
+proved endpoint, auth and headers correct by reaching a billing decision, which is a request the
+provider understood.
+
+**The request body and the response parsing remain entirely unverified**, which is the point of
+the exercise. 1.7.2's premise — that a non-default `temperature` is refused — and Phase 6's
+doubt about OpenAI's `max_tokens` are both exactly as open as they were.
+`ReleaseNotes_1.8.0.md` §3 lists the rest and stays unticked. 1.7.2's premise —
 that a non-default `temperature` is refused — is likewise still unverified against a live model.
 `ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
 

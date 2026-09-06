@@ -182,19 +182,41 @@ Neither is in scope here; both are recorded so they are not lost.
       continuing to `OpenAI`, `Gemini` and `DeepSeek`.
 
       **Re-run the same day with `workspaceId` set: the workspace error is gone.** The same key
-      that could not get past scoping now reaches the account's billing check and stops there
-      (`"Your credit balance is too low to access the Anthropic API"`). That is as far as this
-      release could take it, and it is worth stating precisely: it confirms §1.3 sends a header
-      Anthropic accepts, and it confirms nothing whatsoever about the request *body* — no call
-      has yet reached a model.
+      that could not get past scoping now reaches the account's billing check and stops there.
+      That confirms §1.3 sends a header Anthropic accepts, and confirms nothing whatsoever about
+      the request *body*.
 
-      So what a live key must still confirm, once re-run with `workspaceId` set: that a
-      plain-text call succeeds with `temperature` omitted (1.7.2's premise, still untested
-      against a live model); that `ForcedTool` and `NativeSchema` are each accepted on a model
-      that supports them; that the forced tool is *refused* on a model that rejects it, with the
-      refusal surfacing through `assertSuccessful()`; what actually happens to a schema carrying
-      a keyword native mode documents as unsupported (§2.4); and then the same for the other
-      three adapters, `OpenAI`'s `max_tokens` first — the standing doubt from 1.0.0's Phase 6.
+      All four adapters were then driven against live credentials. **None reached a model:**
+
+      | Adapter | Response | Cause |
+      |---|---|---|
+      | `Anthropic` | 400 `"credit balance is too low"` | account has no credit |
+      | `OpenAI` | 429 `credit_balance_exhausted` | account has no credit |
+      | `Gemini` | 401 `"Expected OAuth 2 access token…"` | credential is not a Generative Language API key |
+      | `DeepSeek` | 402 `"Insufficient Balance"` | account has no credit |
+
+      **What this did verify, and it is not nothing.** Four providers returned four different
+      failure shapes — three status families, four unrelated JSON bodies — and every adapter
+      turned each into an `LLMException` naming its own provider and carrying the provider's
+      response body. `assertSuccessful()` and `decodeJsonBody()` are therefore exercised
+      end-to-end against reality rather than against a fixture. Three of the four also proved
+      their endpoint, auth mechanism and headers correct by getting *past* authentication to a
+      billing decision — a 402 or a 429 on balance is a request the provider understood.
+
+      **What remains entirely unverified is the request body and the response parsing** — which
+      is the whole point of the exercise. Still outstanding: a plain-text call succeeding with
+      `temperature` omitted (1.7.2's premise); `ForcedTool` and `NativeSchema` each accepted on a
+      model that supports them; the forced tool *refused* on a model that rejects it; what
+      Anthropic does with a schema keyword native mode documents as unsupported (§2.4);
+      `OpenAI`'s `max_tokens` versus `max_completion_tokens`, the standing doubt from Phase 6;
+      `Gemini`'s assistant-role translation and its key-as-query-parameter convention; and
+      `DeepSeek`'s best-effort JSON mode.
+
+      `Gemini` is the one failure that is not about money, and it raises a question §1.3 has
+      already answered once for Anthropic: `generativelanguage.googleapis.com` also accepts an
+      OAuth bearer token, and this adapter can only send `?key=`. Whether that is a second gap
+      of the same shape, or simply the wrong credential supplied, is not yet established — do
+      not build for it until a correct API key has been tried.
 
       The lesson is already worth recording: **the very first live call found a gap that had
       been in shipped code since 1.0.0 and that no mocked test could have found**, because the
