@@ -67,6 +67,17 @@ is also driven live against its gateway's test or sandbox environment before the
 a suite that signs with the same helper it verifies with cannot prove signature verification
 works. `StripeCheckout`, `PaddleCheckout` and `PaddleSubscription` all ship under that bar.
 
+**The LLM adapters now have the same escape hatch, run by hand:**
+`resources/smoke/live-llm-smoke.php` drives all four against live providers, stopping at the
+first that is not fully green. It is not part of `vendor/bin/phpunit` and never will be — the
+no-live-calls rule above stands — but the mocked suite cannot substitute for it, because the
+fixture is written to the same understanding of the wire format the adapter holds and the two
+therefore agree with each other whatever the provider actually does. Its first run found two
+defects shipped since 1.0.0 that 1128 green tests had not: `Anthropic` could not serve an API
+key that was not workspace-scoped, and `OpenAI` could not reach a single current model
+(`ReleaseNotes_1.8.0.md` §3). Checkout's bar — a mocked suite is not sufficient evidence to
+tag — is worth adopting here, and this script is what makes that possible.
+
 **`Services\Mail` adapters and `Mail\MailerPool`** sit here too (their security-critical parts
 being Tier 1, above). Mail adapters mock `HttpClient` exactly as the LLM ones do; `Smtp` drives
 a scripted `SmtpTransport` so the whole conversation is asserted without a socket, and
