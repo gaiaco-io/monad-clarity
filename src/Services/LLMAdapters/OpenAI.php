@@ -22,10 +22,13 @@ use JsonException;
  * returned content is guaranteed valid JSON matching the schema rather than merely
  * requested.
  *
- * `max_tokens` is the parameter name as of this adapter's writing; some newer OpenAI
- * model families have moved to `max_completion_tokens` and reject `max_tokens` outright.
- * Untested against a live key (Tier 4 policy — adapter tests mock HttpClient); verify
- * against the actual target model before relying on this in production.
+ * The output cap is sent as `max_completion_tokens`, not `max_tokens`. Every current
+ * OpenAI chat model — `chat-latest` included — rejects `max_tokens` outright with
+ * `"Unsupported parameter … Use 'max_completion_tokens' instead"`, while the older models
+ * that still accept `max_tokens` accept `max_completion_tokens` too. One name therefore
+ * reaches every model and the other reaches only the legacy ones, which makes this a
+ * straight substitution rather than something the caller should have to configure
+ * (`ReleaseNotes_1.8.0.md` §1.4). Measured against a live key, not inferred.
  *
  * @package Monad\Clarity\Services\LLMAdapters
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -59,7 +62,7 @@ final class OpenAI extends LLM
             'model' => $request->model,
             'messages' => $messages,
             'temperature' => $request->temperature,
-            'max_tokens' => $request->maxOutputTokens,
+            'max_completion_tokens' => $request->maxOutputTokens,
         ];
 
         if ($request->responseSchema !== null) {

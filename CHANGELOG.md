@@ -6,6 +6,141 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-06
+
+Closes the one defect 1.7.2 documented rather than fixed: `LLMAdapters\Anthropic`'s
+structured-output mechanism is refused by Anthropic's newest models. Both mechanisms now ship
+and the caller picks. Purely additive — an application that does not name the new argument
+sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.md`.
+
+### Added
+- **`Services\LLMAdapters\AnthropicStructuredOutput`** — a two-case enum naming which wire
+  mechanism satisfies `LLMRequest::$responseSchema`: `ForcedTool` (a synthetic tool with
+  `tool_choice` forced to it, Anthropic's documented pattern and what every release
+  before this one used) or `NativeSchema` (`output_config.format`, Anthropic's native
+  schema-constrained decoding, with the answer arriving as ordinary JSON text). It lives beside
+  the adapter rather than in `Services\LLM\` because it is Anthropic's problem alone — `OpenAI`,
+  `Gemini` and `DeepSeek` each have exactly one mechanism and gain nothing from it.
+
+- **`Anthropic::__construct` takes it**, last in the signature and defaulted to `ForcedTool`.
+  Last because `$endpoint` shipped in 1.0.0 and reordering a positional caller's arguments would
+  break them — 1.7.1's rule for `forCatalogPrice()`'s `$taxCategory`, applied again. The two
+  mechanisms are mutually exclusive on the wire, and the mode is **inert** when
+  `$responseSchema` is null: a native-mode adapter making a plain-text call sends neither
+  `output_config` nor `tools`. All three properties are asserted.
+
+  **Why both rather than a swap** (`ReleaseNotes_1.8.0.md` §2.1): the forced tool is refused by
+  the newest models, the native mode is absent from several older ones the forced tool still
+  serves, and a model id does not say which it supports. Swapping wholesale would have fixed the
+  new models by breaking the old — not a fix, and not a minor. Choosing per request would have
+  meant a hardcoded model list, the kind that goes wrong the week after it is written and goes
+  wrong silently. So the choice belongs to whoever knows the target model, made once, at
+  construction. Where the framework cannot know, it must not pretend to — the same conclusion
+  1.7.1 reached about a recurring catalogue price.
+
+  **Why the default did not move to the mechanism Anthropic now recommends** (§2.3): a minor may
+  add, but it may not change what existing code does. Every caller who has passed a
+  `responseSchema` since 1.0.0 got the forced tool and keeps getting it.
+
+- **`Anthropic` takes an optional `workspaceId`**, sent as the `anthropic-workspace-id` header
+  when set and absent entirely when null — which stays the default, because most API keys are
+  themselves scoped to a workspace and say so without being asked. Appended after
+  `$structuredOutput` for the same positional-caller reason. An empty string is refused at
+  construction rather than sent as an empty header, matching `LLMRequest`'s rule that a
+  malformed request should fail before it costs a network round trip.
+
+  **Found by the first live smoke test ever run against these adapters.** An organisation whose
+  keys are *not* workspace-scoped could not use this adapter at all: Anthropic refuses such a
+  key with a 400 naming the missing header, and every header the adapter sent was hardcoded with
+  no extension point. The gap had been in shipped code since 1.0.0 and **no mocked test could
+  have found it** — the fixture and the adapter shared an assumption about what a complete
+  request looks like. That is the argument for adopting Checkout's rule here: a mocked suite is
+  not sufficient evidence to tag.
+
+### Fixed
+- **`LLMAdapters\OpenAI` sends `max_completion_tokens`, not `max_tokens`** — a one-word change,
+  and the most consequential thing in this release. Every current OpenAI chat model rejects
+  `max_tokens` outright (`"Unsupported parameter … Use 'max_completion_tokens' instead"`),
+  measured live on `chat-latest`, `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna` and
+  `gpt-5.6-terra`. **The adapter could reach only legacy models, and had been in that state
+  since 1.0.0.**
+
+  No configuration knob, because the substitution is strictly widening: `gpt-4o-mini` and
+  `gpt-4o` accept `max_completion_tokens` as readily as `max_tokens`, so one name reaches every
+  model and the other reaches only the old ones. Verified green afterwards on all seven.
+
+  This is the exact risk the 1.0.0 Phase 6 entry named as "the top item for a live smoke test
+  before production reliance" and could not test. It sat in shipped code for six weeks, correctly
+  suspected and unverifiable, until someone made the call. `LLMAdapters\DeepSeek` still sends
+  `max_tokens` and is deliberately unchanged — its API is OpenAI-shaped but separate, and it
+  passed its live checks on that name.
+
+### Changed
+- **Native mode's parse failures name the `stop_reason`,** as 1.7.2's three failures already
+  did. Anthropic documents that native-mode output "may not match your schema" on a refusal and
+  "may be incomplete" on `max_tokens`; both reach the adapter as text that will not parse, and
+  `json_decode` cannot tell a declined answer from a truncated one. The caller reading the
+  exception should not have to guess either.
+
+- **`Anthropic`'s text extraction is now shared between the plain-text and native-structured
+  paths** rather than duplicated — native mode's answer is ordinary text, so it splits across
+  blocks like any other reply, and decoding only the first block would fail on a perfectly good
+  answer. Internal; no behaviour change to the plain-text path.
+
+### Deliberately not done
+- **The adapter neither validates nor strips a schema against native mode's documented
+  restrictions** (no recursion, no numeric or string bounds, `additionalProperties: false` on
+  every object). Validating means walking arbitrary JSON Schema against a list this repo cannot
+  keep current; stripping means silently sending something weaker than the caller wrote.
+  Whatever Anthropic does with an unsupported keyword surfaces through `assertSuccessful()`,
+  which already carries the provider's own response body. What it actually does is a
+  live-smoke-test item, not a claim made here (§2.4).
+
+- **`stop_reason` is still not on `LLMResponse`.** A reply truncated by `max_tokens` that *did*
+  produce parseable content still returns as an ordinary success, and the caller cannot tell it
+  from a complete one. Additive, and recorded as a named open item in §2.7 rather than smuggled
+  into this release.
+
+### Still not verified against a live provider
+Suite green at 1128 tests / 2410 assertions, +11 over 1.7.2. Those prove both mechanisms are
+built as specified and mutually exclusive, and that the workspace header is sent only when
+asked for — **not that Anthropic accepts any of these wire bodies.**
+
+### Verified live, for the first time in this repo's history
+All four adapters were driven against live credentials on 2026-09-07.
+
+**`Anthropic` is green, 5/5, against `claude-opus-5`** — plain text with `temperature` omitted,
+a system instruction honoured, structured output through **both** `ForcedTool` and
+`NativeSchema` each returning a correctly decoded object, and an invalid key raising rather than
+returning silence. `workspaceId` is confirmed by the disappearance of the scoping 400 that
+produced it. This is the first Clarity LLM adapter ever confirmed to work against its provider,
+and it closes the gate item open since 1.0.0's Phase 6 — for one adapter of four.
+
+The run also settled two questions this repo had only reasoned about. Anthropic refuses an
+unsupported schema keyword with a precise, actionable 400 (`ReleaseNotes_1.8.0.md` §2.4, which
+now records the provider's exact words in place of the argument), and it refuses a *non-default*
+`temperature` while **accepting an explicit `1.0`** — which contradicted the 1.7.2 entry above
+and has been corrected there rather than quietly left standing.
+
+**`OpenAI` is green across seven models** — two legacy and five current — once the fix above
+landed, and **`DeepSeek` green** on `deepseek-chat` including its best-effort JSON mode. Three of
+four adapters are now confirmed against the providers they target.
+
+**`Gemini` remains unverified, and not for want of trying.** Its credential is one of Google's
+newer `AQ.` authorization keys, which Google's own forums report returning
+`401 ACCESS_TOKEN_TYPE_UNSUPPORTED` from `generativelanguage.googleapis.com` via the official
+SDKs as much as via raw HTTP. A three-way probe — `?key=`, `x-goog-api-key`, `Authorization:
+Bearer` — returned the identical 401 to all three, so it is not an adapter gap and nothing here
+can fix it.
+
+The error paths of all four *are* verified, incidentally: four providers, four unrelated failure
+shapes, every one turned into an `LLMException` naming its own provider and carrying the
+provider's body. `ReleaseNotes_1.8.0.md` §3 lists what remains — Gemini, and the fact that each
+green adapter was proved on one or two models, which §1.4 is the standing argument for taking
+seriously. 1.7.2's premise —
+that a non-default `temperature` is refused — is likewise still unverified against a live model.
+`ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
+
 ## [1.7.2] - 2026-09-06
 
 Four defects in `LLMAdapters\Anthropic`, found by a review of the LLM service — untouched in
@@ -18,12 +153,21 @@ narrowed, and no production behaviour outside the Anthropic adapter changes.
 ### Fixed
 - **The default temperature is no longer sent.** `LLMRequest::$temperature` defaults to
   `1.0`, which is also Anthropic's own default — so naming it and omitting it are the same
-  request to the model. Only omitting it is accepted across Anthropic's current lineup,
-  whose newer models reject a non-default `temperature` outright. Every Clarity caller who
-  never touched the field was therefore stating an opinion they did not have, on every
-  request, in the one place it could be refused. A caller who *does* set a temperature still
-  has it sent verbatim: they asked for it by name, and the model they named decides what to
-  make of it. Both halves are asserted — omitted at the default, present at `0.5`.
+  request to the model, and the adapter now says nothing rather than stating an opinion the
+  caller never had. A caller who *does* set a temperature still has it sent verbatim: they
+  asked for it by name, and the model they named decides what to make of it. Both halves are
+  asserted — omitted at the default, present at `0.5`.
+
+  **Corrected 2026-09-07, after the live smoke test.** This entry originally claimed that
+  "only omitting it is accepted across Anthropic's current lineup". That is **false** on the
+  model actually tested: `claude-opus-5` accepts an explicit `temperature: 1.0` with HTTP 200,
+  and refuses `0.2` with `` "`temperature` is deprecated for this model." `` The rejection is
+  therefore **value-based, not presence-based**, and on this model the change fixed no
+  observable breakage — pre-1.7.2 code sending `1.0` unconditionally worked, and a caller
+  choosing `0.2` gets the same 400 before and after. Keep the change: it is honest about what
+  the caller asked for, and Anthropic's own migration notes say `temperature` is not accepted
+  *at all* on some other models in the family, where omitting it would be load-bearing. But it
+  is hygiene plus future-proofing, not the live defect this entry first implied.
 
 - **A reply carrying no text block now raises instead of reporting `''`.**
   `extractContent()` returned an empty string when it found no `text` block. Two real
@@ -65,7 +209,8 @@ narrowed, and no production behaviour outside the Anthropic adapter changes.
   `additionalProperties: false` required on every object — so schemas accepted today would
   start being refused. Whether the adapter should change mechanism, or offer both as adapter
   configuration in the shape `ReleaseNotes_1.7.0.md` §2.2 established, is a release decision.
-  Recorded here; unchanged in code.
+  Recorded here; unchanged in code. **Resolved in 1.8.0, above** — both mechanisms ship, the
+  caller chooses at construction, and the default stays the forced tool.
 
 ### Documentation
 - **`RepoMap.md` records the skeleton's two new files** — `config/checkout.php` and

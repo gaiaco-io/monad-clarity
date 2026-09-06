@@ -50,7 +50,10 @@ final class OpenAITest extends TestCase
             ['role' => 'system', 'content' => 'Be nice.'],
             ['role' => 'user', 'content' => 'Hello'],
         ], $body['messages']);
-        self::assertSame(512, $body['max_tokens']);
+        // Not `max_tokens`: every current OpenAI chat model rejects that name outright, and
+        // the older models that accept it accept this one too (ReleaseNotes_1.8.0.md §1.4).
+        self::assertSame(512, $body['max_completion_tokens']);
+        self::assertArrayNotHasKey('max_tokens', $body);
         self::assertSame(0.7, $body['temperature']);
         self::assertArrayNotHasKey('response_format', $body);
     }

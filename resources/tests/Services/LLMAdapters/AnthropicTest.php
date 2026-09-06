@@ -7,8 +7,10 @@ namespace Monad\Clarity\Tests\Services\LLMAdapters;
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
 use Monad\Clarity\Services\LLMAdapters\Anthropic;
+use Monad\Clarity\Services\LLMAdapters\AnthropicStructuredOutput;
 use Nyholm\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use InvalidArgumentException;
 
 final class AnthropicTest extends TestCase
 {
@@ -244,6 +246,207 @@ final class AnthropicTest extends TestCase
         $this->expectExceptionMessageMatches('/stop_reason: none reported/');
 
         $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'x']]));
+    }
+
+    // ---- Workspace scoping (1.8.0) --------------------------------------------------
+
+    public function testNoWorkspaceHeaderIsSentByDefault(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+        $adapter = new Anthropic('test-key', $fake);
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'Hi']]));
+
+        self::assertFalse($fake->lastRequest()->hasHeader('anthropic-workspace-id'));
+    }
+
+    /**
+     * Found by the first live smoke test: an API key that is not itself scoped to a workspace
+     * is refused outright unless the request names one, and the adapter had no way to say it.
+     */
+    public function testTheWorkspaceIdIsSentAsAHeaderWhenGiven(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+        $adapter = new Anthropic('test-key', $fake, workspaceId: 'wrkspc_01abc');
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'Hi']]));
+
+        $request = $fake->lastRequest();
+        self::assertSame('wrkspc_01abc', $request->getHeaderLine('anthropic-workspace-id'));
+        self::assertSame('test-key', $request->getHeaderLine('x-api-key'));
+        self::assertSame('2023-06-01', $request->getHeaderLine('anthropic-version'));
+    }
+
+    public function testAnEmptyWorkspaceIdIsRefusedAtConstruction(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new Anthropic('test-key', new FakeHttpClient(static fn () => self::textResponse()), workspaceId: '');
+    }
+
+    // ---- Structured output: the two wire mechanisms (1.8.0) -------------------------
+
+    private static function nativeAdapter(FakeHttpClient $fake): Anthropic
+    {
+        return new Anthropic('test-key', $fake, structuredOutput: AnthropicStructuredOutput::NativeSchema);
+    }
+
+    private static function jsonTextResponse(string $text, ?string $stopReason = null): Response
+    {
+        return new Response(200, [], json_encode(array_filter([
+            'id' => 'msg_native',
+            'model' => 'claude-sonnet-5',
+            'stop_reason' => $stopReason,
+            'content' => [['type' => 'text', 'text' => $text]],
+            'usage' => ['input_tokens' => 4, 'output_tokens' => 6],
+        ], static fn ($value) => $value !== null), JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * The default is the mechanism every caller has had since 1.0.0, and the two must stay
+     * exclusive — a request carrying both would ask Anthropic for the same thing twice.
+     */
+    public function testTheDefaultModeForcesAToolAndSendsNoOutputConfig(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_09',
+            'content' => [['type' => 'tool_use', 'name' => 'structured_response', 'input' => ['ok' => true]]],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $adapter->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+
+        $body = $fake->decodedLastRequestBody();
+        self::assertArrayHasKey('tool_choice', $body);
+        self::assertArrayNotHasKey('output_config', $body);
+    }
+
+    public function testNativeSchemaModeSendsOutputConfigAndNoTool(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::jsonTextResponse('{"answer":42}'));
+        $schema = ['type' => 'object', 'properties' => ['answer' => ['type' => 'integer']]];
+
+        self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: $schema,
+        ));
+
+        $body = $fake->decodedLastRequestBody();
+        self::assertSame(['format' => ['type' => 'json_schema', 'schema' => $schema]], $body['output_config']);
+        self::assertArrayNotHasKey('tools', $body);
+        self::assertArrayNotHasKey('tool_choice', $body);
+    }
+
+    public function testNativeSchemaModeDecodesJsonOutOfTheTextBlock(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::jsonTextResponse('{"answer":42}'));
+
+        $response = self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+
+        self::assertSame(['answer' => 42], $response->content);
+    }
+
+    /**
+     * The JSON is ordinary text, so it splits across blocks like any other reply — decoding
+     * only the first would fail on a perfectly good answer.
+     */
+    public function testNativeSchemaModeJoinsTextBlocksBeforeDecoding(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_10',
+            'content' => [
+                ['type' => 'text', 'text' => '{"answer":'],
+                ['type' => 'text', 'text' => '42}'],
+            ],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        ], JSON_THROW_ON_ERROR)));
+
+        $response = self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+
+        self::assertSame(['answer' => 42], $response->content);
+    }
+
+    public function testNativeSchemaModeNamesTheStopReasonWhenTheJsonIsTruncated(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::jsonTextResponse('{"answer":4', 'max_tokens'));
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/not valid JSON \(stop_reason: max_tokens\)/');
+
+        self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+    }
+
+    public function testNativeSchemaModeRejectsAScalarJsonBody(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::jsonTextResponse('42', 'refusal'));
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/not a JSON object \(stop_reason: refusal\)/');
+
+        self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+    }
+
+    public function testNativeSchemaModeStillRaisesWhenNoTextBlockExists(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_11',
+            'stop_reason' => 'max_tokens',
+            'content' => [['type' => 'thinking', 'thinking' => 'still going']],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1024],
+        ], JSON_THROW_ON_ERROR)));
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/no text content block \(stop_reason: max_tokens\)/');
+
+        self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+    }
+
+    /**
+     * The mode says how a schema is expressed. With no schema to express it must do nothing —
+     * the easy one to get wrong, and the one that would silently change every plain-text call
+     * made through a native-mode adapter.
+     */
+    public function testTheModeIsInertWhenNoResponseSchemaIsGiven(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        $response = self::nativeAdapter($fake)->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'Hello']],
+        ));
+
+        self::assertSame('Hello back!', $response->content);
+
+        $body = $fake->decodedLastRequestBody();
+        self::assertArrayNotHasKey('output_config', $body);
+        self::assertArrayNotHasKey('tools', $body);
+        self::assertArrayNotHasKey('tool_choice', $body);
     }
 
 }
