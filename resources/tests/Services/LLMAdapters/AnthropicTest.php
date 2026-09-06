@@ -10,6 +10,7 @@ use Monad\Clarity\Services\LLMAdapters\Anthropic;
 use Monad\Clarity\Services\LLMAdapters\AnthropicStructuredOutput;
 use Nyholm\Psr7\Response;
 use PHPUnit\Framework\TestCase;
+use InvalidArgumentException;
 
 final class AnthropicTest extends TestCase
 {
@@ -245,6 +246,42 @@ final class AnthropicTest extends TestCase
         $this->expectExceptionMessageMatches('/stop_reason: none reported/');
 
         $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'x']]));
+    }
+
+    // ---- Workspace scoping (1.8.0) --------------------------------------------------
+
+    public function testNoWorkspaceHeaderIsSentByDefault(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+        $adapter = new Anthropic('test-key', $fake);
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'Hi']]));
+
+        self::assertFalse($fake->lastRequest()->hasHeader('anthropic-workspace-id'));
+    }
+
+    /**
+     * Found by the first live smoke test: an API key that is not itself scoped to a workspace
+     * is refused outright unless the request names one, and the adapter had no way to say it.
+     */
+    public function testTheWorkspaceIdIsSentAsAHeaderWhenGiven(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+        $adapter = new Anthropic('test-key', $fake, workspaceId: 'wrkspc_01abc');
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'Hi']]));
+
+        $request = $fake->lastRequest();
+        self::assertSame('wrkspc_01abc', $request->getHeaderLine('anthropic-workspace-id'));
+        self::assertSame('test-key', $request->getHeaderLine('x-api-key'));
+        self::assertSame('2023-06-01', $request->getHeaderLine('anthropic-version'));
+    }
+
+    public function testAnEmptyWorkspaceIdIsRefusedAtConstruction(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        new Anthropic('test-key', new FakeHttpClient(static fn () => self::textResponse()), workspaceId: '');
     }
 
     // ---- Structured output: the two wire mechanisms (1.8.0) -------------------------

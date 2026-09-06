@@ -117,8 +117,11 @@ canonical for every document below — where the skeleton repo carries a mirror,
   `CheckoutRequest::$amount` is **inert** in catalogue mode, so the idiom is `Money(0, $currency)`
   and the real figure is read back off `CheckoutSession::$amount` (§2.3).
 - `ReleaseNotes_1.8.0.md` — WHAT ships in 1.8.0 (`LLMAdapters\AnthropicStructuredOutput`, and
-  the `structuredOutput` constructor argument on `Anthropic`), and seven decisions. Read before
-  touching how an LLM adapter asks for structured JSON. The three most load-bearing: **both
+  the `structuredOutput` and `workspaceId` constructor arguments on `Anthropic`), and seven
+  decisions. Read before touching how an LLM adapter asks for structured JSON, and before
+  assuming a mocked adapter test proves anything about a provider: §3 records that the first
+  live call ever made from this repo found a gap shipped since 1.0.0 (`workspaceId`, §1.3) and
+  never got far enough to verify the wire format at all. The three most load-bearing: **both
   mechanisms ship because neither reaches every Anthropic model**, and a model id does not say
   which it supports, so the choice is the caller's and is made at construction (§2.1); the
   default stays `ForcedTool` as a **compatibility decision rather than a preference** — a minor

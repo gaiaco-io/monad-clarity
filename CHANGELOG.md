@@ -42,6 +42,21 @@ sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.
   add, but it may not change what existing code does. Every caller who has passed a
   `responseSchema` since 1.0.0 got the forced tool and keeps getting it.
 
+- **`Anthropic` takes an optional `workspaceId`**, sent as the `anthropic-workspace-id` header
+  when set and absent entirely when null — which stays the default, because most API keys are
+  themselves scoped to a workspace and say so without being asked. Appended after
+  `$structuredOutput` for the same positional-caller reason. An empty string is refused at
+  construction rather than sent as an empty header, matching `LLMRequest`'s rule that a
+  malformed request should fail before it costs a network round trip.
+
+  **Found by the first live smoke test ever run against these adapters.** An organisation whose
+  keys are *not* workspace-scoped could not use this adapter at all: Anthropic refuses such a
+  key with a 400 naming the missing header, and every header the adapter sent was hardcoded with
+  no extension point. The gap had been in shipped code since 1.0.0 and **no mocked test could
+  have found it** — the fixture and the adapter shared an assumption about what a complete
+  request looks like. That is the argument for adopting Checkout's rule here: a mocked suite is
+  not sufficient evidence to tag.
+
 ### Changed
 - **Native mode's parse failures name the `stop_reason`,** as 1.7.2's three failures already
   did. Anthropic documents that native-mode output "may not match your schema" on a refusal and
@@ -68,12 +83,16 @@ sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.
   from a complete one. Additive, and recorded as a named open item in §2.7 rather than smuggled
   into this release.
 
-### Not verified against a live provider
-Suite green at 1125 tests / 2405 assertions, +8 over 1.7.2. Those eight prove the two mechanisms
-are built as specified and are mutually exclusive — **not that Anthropic accepts either wire
-body**, which no test in this repo can show while `TestingStrategy.md` Tier 4 stands. The gate
-in `ReleaseNotes_1.8.0.md` §3 names the three things a live key must confirm before production
-reliance on `NativeSchema`, and leaves that box unticked.
+### Still not verified against a live provider
+Suite green at 1128 tests / 2410 assertions, +11 over 1.7.2. Those prove both mechanisms are
+built as specified and mutually exclusive, and that the workspace header is sent only when
+asked for — **not that Anthropic accepts any of these wire bodies.**
+
+A live run was attempted on 2026-09-07, the first in this repo's history, and got no further
+than the 400 that produced `workspaceId`: no call reached a model, so nothing about the wire
+format was confirmed and `OpenAI`, `Gemini` and `DeepSeek` were never reached. 1.7.2's premise —
+that a non-default `temperature` is refused — is likewise still unverified against a live model.
+`ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
 
 ## [1.7.2] - 2026-09-06
 

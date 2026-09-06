@@ -9,6 +9,7 @@ use Monad\Clarity\Services\LLM;
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
 use Monad\Clarity\Services\LLM\LLMResponse;
+use InvalidArgumentException;
 use JsonException;
 
 /**
@@ -53,17 +54,32 @@ final class Anthropic extends LLM
     private const DEFAULT_TEMPERATURE = 1.0;
 
     /**
-     * $structuredOutput is last because `$endpoint` shipped in 1.0.0, and reordering a
-     * positional caller's arguments to make room would break them — 1.7.1's rule for
-     * `forCatalogPrice()`, applied again.
+     * New arguments are appended, never inserted: `$endpoint` shipped in 1.0.0 and
+     * reordering a positional caller's arguments to make room would break them — 1.7.1's
+     * rule for `forCatalogPrice()`, applied again.
+     *
+     * $workspaceId is needed only by an organisation whose API keys are not themselves
+     * scoped to a workspace; Anthropic refuses such a key outright unless the request
+     * names one. Null means "the key knows", which is the common case.
+     *
+     * @throws InvalidArgumentException if $workspaceId is given as an empty string — an
+     *     empty header is a misconfiguration that would otherwise surface as a puzzling
+     *     400 from the provider, one network round trip later.
      */
     public function __construct(
         string $apiKey,
         HttpClient $httpClient,
         private readonly string $endpoint = self::DEFAULT_ENDPOINT,
         private readonly AnthropicStructuredOutput $structuredOutput = AnthropicStructuredOutput::ForcedTool,
+        private readonly ?string $workspaceId = null,
     ) {
         parent::__construct($apiKey, $httpClient);
+
+        if ($workspaceId === '') {
+            throw new InvalidArgumentException(
+                'Anthropic $workspaceId must be a non-empty workspace id, or null to let the API key decide.'
+            );
+        }
     }
 
     public function complete(LLMRequest $request): LLMResponse
@@ -102,13 +118,19 @@ final class Anthropic extends LLM
             };
         }
 
+        $headers = [
+            'x-api-key' => $this->apiKey,
+            'anthropic-version' => self::API_VERSION,
+        ];
+
+        if ($this->workspaceId !== null) {
+            $headers['anthropic-workspace-id'] = $this->workspaceId;
+        }
+
         $response = $this->httpClient->withTimeoutSeconds($request->timeoutSeconds)->postJson(
             $this->endpoint,
             $body,
-            [
-                'x-api-key' => $this->apiKey,
-                'anthropic-version' => self::API_VERSION,
-            ]
+            $headers
         );
 
         $this->assertSuccessful($response);

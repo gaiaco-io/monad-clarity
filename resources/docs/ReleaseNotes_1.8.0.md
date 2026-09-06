@@ -4,11 +4,13 @@
 This document is the source of truth for WHAT ships in 1.8.0. It does not restate 1.0.0, 1.2.0,
 1.3.0, 1.4.0, 1.5.0, 1.6.0 or 1.7.0; those remain frozen for what they specified.
 
-> **Scope note.** 1.8.0 adds no service, no abstraction and no adapter. It gives
-> `LLMAdapters\Anthropic` a second wire mechanism for a capability it has had since 1.0.0 —
-> `ReleaseNotes_1.0.0.md` §11.3.8, "structured JSON response" — because Anthropic now has two
-> and neither one reaches every model. Nothing existing changes: an application that does not
-> name the new argument sends byte-for-byte the request 1.7.2 sent.
+> **Scope note.** 1.8.0 adds no service, no abstraction and no adapter. It makes two additions
+> to `LLMAdapters\Anthropic`, both optional constructor arguments. The first gives a second wire
+> mechanism for a capability the adapter has had since 1.0.0 — `ReleaseNotes_1.0.0.md` §11.3.8,
+> "structured JSON response" — because Anthropic now has two and neither one reaches every
+> model. The second lets a request name a workspace, without which an organisation holding
+> unscoped API keys cannot use the adapter at all. Nothing existing changes: an application that
+> names neither argument sends byte-for-byte the request 1.7.2 sent.
 
 ## 1. What ships in 1.8.0
 
@@ -50,7 +52,28 @@ The wire difference, and the whole of it:
 The two are mutually exclusive — a request carries one or the other, never both — and both are
 asserted.
 
-### 1.3 What does not change
+### 1.3 `Anthropic` takes an optional `workspaceId`
+
+```php
+$adapter = new Anthropic($apiKey, $http, workspaceId: 'wrkspc_01abc');
+```
+
+Sent as the `anthropic-workspace-id` header when set, absent entirely when null — which stays
+the default and the common case, because most API keys are themselves scoped to a workspace and
+say so without being asked.
+
+Appended after `$structuredOutput`, for the reason §1.2 gives. An empty string is refused at
+construction: an empty header is a misconfiguration, and `LLMRequest`'s own rule is that a
+malformed request fails before it costs a network round trip.
+
+**Found by the first live smoke test ever run against these adapters** (§3). An organisation
+whose keys are not workspace-scoped had no way to use this adapter at all: Anthropic refuses
+such a key with a 400 naming the missing header, and every header the adapter sent was
+hardcoded. The gate below is why this shipped in the same release as the structured-output work
+rather than waiting for a defect report — the smoke test that was supposed to *verify* 1.8.0
+found a hole in 1.0.0 instead.
+
+### 1.4 What does not change
 
 `Services\LLM`'s abstract contract, `LLMRequest`, `LLMResponse`, `LLMException`, and the
 `OpenAI`, `Gemini` and `DeepSeek` adapters. No table, no command, no migration.
@@ -135,8 +158,8 @@ Neither is in scope here; both are recorded so they are not lost.
 1. **`stop_reason` is not on `LLMResponse`.** A reply with `stop_reason: max_tokens` that *did*
    produce parseable content still returns as an ordinary success, and the caller cannot tell a
    complete answer from a truncated one. Surfacing it is additive and belongs in a minor.
-2. **The live smoke test.** Still the top open item from 1.0.0's Phase 6, now with more to check
-   — see §3.
+2. **The live smoke test.** Still the top open item from 1.0.0's Phase 6. First attempted during
+   this release and blocked before it could verify anything — see §3.
 
 ## 3. Acceptance gate
 
@@ -147,13 +170,27 @@ Neither is in scope here; both are recorded so they are not lost.
 - [x] The mode is inert when `$responseSchema` is null — neither key is sent.
 - [x] Native mode joins text blocks before decoding, and rejects invalid JSON, a scalar body,
       and a reply with no text block at all — each naming the `stop_reason`.
+- [x] `workspaceId` is absent by default, sent as `anthropic-workspace-id` when given, and
+      refused as an empty string at construction.
 - [x] Suite green; `CHANGELOG.md`, `API_Contracts.md`, `RepoMap.md` and `CLAUDE.md` updated.
-- [ ] **Not met, and cannot be met from this repo: live verification.** No LLM adapter has ever
-      been driven against a live provider key (`TestingStrategy.md` Tier 4). Every adapter test
-      mocks `HttpClient`, so this release proves the two mechanisms are built as specified and
-      are mutually exclusive — not that Anthropic accepts either wire body. Before production
-      reliance on `NativeSchema`, drive both modes against a live key and confirm: the native
-      body is accepted on a model that supports it; the forced tool is refused on a model that
-      rejects it, with the refusal surfacing through `assertSuccessful()`; and what actually
-      happens to a schema carrying an unsupported keyword (§2.4). Checkout's rule — a mocked
-      suite is not sufficient evidence to tag — is the precedent worth adopting for LLM.
+- [ ] **Not met: live verification.** Attempted for the first time on 2026-09-07, against a real
+      Anthropic key, and it **did not get far enough to verify anything about the wire format.**
+      Every call returned HTTP 400 — not an authentication failure, but
+      `"This API key is not scoped to a workspace, so this request must include the
+      anthropic-workspace-id header"`. The key was valid; the adapter simply could not name a
+      workspace. §1.3 exists because of that run, and the run halted there rather than
+      continuing to `OpenAI`, `Gemini` and `DeepSeek`.
+
+      So what a live key must still confirm, once re-run with `workspaceId` set: that a
+      plain-text call succeeds with `temperature` omitted (1.7.2's premise, still untested
+      against a live model); that `ForcedTool` and `NativeSchema` are each accepted on a model
+      that supports them; that the forced tool is *refused* on a model that rejects it, with the
+      refusal surfacing through `assertSuccessful()`; what actually happens to a schema carrying
+      a keyword native mode documents as unsupported (§2.4); and then the same for the other
+      three adapters, `OpenAI`'s `max_tokens` first — the standing doubt from 1.0.0's Phase 6.
+
+      The lesson is already worth recording: **the very first live call found a gap that had
+      been in shipped code since 1.0.0 and that no mocked test could have found**, because the
+      fixture and the adapter shared an assumption about what a complete request looks like.
+      Checkout's rule — a mocked suite is not sufficient evidence to tag — should be adopted for
+      LLM, and this box should gate the tag rather than trail it.
