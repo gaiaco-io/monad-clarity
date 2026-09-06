@@ -103,7 +103,13 @@ final class MimeMessageTest extends TestCase
         // someone adds a body to this case.
         $headerBlock = substr($mime, 0, (int) strpos($mime, "\r\n\r\n"));
 
-        self::assertStringNotContainsStringIgnoringCase('bcc', $headerBlock);
+        // Scoped further, to header *field names*. Message-ID carries 32 random hex
+        // characters, and roughly one run in 140 draws a "bcc" inside them — so scanning
+        // the header block for the substring failed at random, on the one assertion in
+        // this suite that must never be doubted. What may never appear is a Bcc *field*.
+        foreach (explode("\r\n", $headerBlock) as $headerLine) {
+            self::assertDoesNotMatchRegularExpression('/^bcc\s*:/i', $headerLine);
+        }
         self::assertStringNotContainsString('blind@example.com', $mime);
         self::assertStringNotContainsString('alsoblind@example.com', $mime);
     }

@@ -127,4 +127,123 @@ final class AnthropicTest extends TestCase
         $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'x']]));
     }
 
+    /**
+     * The other half — that a temperature the caller actually chose is still sent — is
+     * asserted by testCompleteSendsCorrectRequestAndParsesTextResponse, which passes 0.5.
+     */
+    public function testTheDefaultTemperatureIsOmittedFromTheRequest(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+        $adapter = new Anthropic('test-key', $fake);
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'Hi']]));
+
+        self::assertArrayNotHasKey('temperature', $fake->decodedLastRequestBody());
+    }
+
+    public function testEveryTextBlockIsConcatenatedRatherThanOnlyTheFirst(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_04',
+            'model' => 'claude-sonnet-5',
+            'content' => [
+                ['type' => 'text', 'text' => 'first half, '],
+                ['type' => 'text', 'text' => 'second half'],
+            ],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $response = $adapter->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+        ));
+
+        self::assertSame('first half, second half', $response->content);
+    }
+
+    /**
+     * A reply whose tokens were spent before any text existed — the shape a thinking-enabled
+     * model produces when maxOutputTokens is too low. Reporting that as '' would hand the
+     * caller an empty answer for a request that failed.
+     */
+    public function testAResponseCarryingNoTextBlockThrowsAndNamesTheStopReason(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_05',
+            'model' => 'claude-sonnet-5',
+            'stop_reason' => 'max_tokens',
+            'content' => [['type' => 'thinking', 'thinking' => 'still working on it']],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1024],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/no text content block \(stop_reason: max_tokens\)/');
+
+        $adapter->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+        ));
+    }
+
+    /**
+     * A thinking block alongside real text is not a failure — the text is the answer.
+     */
+    public function testANonTextBlockAlongsideTextIsSkipped(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_06',
+            'model' => 'claude-sonnet-5',
+            'content' => [
+                ['type' => 'thinking', 'thinking' => 'reasoning'],
+                ['type' => 'text', 'text' => 'the answer'],
+            ],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 1],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $response = $adapter->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+        ));
+
+        self::assertSame('the answer', $response->content);
+    }
+
+    public function testAMissingStructuredToolBlockAlsoNamesTheStopReason(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_07',
+            'stop_reason' => 'refusal',
+            'content' => [],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 0],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/no structured tool_use block \(stop_reason: refusal\)/');
+
+        $adapter->complete(new LLMRequest(
+            model: 'claude-sonnet-5',
+            messages: [['role' => 'user', 'content' => 'x']],
+            responseSchema: ['type' => 'object'],
+        ));
+    }
+
+    public function testAnAbsentStopReasonIsReportedHonestly(): void
+    {
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'id' => 'msg_08',
+            'content' => [],
+            'usage' => ['input_tokens' => 1, 'output_tokens' => 0],
+        ], JSON_THROW_ON_ERROR)));
+        $adapter = new Anthropic('test-key', $fake);
+
+        $this->expectException(LLMException::class);
+        $this->expectExceptionMessageMatches('/stop_reason: none reported/');
+
+        $adapter->complete(new LLMRequest(model: 'claude-sonnet-5', messages: [['role' => 'user', 'content' => 'x']]));
+    }
+
 }

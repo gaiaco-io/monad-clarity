@@ -6,12 +6,85 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-09-06
+
+Four defects in `LLMAdapters\Anthropic`, found by the first review of the LLM service since it
+shipped in 1.0.0's Phase 6. Three are fixed here. The fourth is a genuine fork between two
+incompatible provider mechanisms, and is documented rather than guessed at — it needs a
+decision and a minor, not a patch. A fifth fix, to a flaky Mail test, is unrelated and came
+along because the suite reddened while this work was in progress. No API is added, removed or
+narrowed, and no production behaviour outside the Anthropic adapter changes.
+
+### Fixed
+- **The default temperature is no longer sent.** `LLMRequest::$temperature` defaults to
+  `1.0`, which is also Anthropic's own default — so naming it and omitting it are the same
+  request to the model. Only omitting it is accepted across Anthropic's current lineup,
+  whose newer models reject a non-default `temperature` outright. Every Clarity caller who
+  never touched the field was therefore stating an opinion they did not have, on every
+  request, in the one place it could be refused. A caller who *does* set a temperature still
+  has it sent verbatim: they asked for it by name, and the model they named decides what to
+  make of it. Both halves are asserted — omitted at the default, present at `0.5`.
+
+- **A reply carrying no text block now raises instead of reporting `''`.**
+  `extractContent()` returned an empty string when it found no `text` block. Two real
+  responses have exactly that shape and neither one is an empty answer: a reply truncated by
+  `max_tokens` before any text existed — the ordinary shape when a thinking-enabled model
+  meets a `maxOutputTokens` too small to reach the answer — and a reply declined outright,
+  which arrives as HTTP 200 with `stop_reason: refusal` and so passes `assertSuccessful()`
+  untouched. Both were handed back as successful, empty completions. They now raise, and the
+  message names the `stop_reason`, because that is the one field separating a truncated reply
+  from a declined one and the caller cannot recover it from an exception that stays silent
+  about it. The missing-structured-tool failure names it too, for the same reason. A non-text
+  block sitting *alongside* real text is still skipped rather than treated as an error; both
+  that and the absent-`stop_reason` wording are asserted.
+
+- **Every text block is concatenated, not only the first.** `extractContent()` returned on
+  the first `text` block it saw, so a multi-block reply lost everything after it — silently,
+  with nothing to indicate anything had been dropped. `LLMAdapters\Gemini` already joined its
+  parts; this brings Anthropic into line with it.
+
+- **`MimeMessageTest::testNeverEmitsABccHeader` no longer fails at random** (unrelated to the
+  above; found when the full suite reddened mid-patch). The test scanned the whole header
+  block for the substring `bcc`, and `Message-ID` carries 32 random hex characters — roughly
+  one run in 140 draws a `bcc` inside them, as `6a2245c1d35fa2c5eee74bcc91528406` did.
+  Measured at 2 failures in 200 runs before, 0 in 300 after. The assertion now scans header
+  *field names*, which is the property `ReleaseNotes_1.6.0.md` §2.12 actually promises, and it
+  still catches `Bcc:`, `bcc:` and `BCC :`; the two recipient-address assertions are untouched.
+  Test-only — `MimeMessage` itself was always correct. A security-critical assertion that
+  cries wolf once a fortnight is one people learn to re-run instead of read.
+
+### Changed
+- **`Anthropic` documents that its structured-output mechanism no longer reaches every
+  model.** Structured responses are obtained by forcing `tool_choice` onto a synthetic tool
+  whose `input_schema` is the caller's schema — Anthropic's own documented pattern, and the
+  only one that existed when the adapter was written. A small number of Anthropic's newest
+  models now reject forced `tool_choice` outright and offer a native JSON-schema response
+  mode instead. Swapping to that mode is not a patch and not a like-for-like replacement: it
+  does not reach several models the present pattern still serves, and it constrains the JSON
+  Schema a caller may write — no recursion, no numeric or string bounds,
+  `additionalProperties: false` required on every object — so schemas accepted today would
+  start being refused. Whether the adapter should change mechanism, or offer both as adapter
+  configuration in the shape `ReleaseNotes_1.7.0.md` §2.2 established, is a release decision.
+  Recorded here; unchanged in code.
+
 ### Documentation
 - **`RepoMap.md` records the skeleton's two new files** — `config/checkout.php` and
   `scripts/setup-env.php`. Both landed in `monad/skeleton` when Checkout was wired into it
   (skeleton PR #12), and this document is maintained canonically here, so the entries are
   added on this side and mirrored across rather than the other way round. Caught by
   `ReleasePolicy.md`'s pre-tag item 8, which exists for exactly this drift.
+
+### Not verified against a live provider
+Suite green at 1117 tests / 2388 assertions, +6 tests over 1.7.1 — one per fix and one per
+opposite half — across three consecutive full runs, the flaky Bcc assertion having been the
+reason to check. **No LLM adapter has ever been driven against a live provider key**, by policy
+(`TestingStrategy.md` Tier 4) and by the gap the Phase 6 entry below already recorded. That
+limit is the whole story here: a mocked suite proves an adapter agrees with itself, because
+the fixture is written to the same understanding of the wire format the adapter holds. All
+four defects lived in that blind spot for over a year. The live smoke test Phase 6 named as
+its top open item is still the gating step before production reliance — it now has four
+things to check rather than one, and Checkout's rule (a mocked suite is not sufficient
+evidence to tag) is the precedent worth copying here.
 
 ## [1.7.1] - 2026-09-05
 
