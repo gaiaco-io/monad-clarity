@@ -9,8 +9,13 @@ This document is the source of truth for WHAT ships in 1.8.0. It does not restat
 > mechanism for a capability the adapter has had since 1.0.0 — `ReleaseNotes_1.0.0.md` §11.3.8,
 > "structured JSON response" — because Anthropic now has two and neither one reaches every
 > model. The second lets a request name a workspace, without which an organisation holding
-> unscoped API keys cannot use the adapter at all. Nothing existing changes: an application that
-> names neither argument sends byte-for-byte the request 1.7.2 sent.
+> unscoped API keys cannot use the adapter at all. An application that names neither sends
+> byte-for-byte the request 1.7.2 sent.
+>
+> It also carries **one fix that is not optional and not Anthropic's** (§1.4):
+> `LLMAdapters\OpenAI` sent a parameter every current OpenAI model rejects, and so could reach
+> only legacy ones. Both that and the two additions above exist because this is the release in
+> which Clarity's LLM adapters were driven against live providers for the first time (§3).
 
 ## 1. What ships in 1.8.0
 
@@ -73,7 +78,33 @@ hardcoded. The gate below is why this shipped in the same release as the structu
 rather than waiting for a defect report — the smoke test that was supposed to *verify* 1.8.0
 found a hole in 1.0.0 instead.
 
-### 1.4 What does not change
+### 1.4 `OpenAI` sends `max_completion_tokens`, not `max_tokens`
+
+A one-word substitution, and the most consequential change in this release.
+
+`LLMAdapters\OpenAI` sent `max_tokens` from 1.0.0 until now. **Every current OpenAI chat model
+rejects that parameter outright:**
+
+```
+HTTP 400  Unsupported parameter: 'max_tokens' is not supported with this model.
+          Use 'max_completion_tokens' instead.
+```
+
+Measured against a live key on `chat-latest`, `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna` and
+`gpt-5.6-terra` — including `chat-latest`, the alias an application is most likely to name. The
+adapter could reach **only legacy models**, and had been in that state since 1.0.0.
+
+No configuration is needed, because the substitution is strictly widening: `gpt-4o-mini` and
+`gpt-4o` accept `max_completion_tokens` as readily as they accept `max_tokens`, so one name
+reaches every model and the other reaches only the old ones. Verified green afterwards on all
+five models above plus both legacy ones.
+
+`LLMAdapters\DeepSeek` still sends `max_tokens` and is **deliberately unchanged** — its API is
+OpenAI-shaped but separate, it passed its live checks on `max_tokens`, and changing an untested
+parameter on a verified adapter to match a different provider's migration would be exactly the
+unverified guess this release is otherwise about avoiding.
+
+### 1.5 What does not change
 
 `Services\LLM`'s abstract contract, `LLMRequest`, `LLMResponse`, `LLMException`, and the
 `OpenAI`, `Gemini` and `DeepSeek` adapters. No table, no command, no migration.
@@ -205,10 +236,10 @@ Neither is in scope here; both are recorded so they are not lost.
 
       | Adapter | Result |
       |---|---|
-      | `Anthropic` | **5/5 green** against `claude-opus-5`, once the account was credited |
-      | `OpenAI` | 429 `credit_balance_exhausted` — account has no credit |
-      | `Gemini` | 401 `"Expected OAuth 2 access token…"` — credential is not a Generative Language API key |
-      | `DeepSeek` | 402 `"Insufficient Balance"` — account has no credit |
+      | `Anthropic` | **5/5 green** against `claude-opus-5` |
+      | `OpenAI` | **4/4 green** on seven models, once §1.4's fix landed |
+      | `DeepSeek` | **4/4 green** against `deepseek-chat` |
+      | `Gemini` | 401 — blocked by Google, not by this code |
 
       **`Anthropic` is verified end to end** — plain text with `temperature` omitted, a system
       instruction honoured, structured output through **both** `ForcedTool` and `NativeSchema`
@@ -231,12 +262,21 @@ Neither is in scope here; both are recorded so they are not lost.
       their endpoint, auth mechanism and headers correct by getting *past* authentication to a
       billing decision — a 402 or a 429 on balance is a request the provider understood.
 
-      **Still outstanding**, and why this box stays unticked: `OpenAI`'s `max_tokens` versus
-      `max_completion_tokens`, the standing doubt from Phase 6; `Gemini`'s assistant-role
-      translation and its key-as-query-parameter convention; `DeepSeek`'s best-effort JSON mode;
-      and, on Anthropic, the forced tool being *refused* on one of the newest models that reject
-      forced `tool_choice` — `claude-opus-5` accepts it, so §2.1's premise is confirmed only on
-      the half that works.
+      **`OpenAI` is verified across seven models** — `gpt-4o-mini` and `gpt-4o` (legacy),
+      `chat-latest`, `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna` and `gpt-5.6-terra` (current).
+      Phase 6's `max_tokens` doubt is closed, and closed as a **confirmed defect** rather than a
+      false alarm: §1.4. **`DeepSeek` is verified** on `deepseek-chat`, including its
+      best-effort JSON mode returning a correctly decoded object.
+
+      **Still outstanding**, and why this box stays unticked:
+
+      - `Gemini` entirely — blocked by Google's `AQ.` key problem, not by this code.
+      - On Anthropic, the forced tool being *refused* by one of the newest models that reject
+        forced `tool_choice`. `claude-opus-5` accepts it, so §2.1's premise is confirmed only on
+        the half that works — the half that motivates `NativeSchema` is still argued, not shown.
+      - The other three adapters were each verified on **one or two models**, and §1.4 is the
+        standing proof that an adapter can pass on one model and be broken on the next. Model
+        coverage, not adapter coverage, is what this gate should mean in future.
 
       `Gemini`'s failure is the one not about money, and it briefly looked like a second gap of
       the `workspaceId` shape. **It is not, and the cause is outside this repo.** The same

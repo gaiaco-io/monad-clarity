@@ -57,6 +57,24 @@ sends byte-for-byte the request 1.7.2 sent. Canonical spec: `ReleaseNotes_1.8.0.
   request looks like. That is the argument for adopting Checkout's rule here: a mocked suite is
   not sufficient evidence to tag.
 
+### Fixed
+- **`LLMAdapters\OpenAI` sends `max_completion_tokens`, not `max_tokens`** — a one-word change,
+  and the most consequential thing in this release. Every current OpenAI chat model rejects
+  `max_tokens` outright (`"Unsupported parameter … Use 'max_completion_tokens' instead"`),
+  measured live on `chat-latest`, `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-luna` and
+  `gpt-5.6-terra`. **The adapter could reach only legacy models, and had been in that state
+  since 1.0.0.**
+
+  No configuration knob, because the substitution is strictly widening: `gpt-4o-mini` and
+  `gpt-4o` accept `max_completion_tokens` as readily as `max_tokens`, so one name reaches every
+  model and the other reaches only the old ones. Verified green afterwards on all seven.
+
+  This is the exact risk the 1.0.0 Phase 6 entry named as "the top item for a live smoke test
+  before production reliance" and could not test. It sat in shipped code for six weeks, correctly
+  suspected and unverifiable, until someone made the call. `LLMAdapters\DeepSeek` still sends
+  `max_tokens` and is deliberately unchanged — its API is OpenAI-shaped but separate, and it
+  passed its live checks on that name.
+
 ### Changed
 - **Native mode's parse failures name the `stop_reason`,** as 1.7.2's three failures already
   did. Anthropic documents that native-mode output "may not match your schema" on a refusal and
@@ -104,13 +122,22 @@ now records the provider's exact words in place of the argument), and it refuses
 `temperature` while **accepting an explicit `1.0`** — which contradicted the 1.7.2 entry above
 and has been corrected there rather than quietly left standing.
 
-**The other three remain unverified**, all for reasons outside the code: `OpenAI` (429, no
-credit), `DeepSeek` (402, no credit), `Gemini` (401, the credential is not a Generative Language
-API key). Their error paths *are* verified — four providers, four unrelated failure shapes, and
-every adapter turned each into an `LLMException` naming its own provider and carrying the
-provider's body, exercising `assertSuccessful()` and `decodeJsonBody()` against reality rather
-than a fixture. Phase 6's doubt about OpenAI's `max_tokens` is exactly as open as it was.
-`ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked. 1.7.2's premise —
+**`OpenAI` is green across seven models** — two legacy and five current — once the fix above
+landed, and **`DeepSeek` green** on `deepseek-chat` including its best-effort JSON mode. Three of
+four adapters are now confirmed against the providers they target.
+
+**`Gemini` remains unverified, and not for want of trying.** Its credential is one of Google's
+newer `AQ.` authorization keys, which Google's own forums report returning
+`401 ACCESS_TOKEN_TYPE_UNSUPPORTED` from `generativelanguage.googleapis.com` via the official
+SDKs as much as via raw HTTP. A three-way probe — `?key=`, `x-goog-api-key`, `Authorization:
+Bearer` — returned the identical 401 to all three, so it is not an adapter gap and nothing here
+can fix it.
+
+The error paths of all four *are* verified, incidentally: four providers, four unrelated failure
+shapes, every one turned into an `LLMException` naming its own provider and carrying the
+provider's body. `ReleaseNotes_1.8.0.md` §3 lists what remains — Gemini, and the fact that each
+green adapter was proved on one or two models, which §1.4 is the standing argument for taking
+seriously. 1.7.2's premise —
 that a non-default `temperature` is refused — is likewise still unverified against a live model.
 `ReleaseNotes_1.8.0.md` §3 lists what remains and stays unticked.
 
