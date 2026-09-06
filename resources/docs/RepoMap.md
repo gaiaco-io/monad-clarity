@@ -258,10 +258,13 @@ Never modified by application developers.
                 │   ├── ReleaseNotes_1.5.0.md
                 │   ├── ReleaseNotes_1.6.0.md
                 │   ├── ReleaseNotes_1.7.0.md
+                │   ├── ReleaseNotes_1.8.0.md
                 │   ├── ReleasePolicy.md
                 │   ├── RepoMap.md             <!-- this file -->
                 │   └── TestingStrategy.md
                 ├── reports
+                ├── smoke                      <!-- run by hand before a tag; not in phpunit -->
+                │   └── live-llm-smoke.php     <!-- the four LLMAdapters against live providers -->
                 └── tests
 ```
 

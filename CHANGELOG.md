@@ -6,6 +6,25 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`resources/smoke/live-llm-smoke.php`** — the live LLM smoke test, kept rather than thrown
+  away. It drives all four `LLMAdapters` against real providers, halting at the first that is
+  not fully green, and checks plain text, system instruction, structured output (both Anthropic
+  mechanisms) and that an invalid key raises rather than returning silence.
+
+  Not part of `vendor/bin/phpunit` and never will be — `TestingStrategy.md`'s no-live-calls rule
+  stands — but it is the only thing that can catch what a mocked adapter test structurally
+  cannot: the fixture is written to the same understanding of the wire format the adapter holds,
+  so the two agree with each other whatever the provider actually does. Its first run found two
+  defects shipped since 1.0.0 that 1128 green tests had not (`ReleaseNotes_1.8.0.md` §3).
+
+  Under `resources/`, so it is export-ignored and never reaches the Packagist dist. Credentials
+  come from `~/.monad-llm-smoke.env`, which the script reads itself; its docblock says plainly
+  not to put keys on a command line, and says why.
+
+- **`TestingStrategy.md` records where that harness lives** and why the mocked suite cannot
+  substitute for it, next to the Tier 4 rule it complements.
+
 ### Documentation
 - **`RepoMap.md` now lists every file in `src/`.** Thirteen were missing, and the tree is
   documentation of record for both repositories, so the gaps were quietly load-bearing: two whole
@@ -25,6 +44,13 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   without a file and no file without an entry. Found by `ReleasePolicy.md` pre-tag item 8 — not
   its byte-comparison half, which was clean, but the clause asking for "a skim for staleness
   against the actual codebase", which is the half that only works if someone actually looks.
+
+  Two further entries corrected here, both outside `src/` and so outside that scan:
+  `ReleaseNotes_1.8.0.md` was missing from the `resources/docs` listing — an omission from
+  1.8.0's own release — and `resources/smoke/` is added alongside the harness above. One known
+  discrepancy is left alone: `resources/reports` appears in the tree, does not exist on disk, is
+  not gitignored and is referenced nowhere. It reads as a planned directory rather than a stale
+  entry, and guessing which is a worse fix than leaving it visible.
 
 ## [1.8.0] - 2026-09-06
 
