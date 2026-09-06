@@ -8,8 +8,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [1.7.2] - 2026-09-06
 
-Four defects in `LLMAdapters\Anthropic`, found by the first review of the LLM service since it
-shipped in 1.0.0's Phase 6. Three are fixed here. The fourth is a genuine fork between two
+Four defects in `LLMAdapters\Anthropic`, found by a review of the LLM service — untouched in
+git since it shipped with 1.0.0 on 2026-07-24. Three are fixed here. The fourth is a genuine fork between two
 incompatible provider mechanisms, and is documented rather than guessed at — it needs a
 decision and a minor, not a patch. A fifth fix, to a flaky Mail test, is unrelated and came
 along because the suite reddened while this work was in progress. No API is added, removed or
@@ -81,7 +81,8 @@ reason to check. **No LLM adapter has ever been driven against a live provider k
 (`TestingStrategy.md` Tier 4) and by the gap the Phase 6 entry below already recorded. That
 limit is the whole story here: a mocked suite proves an adapter agrees with itself, because
 the fixture is written to the same understanding of the wire format the adapter holds. All
-four defects lived in that blind spot for over a year. The live smoke test Phase 6 named as
+four defects lived in that blind spot from 1.0.0 on 2026-07-24 until today — six weeks, and
+only that short because the service had not been touched since. The live smoke test Phase 6 named as
 its top open item is still the gating step before production reliance — it now has four
 things to check rather than one, and Checkout's rule (a mocked suite is not sufficient
 evidence to tag) is the precedent worth copying here.

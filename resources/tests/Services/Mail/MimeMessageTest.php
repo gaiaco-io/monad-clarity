@@ -108,7 +108,7 @@ final class MimeMessageTest extends TestCase
         // the header block for the substring failed at random, on the one assertion in
         // this suite that must never be doubted. What may never appear is a Bcc *field*.
         foreach (explode("\r\n", $headerBlock) as $headerLine) {
-            self::assertDoesNotMatchRegularExpression('/^bcc\s*:/i', $headerLine);
+            self::assertDoesNotMatchRegularExpression('/^[^:]*bcc[^:]*:/i', $headerLine);
         }
         self::assertStringNotContainsString('blind@example.com', $mime);
         self::assertStringNotContainsString('alsoblind@example.com', $mime);
