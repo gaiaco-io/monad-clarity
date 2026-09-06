@@ -102,7 +102,10 @@ Never modified by application developers.
             │   │   ├── Logger.php
             │   │   ├── RateLimiter.php
             │   │   ├── Jsonify.php
-            │   │   └── MetaTag.php          <!-- was Services\SeoService; relocated + renamed -->
+            │   │   ├── MetaTag.php          <!-- was Services\SeoService; relocated + renamed -->
+            │   │   └── Authentication        <!-- what Authentication.php hands back -->
+            │   │       ├── AuthResult.php
+            │   │       └── AuthenticationException.php
             │   ├── Services
             │   │   ├── DB.php
             │   │   ├── Files.php
@@ -118,9 +121,12 @@ Never modified by application developers.
             │   │   ├── LLM.php
             │   │   ├── Migration.php
             │   │   ├── Cache.php
+            │   │   ├── CacheInvalidArgumentException.php  <!-- PSR-16 InvalidArgumentException -->
             │   │   ├── Event.php
             │   │   ├── HttpClient.php
+            │   │   ├── HttpClientException.php            <!-- PSR-18 RequestExceptionInterface -->
             │   │   ├── Scheduler.php        <!-- job registry; released 1.5.0 -->
+            │   │   ├── Mail.php             <!-- adapter contract, no constructor; released 1.6.0 -->
             │   │   ├── Checkout               <!-- value objects + ledger; released 1.2.0 -->
             │   │   │   ├── CallbackEvent.php
             │   │   │   ├── CheckoutException.php
@@ -155,6 +161,10 @@ Never modified by application developers.
             │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
             │   │   │        ships in its own minor when built end to end — never a stub. -->
+            │   │   ├── LLM                   <!-- request/response value objects -->
+            │   │   │   ├── LLMException.php
+            │   │   │   ├── LLMRequest.php
+            │   │   │   └── LLMResponse.php
             │   │   ├── LLMAdapters
             │   │   │   ├── OpenAI.php
             │   │   │   ├── Anthropic.php
@@ -184,12 +194,15 @@ Never modified by application developers.
             │   │   │   ├── SendGrid.php
             │   │   │   ├── Smtp.php          <!-- no HttpClient; speaks to a socket -->
             │   │   │   └── SpeaksHttpApi.php <!-- trait: what the six HTTP mailers share -->
-            │   │   └── Scheduler             <!-- cron parser + run ledger; released 1.5.0 -->
-            │   │       ├── CronExpression.php
-            │   │       ├── JobLedger.php
-            │   │       ├── RunState.php
-            │   │       ├── ScheduledJob.php
-            │   │       └── SchedulerException.php
+            │   │   ├── Scheduler             <!-- cron parser + run ledger; released 1.5.0 -->
+            │   │   │   ├── CronExpression.php
+            │   │   │   ├── JobLedger.php
+            │   │   │   ├── RunState.php
+            │   │   │   ├── ScheduledJob.php
+            │   │   │   └── SchedulerException.php
+            │   │   └── Schema                <!-- what Schema.php's closures receive -->
+            │   │       ├── Blueprint.php
+            │   │       └── RawExpression.php
             │   ├── Utils
             │   │   ├── CryptographicToken.php
             │   │   ├── Encryption.php
@@ -199,6 +212,9 @@ Never modified by application developers.
             │   │   ├── Redactor.php
             │   │   └── ConstantTime.php
             │   └── Console                   <!-- command classes, dispatched by Services\Console -->
+            │       ├── Command.php           <!-- base class every command below extends -->
+            │       ├── Arguments.php         <!-- parsed argv: flags, options, positionals -->
+            │       ├── GeneratesFiles.php    <!-- trait: what the Make* commands share -->
             │       ├── MakeController.php
             │       ├── MakeModel.php
             │       ├── MakeMigration.php

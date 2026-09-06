@@ -6,6 +6,26 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- **`RepoMap.md` now lists every file in `src/`.** Thirteen were missing, and the tree is
+  documentation of record for both repositories, so the gaps were quietly load-bearing: two whole
+  directories (`Services\LLM\` — `LLMRequest`, `LLMResponse`, `LLMException` — and
+  `Services\Schema\` — `Blueprint`, `RawExpression`), a third under `Middlewares\Authentication\`
+  (`AuthResult`, `AuthenticationException`), the `Services\Mail` facade itself, two PSR exception
+  classes (`HttpClientException`, `CacheInvalidArgumentException`), and three `Console\` internals
+  (`Command`, `Arguments`, `GeneratesFiles`).
+
+  Two of those were plainly inconsistent rather than deliberate summarising: `Mail.php` was absent
+  while all thirteen files under `Mail/` were listed, and `LLM/` was absent while `LLMAdapters/`
+  was listed — and the parallel cases (`Checkout.php` beside `Checkout/`, `LLM.php` beside
+  `LLMAdapters/`) are both present. The document lists individual files everywhere else, exception
+  classes included, so nothing here was being summarised on purpose.
+
+  Verified in both directions this time: 123 files in `src/`, 123 named in the tree, no entry
+  without a file and no file without an entry. Found by `ReleasePolicy.md` pre-tag item 8 — not
+  its byte-comparison half, which was clean, but the clause asking for "a skim for staleness
+  against the actual codebase", which is the half that only works if someone actually looks.
+
 ## [1.8.0] - 2026-09-06
 
 Closes the one defect 1.7.2 documented rather than fixed: `LLMAdapters\Anthropic`'s
