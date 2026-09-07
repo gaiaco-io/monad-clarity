@@ -144,7 +144,6 @@ and ask Marshal — do not guess or silently pick one.
 ## Commands
 
 - Test: `vendor/bin/phpunit` (tests live in `resources/tests`; test priority tiers in `TestingStrategy.md`)
-- Lint/static analysis: as configured in CI
 - This package has no runnable app; end-to-end verification happens against a local
   `create-project` of monad/skeleton pointing at this working copy via a path repository.
 
