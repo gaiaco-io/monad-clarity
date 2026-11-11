@@ -6,6 +6,14 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-11-11
+
+One fix to the package: `Services\Migration` no longer declares a fresh anonymous class every
+time it loads a migration file, which made a process that cycled `migrate()` and `rollback()`
+grow without bound. No API added, removed or narrowed. Everything under **Added** and
+**Documentation** lives in `resources/`, which is export-ignored — it is recorded here because
+it landed on `main` in this window, not because it reaches the Packagist dist.
+
 ### Added
 - **`resources/smoke/live-llm-smoke.php`** — the live LLM smoke test, kept rather than thrown
   away. It drives all four `LLMAdapters` against real providers, halting at the first that is
