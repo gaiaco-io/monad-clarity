@@ -113,6 +113,26 @@ final class MigrationTest extends TestCase
         ], $dispatched);
     }
 
+    public function testRepeatedMigrateAndRollbackCyclesDeclareNoFurtherAnonymousClasses(): void
+    {
+        // A migration file returns `new class {…}`, and every require of it declares a fresh
+        // anonymous class that PHP never frees. A long-lived process cycling migrate/rollback
+        // would grow without bound unless each file is loaded only once.
+        Migration::migrate(self::MIGRATIONS_PATH);
+        Migration::rollback(self::MIGRATIONS_PATH, steps: 2);
+        $before = self::countAnonymousClasses();
+
+        Migration::migrate(self::MIGRATIONS_PATH);
+        Migration::rollback(self::MIGRATIONS_PATH, steps: 2);
+
+        self::assertSame($before, self::countAnonymousClasses());
+    }
+
+    private static function countAnonymousClasses(): int
+    {
+        return count(array_filter(get_declared_classes(), static fn (string $class) => str_contains($class, '@anonymous')));
+    }
+
     public function testLoadingAnInvalidMigrationFileThrows(): void
     {
         $this->expectException(RuntimeException::class);

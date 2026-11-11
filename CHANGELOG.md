@@ -25,6 +25,19 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 - **`TestingStrategy.md` records where that harness lives** and why the mocked suite cannot
   substitute for it, next to the Tier 4 rule it complements.
 
+### Fixed
+- **`Services\Migration` loads each migration file once per process.** A migration file returns
+  `new class {…}`, and every `require` of it declares a fresh anonymous class that PHP never
+  frees — with or without OPcache. `migrate()` and `rollback()` re-required the file on every
+  call, so a process that cycled them (a test suite, a long-lived worker) grew by roughly 2 KB
+  per file per load with no ceiling: measured at about 20 MB over 10,000 loads of one file.
+  A one-shot `migrate` or `migrate:rollback` from the CLI loads each file at most once and was
+  never meaningfully affected.
+
+  The loaded object is now kept per real path and reused, so memory is bounded by the number of
+  migration files. Observable difference: `up()` and a later `down()` in the same process now run
+  on the **same instance**, which only matters to a migration that keeps state in properties.
+
 ### Documentation
 - **`RepoMap.md` now lists every file in `src/`.** Thirteen were missing, and the tree is
   documentation of record for both repositories, so the gaps were quietly load-bearing: two whole
