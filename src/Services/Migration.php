@@ -43,6 +43,9 @@ abstract class Migration
 {
     private const TRACKING_TABLE = 'clarity_migrations';
 
+    /** @var array<string, object> Real path => the migration object that file returned. */
+    private static array $loaded = [];
+
     /**
      * Run every migration file in $migrationsPath not yet recorded as applied, in
      * filename order (hence the conventional `YYYYMMDDHHMMSS_description.php` naming).
@@ -331,8 +334,19 @@ abstract class Migration
         return $discovered;
     }
 
+    /**
+     * Each file is required at most once per process. A migration returns `new class {…}`,
+     * and every require of it declares a fresh anonymous class that PHP never frees — so a
+     * long-lived process cycling migrate/rollback would otherwise grow without bound.
+     */
     private static function loadMigration(string $path): object
     {
+        $key = realpath($path) ?: $path;
+
+        if (isset(self::$loaded[$key])) {
+            return self::$loaded[$key];
+        }
+
         $migration = (static function (string $__path) {
             return require $__path;
         })($path);
@@ -341,7 +355,7 @@ abstract class Migration
             throw new RuntimeException(sprintf('Migration file "%s" must return an object with up() and down() methods.', $path));
         }
 
-        return $migration;
+        return self::$loaded[$key] = $migration;
     }
 
     private static function assertIdentifier(string $identifier): void
