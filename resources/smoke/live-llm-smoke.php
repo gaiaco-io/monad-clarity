@@ -617,7 +617,7 @@ $suites['gemini'] = static function () use ($http): void {
             [
                 'model' => $imageModel,
                 'input' => [['type' => 'text', 'text' => 'A blue dot']],
-                'response_format' => ['type' => 'image', 'delivery' => 'inline'],
+                'response_format' => ['type' => 'image'],
                 'store' => false,
             ],
             ['x-goog-api-key' => $key]

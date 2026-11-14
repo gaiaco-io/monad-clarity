@@ -227,7 +227,8 @@ It speaks Google's Interactions API (`POST {baseUri}/interactions`) with the key
   base64-encodes them.
 - `ImageResponse(string $provider, string $model, list<GeneratedImage> $images, ?string $text,
   array{inputTokens: int, outputTokens: int} $usage, ?string $providerRequestId, array $raw)`.
-  `$images` is never empty, because a reply with no image raises instead.
+  `$images` is never empty, because a reply with no image raises instead. `$providerRequestId`
+  is null from `Gemini`: with `store: false`, Google returns no interaction id.
 - `GeneratedImage(string $mimeType, string $bytes)`. The bytes are decoded, and `$mimeType`
   is what the provider reported.
 

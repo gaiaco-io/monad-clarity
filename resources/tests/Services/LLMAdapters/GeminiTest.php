@@ -195,7 +195,7 @@ final class GeminiTest extends TestCase
         self::assertSame([
             'model' => 'gemini-nano-banana-2.1',
             'input' => [['type' => 'text', 'text' => 'A lighthouse']],
-            'response_format' => ['type' => 'image', 'delivery' => 'inline'],
+            'response_format' => ['type' => 'image'],
             'store' => false,
         ], $fake->decodedLastRequestBody());
     }
@@ -223,7 +223,7 @@ final class GeminiTest extends TestCase
             ['type' => 'image', 'mime_type' => 'image/jpeg', 'data' => base64_encode('sofa-bytes')],
         ], $body['input']);
         self::assertSame(
-            ['type' => 'image', 'mime_type' => 'image/jpeg', 'aspect_ratio' => '16:9', 'image_size' => '2K', 'delivery' => 'inline'],
+            ['type' => 'image', 'mime_type' => 'image/jpeg', 'aspect_ratio' => '16:9', 'image_size' => '2K'],
             $body['response_format']
         );
     }

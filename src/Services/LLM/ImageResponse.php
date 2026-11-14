@@ -21,6 +21,9 @@ final readonly class ImageResponse
      *     when there was none.
      * @param array{inputTokens: int, outputTokens: int} $usage The same shape LLMResponse
      *     carries.
+     * @param ?string $providerRequestId Null from `Gemini::generateImage()`: it sends
+     *     `store: false`, and Google returns no interaction id for an interaction it did not
+     *     keep (verified live, `ReleaseNotes_1.9.0.md` §2.9).
      * @param array<string, mixed> $raw The provider's full decoded response, base64 image
      *     data included, for anything this contract doesn't surface.
      */

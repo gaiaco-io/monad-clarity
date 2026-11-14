@@ -8,8 +8,10 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 The 1.9.0 candidate: image generation for Google's Nano Banana models. Purely additive, so an
 application that does not call the new method sends byte-for-byte the requests 1.8.1 sent.
-**Not yet tagged**: live verification gates the tag (1.8.0 §3), and no working Gemini
-credential has been available. Canonical spec: `ReleaseNotes_1.9.0.md`.
+**Verified live, end to end, against `gemini-nano-banana-2.1`** (text-to-image, a reference
+edit, `store: false`, a bad key). It is not yet tagged, because the branch must first take
+1.8.2 from `main` and re-run the Gemini suite fully green (1.8.0 §3). Canonical spec:
+`ReleaseNotes_1.9.0.md`.
 
 ### Added
 - **`Gemini::generateImage(ImageRequest): ImageResponse`** handles text-to-image, and edits or
@@ -25,9 +27,15 @@ credential has been available. Canonical spec: `ReleaseNotes_1.9.0.md`.
     method only; `complete()` keeps its query-string key, and 1.8.0 §2.7 item 3 stays open (§2.3).
   - **Every request is sent with `store: false`.** Google documents neither a default nor a
     retention period for stored interactions, and a stored request would include every
-    reference image the caller sent (§2.6).
+    reference image the caller sent (§2.6). Verified live, Google then returns no interaction
+    id at all, so `ImageResponse::$providerRequestId` is null.
   - **Every image is returned, not only the last.** Google's own convenience accessor keeps
     only the final one (§2.4).
+  - **The model may soften a prompt rather than refuse it.** Asked for graphic gore, Nano
+    Banana 2.1 drew a toned-down image and explained the change in prose. Read
+    `ImageResponse::$text` to learn whether the request was altered (§2.9).
+  - **No `delivery` field is sent.** The live run found that Google refuses one for image models
+    and returns the bytes inline regardless; the mocked suite had asserted it was sent (§2.12).
 
   Every failure raises an `LLMException`, and none returns an empty response:
   - an interaction that does not complete names its status and Google's `errors[].message`

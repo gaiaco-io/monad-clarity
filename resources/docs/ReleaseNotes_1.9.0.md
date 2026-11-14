@@ -1,10 +1,10 @@
 # Monad Clarity 1.9.0 Release Notes
 
-**Status:** DRAFT. Not frozen until §3's live gate is met. The code is complete and the
-mocked suite is green, but no request has yet reached Google with a working credential.
-1.8.0 §3 set the rule that **live verification gates the tag rather than trailing it**, and
-this release follows that rule. This document does not restate 1.0.0 through 1.8.0; those
-remain frozen for what they specified.
+**Status:** DRAFT, one step from frozen. `generateImage()` is verified live, end to end,
+against `gemini-nano-banana-2.1` (§3). The single remaining box is mechanical: this branch
+must take 1.8.2 from `main` and re-run the Gemini suite fully green, since 1.8.0 §3 set the
+rule that **live verification gates the tag rather than trailing it**. This document does
+not restate 1.0.0 through 1.8.2; those remain frozen for what they specified.
 
 > **Scope note.** 1.9.0 adds no service, no abstraction and no adapter. It adds one public
 > method to `LLMAdapters\Gemini`, `generateImage()`, for Google's image models (Nano Banana 2.1,
@@ -46,7 +46,7 @@ from references. The wire format:
 |---|---|
 | `model` | `ImageRequest::$model` |
 | `input` | a `text` part with the prompt, then one `{type: image, mime_type, data}` part per reference, base64-encoded by the adapter |
-| `response_format` | `{type: image, delivery: inline}`, plus `mime_type`, `aspect_ratio` and `image_size` only when set |
+| `response_format` | `{type: image}`, plus `mime_type`, `aspect_ratio` and `image_size` only when set. No `delivery` field: Google refuses one for image models, and returns the bytes inline anyway (§2.12) |
 | `store` | `false` (§2.6) |
 | headers | `x-goog-api-key` (§2.3), `Api-Revision: 2026-05-20` (§2.8) |
 
@@ -73,7 +73,10 @@ Nothing is checked against a provider's list (§2.5).
 `ImageResponse` carries the same provenance `LLMResponse` does: `provider`, `model`, `usage`
 (the same `{inputTokens, outputTokens}` shape, read from Interactions'
 `usage.total_input_tokens` and `usage.total_output_tokens`), `providerRequestId` (the
-interaction `id`), and `raw`. In place of `content` it carries `images`, a non-empty
+interaction `id`), and `raw`. **`providerRequestId` is null in practice:** verified live,
+an interaction sent with `store: false` comes back with no `id` at all, because there is
+nothing to look it up by. The field is kept, rather than dropped, for the provenance shape
+`LLMResponse` shares, and because a future stored mode would fill it. In place of `content` it carries `images`, a non-empty
 `list<GeneratedImage>`, and `text`, any prose the model interleaved, joined, or null.
 
 `GeneratedImage` is a media type and **decoded bytes**. Its `mimeType` is what Google said the
@@ -91,7 +94,7 @@ Each of the following raises an `LLMException`; no failure is returned as an emp
 | Body not JSON, or not an object | as `complete()` (`decodeJsonBody()`, unchanged) |
 | `status` other than `completed`, or absent | the status, and every `errors[].message`, or "Google gave no reason" |
 | Completed with no image | the model's text reply, quoted, or that there was none |
-| An image block with `uri` and no `data` | that inline delivery was asked for and not honoured |
+| An image block with `uri` and no `data` | that the image came by URI, which the adapter does not fetch |
 | An image block with no data at all, or data that is not base64 | which of the two |
 
 ### 1.5 What does not change
@@ -215,28 +218,40 @@ not completed, because a response that does not claim success has not shown it.
 Google's own image-generation REST examples send `Api-Revision: 2026-05-20`. The Interactions
 reference does not mention the header. Pinning it to the revision this adapter was written
 against is the conservative reading: an unpinned request takes whatever shape Google ships
-next. Whether it is required, or ignored, is an open item (§2.9).
+next. Measured live (§2.9 item 2): the header is **not required**, and today a request without
+it gets the identical response shape. It stays pinned, because "identical today" is exactly
+what a pin protects against changing tomorrow.
 
-### 2.9 Named open items
+### 2.9 Open items, answered by the live run
 
-Each of these can only be settled by a live run, and §3 lists them as its unticked boxes.
+Each of these could only be settled live. All five are now answered.
 
-1. **How a refused prompt surfaces.** §2.7 handles any status other than `completed` and any
-   imageless completion, so the adapter raises either way. Which of the two Google actually
-   returns, and what its message says, is unmeasured. The smoke script records it.
-2. **Whether `Api-Revision` is required, or changes anything.** The smoke script sends the same
-   request without it and records the result.
-3. **Whether `store: false` is honoured.** This is a gated check, not an observation, because
-   §2.6 is a claim made to callers.
-4. **Usage field names and `mime_type` on output blocks.** These are read from the reference's
-   schema; the reference has no full image-response example.
-5. **The Gemini credential itself.** See §3.
+1. **How a refused prompt surfaces: unanswered, because nothing was refused.** A prompt asking
+   for graphic gore was **not** refused. Nano Banana 2.1 drew a toned-down image and said
+   so in prose: *"…avoiding any explicit violence, gore, or weapons to ensure a safe yet
+   impactful scene."* The model softens rather than refuses, so a caller gets an image and an
+   explanation in `ImageResponse::$text`, not an exception. §2.7's handling of a hard refusal
+   (a non-completed status, or an imageless completion) is therefore still unmeasured. The
+   handling is correct either way, but the shape of a hard refusal has not been seen.
+   **Applications that care whether the model altered the request should read `$text`.**
+2. **`Api-Revision` is not required.** The same request without it returned HTTP 200, with the
+   identical top-level shape (`status`, `usage`, `created`, `updated`, `service_tier`,
+   `steps`, `object`, `model`). It stays pinned (§2.8).
+3. **`store: false` is honoured, in the strongest form:** the response carries **no `id`**,
+   so there is nothing to retrieve. This is why `providerRequestId` is null (§1.3).
+4. **Usage field names and `mime_type` are confirmed** exactly as read from the reference:
+   `usage.total_input_tokens` (13 for a short prompt) and `usage.total_output_tokens` (1446,
+   of which 1120 were image tokens), plus `mime_type: image/jpeg` on every image block. A
+   `thought` step arrives first, carrying a `signature` of about 1.3 MB, and is skipped as
+   designed. It does reach `$raw`, so an application that logs `$raw` wholesale will log that
+   too.
+5. **The Gemini credential** now works (§3).
 
 ### 2.10 Not in this release
 
 - Multi-turn editing (`previous_interaction_id`), streaming, `background: true` with polling,
-  `delivery: "uri"`, Google Search grounding (`tools`), `safety_settings`, and thinking
-  configuration. Each is additive, and none was asked for.
+  Google Search grounding (`tools`), `safety_settings`, and thinking configuration. Each is
+  additive, and none was asked for.
 - Image *input* to `complete()`, which means vision in chat. That is a change to `LLMRequest`'s
   message shape, a separate decision.
 - Watermarking. Google applies a SynthID watermark to every generated image. Clarity neither
@@ -249,6 +264,20 @@ problem alone. The four image classes are the opposite: nothing in them is Gemin
 describe a prompt, some images and a result in terms any image provider would recognise, so
 they sit with `LLMRequest` and `LLMResponse`. If §2.1's second provider ever arrives, it
 takes these unchanged.
+
+### 2.12 No `delivery` field, found by the live run
+
+The first build sent `response_format.delivery: "inline"`. The Interactions reference lists
+the field, with `inline` and `uri` values, and naming the mode seemed safer than trusting a
+default. Google refuses it for image models: `400 Image delivery mode is not supported.`.
+Without it, the bytes come back inline, which is exactly the shape the adapter reads. The
+field is therefore gone. The guard for an image block that carries a `uri` and no `data` stays,
+because a URI-only block is still a documented shape, and the adapter refuses it by name
+rather than returning an image with no bytes.
+
+This is 1.8.0 §3's lesson, repeated in miniature. The mocked tests asserted `delivery` was
+sent, because the fixture was written to the same reading of the reference the adapter held,
+and they passed. Only the provider could say the reading was wrong.
 
 ## 3. Acceptance gate
 
@@ -304,3 +333,24 @@ takes these unchanged.
          It does not verify the request body or any response handling. On this path Google's
          error body was a JSON object (`{"error": {"message", "code"}}`), not the array the
          401 used. §2.9 items 1 to 4 remain open until the Google project has a paid tier.
+
+- [x] **`generateImage()` verified live, end to end**, on 2026-11-14, once Marshal had added
+      usage credits to the Google project. The first paid run found one defect: Google refuses
+      `delivery: "inline"` (§2.12). With that field removed, every image check is green against
+      `gemini-nano-banana-2.1`:
+
+      | Check | Result |
+      |---|---|
+      | text-to-image: decodable, and type matches bytes | **PASS**: 1024×1024 `image/jpeg` |
+      | `store: false` leaves nothing retrievable | **PASS**: no `id` returned at all |
+      | edit with a reference image | **PASS**: 1024×1024 `image/jpeg` |
+      | bad key raises | **PASS** |
+
+      Checked by eye as well as by assertion. The text-to-image result is a red lighthouse on a
+      rock at dusk, a flat illustration, as prompted. The edit is the same scene with the
+      lighthouse alone turned green. All five §2.9 items are answered.
+- [ ] **Gemini suite fully green on this branch.** The only failing Gemini check here is
+      structured output. Its fix is 1.8.2 (#24), which this branch does not yet contain, and
+      with 1.8.2 applied that check passes on two models. **Before tagging:** merge #24, update
+      this branch from `main`, and re-run `php resources/smoke/live-llm-smoke.php --only=gemini`
+      to 8/8.

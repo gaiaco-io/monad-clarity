@@ -152,8 +152,9 @@ final class Gemini extends LLM
      * Generates an image from a prompt, or edits the request's reference images per the prompt.
      *
      * The request is sent with `store: false`, so Google keeps neither the prompt nor the
-     * reference images for later retrieval (§2.6), and with `delivery: "inline"`, so the
-     * image bytes come back in this response rather than as a URI to fetch.
+     * reference images for later retrieval (§2.6). It sends no `delivery` field: Google
+     * refuses one for image models ("Image delivery mode is not supported") and returns the
+     * bytes inline without being asked, verified live (§3).
      *
      * @throws LLMException if the request fails, the interaction does not complete, or it
      *     completes without an image — in which case the message quotes what the model said.
@@ -178,7 +179,6 @@ final class Gemini extends LLM
                 'mime_type' => $request->outputMimeType,
                 'aspect_ratio' => $request->aspectRatio,
                 'image_size' => $request->imageSize,
-                'delivery' => 'inline',
             ], static fn (?string $value): bool => $value !== null),
             'store' => false,
         ];
@@ -280,7 +280,7 @@ final class Gemini extends LLM
     {
         if (!isset($block['data'])) {
             throw new LLMException(isset($block['uri'])
-                ? 'Gemini returned an image by URI rather than inline, although the request asked for inline delivery.'
+                ? 'Gemini returned an image by URI rather than inline, which this adapter does not fetch.'
                 : 'Gemini returned an image block with no image data.');
         }
 
