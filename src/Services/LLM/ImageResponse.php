@@ -16,7 +16,9 @@ final readonly class ImageResponse
 {
     /**
      * @param list<GeneratedImage> $images Every image the model returned, in the order it
-     *     returned them — not only the last.
+     *     returned them — not only the last. Only what the model generated: the reference
+     *     images a request sent are never returned here, so an edit carries the new version
+     *     alone and the original stays with the caller, who sent its bytes in the first place.
      * @param ?string $text Any prose the model interleaved with its images, joined; null
      *     when there was none.
      * @param array{inputTokens: int, outputTokens: int} $usage The same shape LLMResponse
