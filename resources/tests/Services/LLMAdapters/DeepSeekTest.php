@@ -6,6 +6,7 @@ namespace Monad\Clarity\Tests\Services\LLMAdapters;
 
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\ReferenceImage;
 use Monad\Clarity\Services\LLMAdapters\DeepSeek;
 use Nyholm\Psr7\Response;
 use PHPUnit\Framework\TestCase;
@@ -125,5 +126,49 @@ final class DeepSeekTest extends TestCase
         $this->expectException(LLMException::class);
 
         $adapter->complete(new LLMRequest(model: 'deepseek-chat', messages: [['role' => 'user', 'content' => 'x']]));
+    }
+
+    // ------------------------------------------------------------- image input (1.10.0)
+
+    public function testOnlyTheImageBearingMessageChangesShapeWithImagesBeforeText(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new DeepSeek('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [
+                ['role' => 'user', 'content' => 'Hello'],
+                ['role' => 'assistant', 'content' => 'Hi'],
+                [
+                    'role' => 'user',
+                    'content' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?',
+                    'images' => [new ReferenceImage('image/jpeg', 'before-bytes'), new ReferenceImage('image/png', 'after-bytes')],
+                ],
+            ],
+        ));
+
+        self::assertSame([
+            ['role' => 'user', 'content' => 'Hello'],
+            ['role' => 'assistant', 'content' => 'Hi'],
+            ['role' => 'user', 'content' => [
+                ['type' => 'image_url', 'image_url' => ['url' => 'data:image/jpeg;base64,' . base64_encode('before-bytes')]],
+                ['type' => 'image_url', 'image_url' => ['url' => 'data:image/png;base64,' . base64_encode('after-bytes')]],
+                ['type' => 'text', 'text' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?'],
+            ]],
+        ], $fake->decodedLastRequestBody()['messages']);
+    }
+
+    public function testAnImageMessageWithEmptyContentSendsNoTextPart(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new DeepSeek('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [['role' => 'user', 'content' => '', 'images' => [new ReferenceImage('image/jpeg', 'only-bytes')]]],
+        ));
+
+        self::assertSame([
+            ['type' => 'image_url', 'image_url' => ['url' => 'data:image/jpeg;base64,' . base64_encode('only-bytes')]],
+        ], $fake->decodedLastRequestBody()['messages'][0]['content']);
     }
 }

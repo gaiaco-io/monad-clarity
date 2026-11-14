@@ -76,7 +76,7 @@ final class Gemini extends LLM
             'contents' => array_map(
                 static fn (array $message): array => [
                     'role' => $message['role'] === 'assistant' ? 'model' : 'user',
-                    'parts' => [['text' => $message['content']]],
+                    'parts' => isset($message['images']) ? self::imageParts($message) : [['text' => $message['content']]],
                 ],
                 $request->messages
             ),
@@ -300,6 +300,30 @@ final class Gemini extends LLM
             mimeType: (string) ($block['mime_type'] ?? self::INTERACTIONS_DEFAULT_IMAGE_TYPE),
             bytes: $bytes,
         );
+    }
+
+    /**
+     * A user message carrying images (1.10.0) becomes generateContent `parts`: each image as
+     * `inline_data`, then the text, if any. Google's own guidance puts the text after the image
+     * (`ReleaseNotes_1.10.0.md` §2.5), and this shape was verified live before it was written.
+     *
+     * @param array{role: string, content: string, images: list<ReferenceImage>} $message
+     * @return list<array<string, mixed>>
+     */
+    private static function imageParts(array $message): array
+    {
+        $parts = array_map(
+            static fn (ReferenceImage $image): array => [
+                'inline_data' => ['mime_type' => $image->mimeType, 'data' => base64_encode($image->bytes)],
+            ],
+            $message['images']
+        );
+
+        if ($message['content'] !== '') {
+            $parts[] = ['text' => $message['content']];
+        }
+
+        return $parts;
     }
 
     protected function providerName(): string
