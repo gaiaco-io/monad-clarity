@@ -93,7 +93,31 @@ final class GeminiTest extends TestCase
 
         $body = $fake->decodedLastRequestBody();
         self::assertSame('application/json', $body['generationConfig']['responseMimeType']);
-        self::assertSame($schema, $body['generationConfig']['responseSchema']);
+        self::assertSame($schema, $body['generationConfig']['responseJsonSchema']);
+        self::assertArrayNotHasKey('responseSchema', $body['generationConfig']);
+    }
+
+    public function testASchemaWithAdditionalPropertiesIsSentUnchangedAsResponseJsonSchema(): void
+    {
+        // The shape OpenAI's strict mode requires. Google's `responseSchema` refuses it
+        // ("Unknown name additionalProperties"); `responseJsonSchema` accepts it (1.8.2).
+        $schema = [
+            'type' => 'object',
+            'properties' => ['capital' => ['type' => 'string']],
+            'required' => ['capital'],
+            'additionalProperties' => false,
+        ];
+        $fake = new FakeHttpClient(static fn () => new Response(200, [], json_encode([
+            'candidates' => [['content' => ['parts' => [['text' => '{"capital":"Paris"}']]]]],
+        ], JSON_THROW_ON_ERROR)));
+
+        (new Gemini('test-key', $fake))->complete(new LLMRequest(
+            model: 'gemini-3.5-flash',
+            messages: [['role' => 'user', 'content' => 'Capital of France?']],
+            responseSchema: $schema,
+        ));
+
+        self::assertSame($schema, $fake->decodedLastRequestBody()['generationConfig']['responseJsonSchema']);
     }
 
     public function testMissingCandidateContentThrows(): void

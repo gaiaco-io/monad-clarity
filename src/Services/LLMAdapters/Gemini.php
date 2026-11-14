@@ -22,8 +22,14 @@ use JsonException;
  * so LLMRequest's own message shape stays provider-neutral.
  *
  * Structured responses (§11.3.8) use `generationConfig.responseMimeType:
- * "application/json"` plus `responseSchema` — Gemini's own server-enforced
+ * "application/json"` plus `responseJsonSchema` — Gemini's own server-enforced
  * schema-constrained decoding, the same guarantee OpenAI's json_schema mode makes.
+ *
+ * `responseJsonSchema`, not `responseSchema` (1.8.2). `responseSchema` takes Google's
+ * OpenAPI-style subset and refuses `additionalProperties`, which OpenAI's strict mode
+ * requires, so a schema written once for every adapter could not reach Gemini.
+ * `responseJsonSchema` takes JSON Schema and, verified live, still takes the OpenAPI-style
+ * form, so no schema that worked before is refused now.
  *
  * @package Monad\Clarity\Services\LLMAdapters
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -62,7 +68,7 @@ final class Gemini extends LLM
 
         if ($request->responseSchema !== null) {
             $body['generationConfig']['responseMimeType'] = 'application/json';
-            $body['generationConfig']['responseSchema'] = $request->responseSchema;
+            $body['generationConfig']['responseJsonSchema'] = $request->responseSchema;
         }
 
         $uri = sprintf(

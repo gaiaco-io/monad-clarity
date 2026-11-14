@@ -12,6 +12,34 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   Before, a PHP 8.5 deprecation or behaviour change could have shipped with every CI check
   green. Workflow-only, so nothing reaches the Packagist dist.
 
+## [1.8.2] - 2026-11-14
+
+One fix to the package: `LLMAdapters\Gemini` can now take a structured-output schema that
+contains `additionalProperties`. Before this, Google refused one with HTTP 400. No API added,
+removed or narrowed.
+
+### Fixed
+- **`Gemini::complete()` sends `LLMRequest::$responseSchema` as
+  `generationConfig.responseJsonSchema`, not `responseSchema`.** Google's `responseSchema`
+  takes its own OpenAPI-style subset and refuses `additionalProperties` outright (`Unknown
+  name "additionalProperties" at 'generation_config.response_schema'`). OpenAI's strict mode
+  *requires* that keyword, so a schema written once for every adapter, which is the point of a
+  provider-neutral `LLMRequest`, could not reach Gemini. The defect had been present since 1.0.0.
+
+  Found by the first live run of the Gemini smoke suite with a credential Google accepts. No
+  mocked test could have found it: the fixture asserted the field name the adapter already sent.
+
+  **Verified live, not inferred.** On `gemini-3.5-flash-lite` and `gemini-3.5-flash`,
+  `responseJsonSchema` returned HTTP 200 with a correctly decoded object for both a JSON Schema
+  containing `additionalProperties` and a Google OpenAPI-style schema (`"STRING"`, `nullable`,
+  `propertyOrdering`). So the change refuses no schema that worked before. The same run also
+  verified `complete()`'s plain-text and multi-turn paths live, for the first time since 1.0.0.
+
+### Changed
+- **`resources/smoke/live-llm-smoke.php`'s default Gemini model is now
+  `gemini-3.5-flash-lite`.** Google has retired `gemini-2.0-flash`, which now returns HTTP 404.
+  This file is export-ignored and does not reach the Packagist dist.
+
 ## [1.8.1] - 2026-11-11
 
 One fix to the package: `Services\Migration` no longer declares a fresh anonymous class every
