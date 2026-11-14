@@ -6,6 +6,29 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-15
+
+Documents and locks in a guarantee 1.9.0 already kept: `Gemini::generateImage()` returns only
+the images the model generated, never the reference images the request sent. No behaviour
+changes, and no API is added, removed or narrowed. The package-side change is one docblock;
+the test lives in `resources/`, which is export-ignored.
+
+### Documentation
+- **`ImageResponse::$images` now states that it never contains the request's reference
+  images.** An edit returns the new version alone, and the original stays with the caller, who
+  sent its bytes. The same sentence is in `API_Contracts.md`. 1.9.0 already behaved this way for
+  two independent reasons, and both are now recorded:
+  - **Google does not echo the input.** A live edit against `gemini-nano-banana-2.1` returned
+    exactly two steps, a `thought` and one `model_output` holding the edited image, and no
+    `user_input` step.
+  - **The adapter would not return it if Google did.** `extractImagesAndText()` reads only
+    `model_output` steps.
+
+### Tests
+- **`GeminiTest` covers a response whose `user_input` step echoes the reference image.** The
+  Interactions API defines that step type, so the test pins that an echoed original never
+  reaches `$images` and the echoed prompt never reaches `$text`. Suite green at 1165 tests.
+
 ## [1.9.0] - 2026-11-14
 
 Image generation for Google's Nano Banana models. Purely additive, so an application that

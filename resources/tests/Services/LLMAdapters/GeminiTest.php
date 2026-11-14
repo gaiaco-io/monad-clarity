@@ -281,6 +281,30 @@ final class GeminiTest extends TestCase
         self::assertSame('completed', $response->raw['status']);
     }
 
+    public function testAnEchoedReferenceImageInAUserInputStepIsNeverReturnedAsGenerated(): void
+    {
+        // The Interactions API defines a `user_input` step that can echo what was sent. Google
+        // did not send one live with `store: false`, but if it ever does, the caller's own
+        // reference image must not come back dressed as model output (1.9.1).
+        $fake = new FakeHttpClient(static fn () => self::interaction([
+            ['type' => 'user_input', 'content' => [
+                ['type' => 'text', 'text' => 'Make the lighthouse green'],
+                self::imageBlock('original-reference-bytes'),
+            ]],
+            ['type' => 'thought', 'signature' => 'sig'],
+            ['type' => 'model_output', 'content' => [self::imageBlock('edited-bytes')]],
+        ]));
+
+        $response = (new Gemini('test-key', $fake))->generateImage(new ImageRequest(
+            model: 'gemini-nano-banana-2.1',
+            prompt: 'Make the lighthouse green',
+            referenceImages: [new ReferenceImage('image/jpeg', 'original-reference-bytes')],
+        ));
+
+        self::assertEquals([new GeneratedImage('image/jpeg', 'edited-bytes')], $response->images);
+        self::assertNull($response->text, 'the echoed prompt is not model prose either');
+    }
+
     public function testAnImageOnlyReplyHasNullText(): void
     {
         $fake = new FakeHttpClient(static fn () => self::interaction([
