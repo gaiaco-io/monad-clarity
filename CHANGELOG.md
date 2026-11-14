@@ -6,6 +6,12 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Changed
+- **CI now tests PHP 8.4 and 8.5 as well as 8.2 and 8.3.** The supported floor is unchanged at
+  `>=8.2`. This only adds coverage of the versions Clarity is now developed and deployed on.
+  Before, a PHP 8.5 deprecation or behaviour change could have shipped with every CI check
+  green. Workflow-only, so nothing reaches the Packagist dist.
+
 ## [1.8.2] - 2026-11-14
 
 One fix to the package: `LLMAdapters\Gemini` can now take a structured-output schema that
