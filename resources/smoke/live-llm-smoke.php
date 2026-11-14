@@ -496,7 +496,7 @@ $suites['gemini'] = static function () use ($http): void {
             : 'multi-turn history not carried: ' . Smoke::trim((string) $r->content);
     });
 
-    Smoke::check('structured output — responseSchema + responseMimeType', static function () use ($adapter, $model) {
+    Smoke::check('structured output — responseJsonSchema + responseMimeType (1.8.2), additionalProperties included', static function () use ($adapter, $model) {
         return assertStructured($adapter->complete(new LLMRequest(
             model: $model,
             messages: [['role' => 'user', 'content' => 'The capital of France, and its metro population in millions.']],
