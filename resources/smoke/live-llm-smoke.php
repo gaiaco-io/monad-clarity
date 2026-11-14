@@ -404,7 +404,7 @@ $suites['openai'] = static function () use ($http): void {
 
 $suites['gemini'] = static function () use ($http): void {
     $key = Smoke::key('GEMINI_API_KEY');
-    $model = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
+    $model = getenv('GEMINI_MODEL') ?: 'gemini-3.5-flash-lite';
     echo "  model: {$model}\n";
 
     $adapter = new Gemini($key, $http);
@@ -433,7 +433,7 @@ $suites['gemini'] = static function () use ($http): void {
             : 'multi-turn history not carried: ' . Smoke::trim((string) $r->content);
     });
 
-    Smoke::check('structured output — responseSchema + responseMimeType', static function () use ($adapter, $model) {
+    Smoke::check('structured output — responseJsonSchema + responseMimeType (1.8.2), additionalProperties included', static function () use ($adapter, $model) {
         return assertStructured($adapter->complete(new LLMRequest(
             model: $model,
             messages: [['role' => 'user', 'content' => 'The capital of France, and its metro population in millions.']],
