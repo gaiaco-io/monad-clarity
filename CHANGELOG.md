@@ -6,6 +6,55 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+The 1.9.0 candidate: image generation for Google's Nano Banana models. Purely additive, so an
+application that does not call the new method sends byte-for-byte the requests 1.8.1 sent.
+**Not yet tagged**: live verification gates the tag (1.8.0 §3), and no working Gemini
+credential has been available. Canonical spec: `ReleaseNotes_1.9.0.md`.
+
+### Added
+- **`Gemini::generateImage(ImageRequest): ImageResponse`** handles text-to-image, and edits or
+  generation from up to the model's own limit of reference images, against Google's
+  Interactions API (`POST /v1beta/interactions`). It is a public method on the adapter rather
+  than on the `LLM` contract, because no other adapter has the capability. That is Checkout's
+  rule for subscriptions, applied to LLM (`ReleaseNotes_1.9.0.md` §2.1). It is written against
+  Interactions rather than the `generateContent` path `complete()` uses, because Google now
+  labels that path "Legacy" (§2.2). `complete()` does not move.
+
+  Three properties worth knowing:
+  - **The key is sent as an `x-goog-api-key` header, never in the URL.** This applies to this
+    method only; `complete()` keeps its query-string key, and 1.8.0 §2.7 item 3 stays open (§2.3).
+  - **Every request is sent with `store: false`.** Google documents neither a default nor a
+    retention period for stored interactions, and a stored request would include every
+    reference image the caller sent (§2.6).
+  - **Every image is returned, not only the last.** Google's own convenience accessor keeps
+    only the final one (§2.4).
+
+  Every failure raises an `LLMException`, and none returns an empty response:
+  - an interaction that does not complete names its status and Google's `errors[].message`
+  - a completed interaction with no image quotes what the model said instead
+  - non-base64 image data is refused rather than dropped (§2.7)
+
+- **`Services\LLM\ImageRequest`, `ReferenceImage`, `ImageResponse`, `GeneratedImage`**, all
+  `final readonly`. Callers hand over and receive **raw bytes**, never base64.
+
+  `ImageRequest` validates shape only. Aspect ratios, sizes, output types and reference-image
+  counts are passed to Google unchecked, because they differ per model and grow with each
+  release, and Google's 400 is the authority. That is 1.8.0 §2.4's rule, applied again (§2.5).
+
+  `GeneratedImage::$mimeType` is what Google reported, not what was requested.
+  `ImageRequest::$timeoutSeconds` defaults to 120, because a 4K render outlasts `LLMRequest`'s 30.
+
+- **`resources/smoke/live-llm-smoke.php`**: the Gemini suite gains an image step. It checks
+  that text-to-image returns decodable images of the claimed type, that `store: false` is
+  honoured (only a 404 or an absent `id` counts), that an edit works, that usage reads
+  non-zero and that a bad key raises. It records how a refused prompt surfaces and what
+  changes without `Api-Revision`. Every image is written to the temp directory with its path
+  printed, alongside a redacted copy of Google's raw response. This file is export-ignored.
+
+### Documentation
+- **`ReleaseNotes_1.9.0.md`** (draft until its live gate is met), plus `API_Contracts.md`,
+  `RepoMap.md` and `CLAUDE.md`.
+
 ## [1.8.1] - 2026-11-11
 
 One fix to the package: `Services\Migration` no longer declares a fresh anonymous class every

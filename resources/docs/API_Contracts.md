@@ -208,6 +208,29 @@ adapter has an equivalent — OpenAI, Gemini and DeepSeek each have exactly one 
 whose API keys are not themselves scoped to a workspace — Anthropic refuses such a key unless
 the request names one. An empty string is refused at construction.
 
+`Gemini` alone has image generation (1.9.0), as a public method rather than on the `LLM`
+contract, since no other adapter has it (`ReleaseNotes_1.9.0.md` §2.1):
+
+```php
+public function generateImage(ImageRequest $request): ImageResponse  // throws LLMException
+```
+
+It speaks Google's Interactions API (`POST {baseUri}/interactions`) with the key in an
+`x-goog-api-key` header and `store: false`. `complete()` is unchanged. The value objects, all in
+`Services\LLM\` and all `final readonly`:
+
+- `ImageRequest(string $model, string $prompt, list<ReferenceImage> $referenceImages = [],
+  ?string $aspectRatio = null, ?string $imageSize = null, ?string $outputMimeType = null,
+  int $timeoutSeconds = 120)`. Shape is validated at construction, and no provider list is
+  checked (§2.5).
+- `ReferenceImage(string $mimeType, string $bytes)`. The bytes are raw, and the adapter
+  base64-encodes them.
+- `ImageResponse(string $provider, string $model, list<GeneratedImage> $images, ?string $text,
+  array{inputTokens: int, outputTokens: int} $usage, ?string $providerRequestId, array $raw)`.
+  `$images` is never empty, because a reply with no image raises instead.
+- `GeneratedImage(string $mimeType, string $bytes)`. The bytes are decoded, and `$mimeType`
+  is what the provider reported.
+
 ## Services\Mail — `Monad\Clarity\Services\Mail` (1.6.0)
 
 Abstract contract, **declaring no constructor** — the first Clarity abstraction whose

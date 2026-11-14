@@ -69,7 +69,7 @@ works. `StripeCheckout`, `PaddleCheckout` and `PaddleSubscription` all ship unde
 
 **The LLM adapters now have the same escape hatch, run by hand:**
 `resources/smoke/live-llm-smoke.php` drives all four against live providers, stopping at the
-first that is not fully green. It is not part of `vendor/bin/phpunit` and never will be — the
+first that is not fully green. Since 1.9.0 it also drives `Gemini::generateImage()`. It is not part of `vendor/bin/phpunit` and never will be — the
 no-live-calls rule above stands — but the mocked suite cannot substitute for it, because the
 fixture is written to the same understanding of the wire format the adapter holds and the two
 therefore agree with each other whatever the provider actually does. Its first run found two

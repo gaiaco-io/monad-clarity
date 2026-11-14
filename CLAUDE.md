@@ -133,6 +133,15 @@ canonical for every document below — where the skeleton repo carries a mirror,
   mode's documented restrictions, because checking would mean walking arbitrary JSON Schema
   against a list this repo cannot keep current and stripping would silently weaken what the
   caller wrote — Anthropic's own response is the evidence (§2.4).
+- `ReleaseNotes_1.9.0.md` — WHAT ships in 1.9.0 (`Gemini::generateImage()` for the Nano Banana
+  image models, and the four `Services\LLM\` image value objects), and eleven decisions.
+  **DRAFT until its live gate is met**: no Gemini credential has yet worked, so 1.8.0 §3's
+  rule holds the tag. Read before touching image generation. The three most load-bearing:
+  image generation is a **public method on the adapter, not on the `LLM` contract** (§2.1); it
+  speaks the **Interactions API** while `complete()` stays on legacy `generateContent`, so one
+  class authenticates two ways until 1.8.0 §2.7 item 3 is verified and closed (§2.2, §2.3); and
+  every request is sent with **`store: false`**, because Google documents no default or
+  retention period and a stored request holds the caller's reference images (§2.6).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

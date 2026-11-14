@@ -28,6 +28,10 @@ declare(strict_types=1);
  *     GEMINI_API_KEY=…
  *     DEEPSEEK_API_KEY=…
  *     #ANTHROPIC_MODEL=…            # optional per-provider model overrides
+ *     #GEMINI_IMAGE_MODEL=…         # default gemini-nano-banana-2.1 (1.9.0)
+ *
+ * The Gemini suite also drives generateImage() (1.9.0) and writes every image it receives
+ * under the system temp directory, printing each path, so the result can be looked at.
  *
  *     chmod 600 ~/.monad-llm-smoke.env
  *     php resources/smoke/live-llm-smoke.php [--only=anthropic|openai|gemini|deepseek]
@@ -45,9 +49,12 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\LLM\ImageRequest;
+use Monad\Clarity\Services\LLM\ImageResponse;
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
 use Monad\Clarity\Services\LLM\LLMResponse;
+use Monad\Clarity\Services\LLM\ReferenceImage;
 use Monad\Clarity\Services\LLMAdapters\Anthropic;
 use Monad\Clarity\Services\LLMAdapters\AnthropicStructuredOutput;
 use Monad\Clarity\Services\LLMAdapters\DeepSeek;
@@ -157,6 +164,62 @@ function assertPlainText(LLMResponse $r, string $provider): true|string
 }
 
 /** @param array<string,mixed> $c */
+/**
+ * Every image must be bytes PHP itself recognises as an image of the type Google claimed,
+ * and is written to $dir so a human can open it — the eye is the last check.
+ */
+function assertImages(ImageResponse $r, string $dir, string $label): true|string
+{
+    if ($r->images === []) {
+        return 'ImageResponse carried no images';
+    }
+
+    if (!is_dir($dir) && !mkdir($dir, 0700, true)) {
+        return "could not create {$dir}";
+    }
+
+    foreach ($r->images as $i => $image) {
+        $info = getimagesizefromstring($image->bytes);
+
+        if ($info === false) {
+            return "image {$i} is not decodable as an image";
+        }
+
+        if ($info['mime'] !== $image->mimeType) {
+            return "image {$i} claims {$image->mimeType} but its bytes are {$info['mime']}";
+        }
+
+        $path = sprintf('%s/%s-%d.%s', $dir, $label, $i, image_type_to_extension($info[2], false));
+        file_put_contents($path, $image->bytes);
+        echo "         wrote {$path} ({$info[0]}×{$info[1]})\n";
+    }
+
+    return true;
+}
+
+/**
+ * Writes Google's raw response with every base64 payload cut to a stub, so the mocked
+ * fixtures in GeminiTest can be reconciled against what Google actually sent (1.9.0 §2.9).
+ *
+ * @param array<string, mixed> $raw
+ */
+function writeRedactedRaw(array $raw, string $dir, string $label): void
+{
+    array_walk_recursive($raw, static function (mixed &$value, int|string $key): void {
+        if ($key === 'data' && is_string($value) && strlen($value) > 64) {
+            $value = substr($value, 0, 16) . '…(' . strlen($value) . ' base64 chars)';
+        }
+    });
+
+    if (!is_dir($dir)) {
+        mkdir($dir, 0700, true);
+    }
+
+    $path = "{$dir}/{$label}-response.json";
+    file_put_contents($path, json_encode($raw, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    echo "         wrote {$path}\n";
+}
+
 function assertStructured(LLMResponse $r): true|string
 {
     if (!is_array($r->content)) {
@@ -453,6 +516,119 @@ $suites['gemini'] = static function () use ($http): void {
         }
 
         return 'no exception raised for an invalid key';
+    });
+
+    // -------------------------------------------- generateImage (1.9.0, Interactions API)
+
+    $imageModel = getenv('GEMINI_IMAGE_MODEL') ?: 'gemini-nano-banana-2.1';
+    $imageDir = sys_get_temp_dir() . '/clarity-smoke-images-' . date('Ymd-His');
+    echo "  image model: {$imageModel}\n";
+
+    $generated = null;
+
+    Smoke::check('text-to-image returns a decodable image whose type matches its bytes', static function () use ($adapter, $imageModel, $imageDir, &$generated) {
+        $r = $adapter->generateImage(new ImageRequest(
+            model: $imageModel,
+            prompt: 'A small red lighthouse on a rock at dusk, flat illustration',
+            aspectRatio: '1:1',
+            imageSize: '1K',
+        ));
+
+        $generated = $r;
+        writeRedactedRaw($r->raw, $imageDir, 'text-to-image');
+
+        // §2.9 item 4: the usage field names are read from the reference, not measured, and
+        // a wrong name would silently yield 0/0 rather than fail.
+        if ($r->usage['inputTokens'] < 1 || $r->usage['outputTokens'] < 1) {
+            return sprintf(
+                'usage read as %d in / %d out — the field names do not match what Google sent; see the raw response',
+                $r->usage['inputTokens'],
+                $r->usage['outputTokens']
+            );
+        }
+
+        return assertImages($r, $imageDir, 'text-to-image');
+    });
+
+    Smoke::check('store: false leaves nothing retrievable at Google (1.9.0 §2.6)', static function () use ($http, $key, &$generated) {
+        if ($generated === null) {
+            return 'inconclusive — the text-to-image check must pass first';
+        }
+
+        // An unstored interaction may have no id at all, which is the strongest answer.
+        if ($generated->providerRequestId === null) {
+            echo "         no interaction id was returned, so there is nothing to retrieve\n";
+
+            return true;
+        }
+
+        $status = $http->get(
+            'https://generativelanguage.googleapis.com/v1beta/interactions/' . rawurlencode($generated->providerRequestId),
+            ['x-goog-api-key' => $key, 'Api-Revision' => '2026-05-20']
+        )->getStatusCode();
+
+        // Only a 404 proves absence; a 429 or 5xx proves nothing either way.
+        return match (true) {
+            $status === 404 => true,
+            $status === 200 => 'Google returned the interaction (HTTP 200) although it was sent with store: false',
+            default => "inconclusive — the lookup returned HTTP {$status}, which neither proves nor disproves storage",
+        };
+    });
+
+    Smoke::check('editing a reference image returns an image', static function () use ($adapter, $imageModel, $imageDir, &$generated) {
+        $source = $generated?->images[0] ?? null;
+
+        if ($source === null) {
+            return 'no source image to edit — the text-to-image check must pass first';
+        }
+
+        $r = $adapter->generateImage(new ImageRequest(
+            model: $imageModel,
+            prompt: 'Make the lighthouse green; keep everything else the same',
+            referenceImages: [new ReferenceImage($source->mimeType, $source->bytes)],
+        ));
+        writeRedactedRaw($r->raw, $imageDir, 'edit');
+
+        return assertImages($r, $imageDir, 'edit');
+    });
+
+    Smoke::check('generateImage with a bad key raises LLMException', static function () use ($http, $imageModel) {
+        try {
+            (new Gemini('not-a-real-key', $http))->generateImage(new ImageRequest(model: $imageModel, prompt: 'a dot'));
+        } catch (LLMException $e) {
+            return str_contains($e->getMessage(), 'gemini') ? true : 'wrong message: ' . Smoke::trim($e->getMessage());
+        }
+
+        return 'no exception raised for an invalid key';
+    });
+
+    Smoke::observe('how a refused prompt surfaces in an Interaction (1.9.0 §2.7 open item)', static function () use ($adapter, $imageModel) {
+        $r = $adapter->generateImage(new ImageRequest(
+            model: $imageModel,
+            prompt: 'Photorealistic close-up of a person being stabbed, graphic gore',
+        ));
+
+        return sprintf('NOT refused — %d image(s) returned; text: %s', count($r->images), Smoke::trim((string) $r->text));
+    });
+
+    Smoke::observe('the same request without the Api-Revision header (1.9.0 §2.8 open item)', static function () use ($http, $key, $imageModel) {
+        $response = $http->withTimeoutSeconds(120)->postJson(
+            'https://generativelanguage.googleapis.com/v1beta/interactions',
+            [
+                'model' => $imageModel,
+                'input' => [['type' => 'text', 'text' => 'A blue dot']],
+                'response_format' => ['type' => 'image', 'delivery' => 'inline'],
+                'store' => false,
+            ],
+            ['x-goog-api-key' => $key]
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        return sprintf(
+            'HTTP %d; top-level keys: %s',
+            $response->getStatusCode(),
+            is_array($body) ? implode(', ', array_keys($body)) : 'not JSON'
+        );
     });
 };
 
