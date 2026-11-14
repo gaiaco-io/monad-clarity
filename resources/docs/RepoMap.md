@@ -162,15 +162,19 @@ Never modified by application developers.
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
             │   │   │        ships in its own minor when built end to end — never a stub. -->
             │   │   ├── LLM                   <!-- request/response value objects -->
+            │   │   │   ├── GeneratedImage.php    <!-- released 1.9.0 -->
+            │   │   │   ├── ImageRequest.php      <!-- released 1.9.0 -->
+            │   │   │   ├── ImageResponse.php     <!-- released 1.9.0 -->
             │   │   │   ├── LLMException.php
             │   │   │   ├── LLMRequest.php
-            │   │   │   └── LLMResponse.php
+            │   │   │   ├── LLMResponse.php
+            │   │   │   └── ReferenceImage.php    <!-- released 1.9.0 -->
             │   │   ├── LLMAdapters
             │   │   │   ├── OpenAI.php
             │   │   │   ├── Anthropic.php
             │   │   │   ├── AnthropicStructuredOutput.php  <!-- enum; released 1.8.0 -->
             │   │   │   ├── DeepSeek.php
-            │   │   │   └── Gemini.php
+            │   │   │   └── Gemini.php    <!-- + generateImage(), 1.9.0 -->
             │   │   ├── Mail                  <!-- value objects + MIME + pool; released 1.6.0 -->
             │   │   │   ├── Address.php
             │   │   │   ├── Attachment.php
@@ -264,7 +268,7 @@ Never modified by application developers.
                 │   └── TestingStrategy.md
                 ├── reports
                 ├── smoke                      <!-- run by hand before a tag; not in phpunit -->
-                │   └── live-llm-smoke.php     <!-- the four LLMAdapters against live providers -->
+                │   └── live-llm-smoke.php     <!-- the four LLMAdapters, + Gemini images, against live providers -->
                 └── tests
 ```
 

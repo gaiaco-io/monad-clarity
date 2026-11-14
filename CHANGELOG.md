@@ -6,6 +6,65 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-14
+
+Image generation for Google's Nano Banana models. Purely additive, so an application that
+does not call the new method sends byte-for-byte the requests 1.8.2 sent. **Verified live,
+end to end, before the tag**: the Gemini smoke suite ran 8/8 green against
+`gemini-nano-banana-2.1` and `gemini-3.5-flash-lite`. Canonical spec: `ReleaseNotes_1.9.0.md`.
+
+### Added
+- **`Gemini::generateImage(ImageRequest): ImageResponse`** handles text-to-image, and edits or
+  generation from up to the model's own limit of reference images, against Google's
+  Interactions API (`POST /v1beta/interactions`). It is a public method on the adapter rather
+  than on the `LLM` contract, because no other adapter has the capability. That is Checkout's
+  rule for subscriptions, applied to LLM (`ReleaseNotes_1.9.0.md` §2.1). It is written against
+  Interactions rather than the `generateContent` path `complete()` uses, because Google now
+  labels that path "Legacy" (§2.2). `complete()` does not move.
+
+  Worth knowing:
+  - **The key is sent as an `x-goog-api-key` header, never in the URL.** This applies to this
+    method only; `complete()` keeps its query-string key, and 1.8.0 §2.7 item 3 stays open (§2.3).
+  - **Every request is sent with `store: false`.** Google documents neither a default nor a
+    retention period for stored interactions, and a stored request would include every
+    reference image the caller sent (§2.6). Verified live, Google then returns no interaction
+    id at all, so `ImageResponse::$providerRequestId` is null.
+  - **Every image is returned, not only the last.** Google's own convenience accessor keeps
+    only the final one (§2.4).
+  - **The model may soften a prompt rather than refuse it, silently.** Asked for graphic
+    gore, Nano Banana 2.1 twice drew a toned-down image instead of raising. Once it explained
+    the change in `ImageResponse::$text`; once it returned no text at all. So an absent
+    `$text` does not mean the prompt was honoured as written, and no response field signals
+    the change (§2.9).
+  - **No `delivery` field is sent.** The live run found that Google refuses one for image models
+    and returns the bytes inline regardless; the mocked suite had asserted it was sent (§2.12).
+
+  Every failure raises an `LLMException`, and none returns an empty response:
+  - an interaction that does not complete names its status and Google's `errors[].message`
+  - a completed interaction with no image quotes what the model said instead
+  - non-base64 image data is refused rather than dropped (§2.7)
+
+- **`Services\LLM\ImageRequest`, `ReferenceImage`, `ImageResponse`, `GeneratedImage`**, all
+  `final readonly`. Callers hand over and receive **raw bytes**, never base64.
+
+  `ImageRequest` validates shape only. Aspect ratios, sizes, output types and reference-image
+  counts are passed to Google unchecked, because they differ per model and grow with each
+  release, and Google's 400 is the authority. That is 1.8.0 §2.4's rule, applied again (§2.5).
+
+  `GeneratedImage::$mimeType` is what Google reported, not what was requested.
+  `ImageRequest::$timeoutSeconds` defaults to 120, because a 4K render outlasts `LLMRequest`'s 30.
+
+- **`resources/smoke/live-llm-smoke.php`**: the Gemini suite gains an image step. It checks
+  that text-to-image returns decodable images of the claimed type, that `store: false` is
+  honoured (only a 404 or an absent `id` counts), that an edit works, that usage reads
+  non-zero and that a bad key raises. It records how a refused prompt surfaces and what
+  changes without `Api-Revision`. Every image is written to the temp directory with its path
+  printed, alongside a redacted copy of Google's raw response. This file is export-ignored.
+
+### Documentation
+- **`ReleaseNotes_1.9.0.md`**, frozen with its live gate met, plus `API_Contracts.md`,
+  `RepoMap.md`, `TestingStrategy.md` and `CLAUDE.md`.
+
 ### Changed
 - **CI now tests PHP 8.4 and 8.5 as well as 8.2 and 8.3.** The supported floor is unchanged at
   `>=8.2`. This only adds coverage of the versions Clarity is now developed and deployed on.
