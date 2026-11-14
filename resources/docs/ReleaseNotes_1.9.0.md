@@ -1,17 +1,17 @@
 # Monad Clarity 1.9.0 Release Notes
 
-**Status:** DRAFT, one step from frozen. `generateImage()` is verified live, end to end,
-against `gemini-nano-banana-2.1` (§3). The single remaining box is mechanical: this branch
-must take 1.8.2 from `main` and re-run the Gemini suite fully green, since 1.8.0 §3 set the
-rule that **live verification gates the tag rather than trailing it**. This document does
-not restate 1.0.0 through 1.8.2; those remain frozen for what they specified.
+**Status:** FROZEN — canonical specification for the 1.9.0 release. Every box in §3 is
+ticked, the live one included: the Gemini smoke suite ran 8/8 green against Google, image
+generation and 1.8.2's structured-output fix together, before the tag rather than after it
+(1.8.0 §3's rule). This document does not restate 1.0.0 through 1.8.2; those remain frozen
+for what they specified.
 
 > **Scope note.** 1.9.0 adds no service, no abstraction and no adapter. It adds one public
 > method to `LLMAdapters\Gemini`, `generateImage()`, for Google's image models (Nano Banana 2.1,
 > `gemini-nano-banana-2.1`, generally available since 2026-10-06), and four value objects for
 > it to take and return. `LLM`, `LLMRequest`, `LLMResponse` and `Gemini::complete()` are
 > unchanged: an application that does not call `generateImage()` sends byte-for-byte the
-> requests 1.8.1 sent.
+> requests 1.8.2 sent.
 >
 > Image generation is a capability the frozen 1.0.0 spec (§11) never named. It enters through
 > the door Checkout already uses: a capability one provider has is a public method on that
@@ -229,11 +229,16 @@ Each of these could only be settled live. All five are now answered.
 1. **How a refused prompt surfaces: unanswered, because nothing was refused.** A prompt asking
    for graphic gore was **not** refused. Nano Banana 2.1 drew a toned-down image and said
    so in prose: *"…avoiding any explicit violence, gore, or weapons to ensure a safe yet
-   impactful scene."* The model softens rather than refuses, so a caller gets an image and an
-   explanation in `ImageResponse::$text`, not an exception. §2.7's handling of a hard refusal
-   (a non-completed status, or an imageless completion) is therefore still unmeasured. The
-   handling is correct either way, but the shape of a hard refusal has not been seen.
-   **Applications that care whether the model altered the request should read `$text`.**
+   impactful scene."* The model softens rather than refuses, so a caller gets an image, not an
+   exception. §2.7's handling of a hard refusal (a non-completed status, or an imageless
+   completion) is therefore still unmeasured. The handling is correct either way, but the
+   shape of a hard refusal has not been seen.
+
+   **The explanation is not reliable.** The same prompt in the final gate run returned a
+   softened image with **no text at all**. `$text` may say the request was altered; its
+   absence does not mean the request was honoured as written. No field in the response
+   signals that the model changed what was asked, so an application that must know has to
+   check the image itself, because Clarity cannot.
 2. **`Api-Revision` is not required.** The same request without it returned HTTP 200, with the
    identical top-level shape (`status`, `usage`, `created`, `updated`, `service_tier`,
    `steps`, `object`, `model`). It stays pinned (§2.8).
@@ -298,7 +303,8 @@ and they passed. Only the provider could say the reading was wrong.
       reach the Interactions service. Google returned its error body as a JSON *array*
       (`[{"error": …}]`). `assertSuccessful()` raises on status before decoding, so the
       shape is harmless, but it is worth knowing.
-- [ ] **Not met: live verification.** The same run's authenticated checks all returned
+- [x] **Live verification**, met by the last two boxes below. Kept as written, because how
+      it was met is the record. The same first run's authenticated checks all returned
       `401 ACCESS_TOKEN_TYPE_UNSUPPORTED`. These include the 1.8.1 `complete()` checks, which
       this release does not touch, so the failure is the credential, not this code. It is the
       `AQ.`-format key problem 1.8.0 §3 recorded, unchanged. **Do not tag until the Gemini
@@ -349,8 +355,22 @@ and they passed. Only the provider could say the reading was wrong.
       Checked by eye as well as by assertion. The text-to-image result is a red lighthouse on a
       rock at dusk, a flat illustration, as prompted. The edit is the same scene with the
       lighthouse alone turned green. All five §2.9 items are answered.
-- [ ] **Gemini suite fully green on this branch.** The only failing Gemini check here is
-      structured output. Its fix is 1.8.2 (#24), which this branch does not yet contain, and
-      with 1.8.2 applied that check passes on two models. **Before tagging:** merge #24, update
-      this branch from `main`, and re-run `php resources/smoke/live-llm-smoke.php --only=gemini`
-      to 8/8.
+- [x] **Gemini suite fully green on this branch: 8/8.** 1.8.2 (#24) merged and was tagged,
+      and this branch took it from `main`. The suite was then 1164 tests / 2495 assertions,
+      and `php resources/smoke/live-llm-smoke.php --only=gemini` passed every check:
+
+      | Check | Result |
+      |---|---|
+      | plain text, `gemini-3.5-flash-lite` | **PASS** |
+      | assistant turns as role `model` | **PASS** |
+      | structured output via `responseJsonSchema`, `additionalProperties` included (1.8.2) | **PASS** |
+      | `complete()` with a bad key raises | **PASS** |
+      | text-to-image, `gemini-nano-banana-2.1` | **PASS** |
+      | `store: false` leaves nothing retrievable | **PASS**: no `id` returned |
+      | edit with a reference image | **PASS** |
+      | `generateImage()` with a bad key raises | **PASS** |
+
+      Both observations were stable across the two paid runs: the gore prompt was softened,
+      not refused, and a request without `Api-Revision` returned the identical shape. What
+      changed between runs is recorded in §2.9 item 1: the second softening came with no
+      explanation at all.

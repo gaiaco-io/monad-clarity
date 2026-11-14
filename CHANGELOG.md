@@ -6,12 +6,12 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
-The 1.9.0 candidate: image generation for Google's Nano Banana models. Purely additive, so an
-application that does not call the new method sends byte-for-byte the requests 1.8.1 sent.
-**Verified live, end to end, against `gemini-nano-banana-2.1`** (text-to-image, a reference
-edit, `store: false`, a bad key). It is not yet tagged, because the branch must first take
-1.8.2 from `main` and re-run the Gemini suite fully green (1.8.0 §3). Canonical spec:
-`ReleaseNotes_1.9.0.md`.
+## [1.9.0] - 2026-11-14
+
+Image generation for Google's Nano Banana models. Purely additive, so an application that
+does not call the new method sends byte-for-byte the requests 1.8.2 sent. **Verified live,
+end to end, before the tag**: the Gemini smoke suite ran 8/8 green against
+`gemini-nano-banana-2.1` and `gemini-3.5-flash-lite`. Canonical spec: `ReleaseNotes_1.9.0.md`.
 
 ### Added
 - **`Gemini::generateImage(ImageRequest): ImageResponse`** handles text-to-image, and edits or
@@ -22,7 +22,7 @@ edit, `store: false`, a bad key). It is not yet tagged, because the branch must 
   Interactions rather than the `generateContent` path `complete()` uses, because Google now
   labels that path "Legacy" (§2.2). `complete()` does not move.
 
-  Three properties worth knowing:
+  Worth knowing:
   - **The key is sent as an `x-goog-api-key` header, never in the URL.** This applies to this
     method only; `complete()` keeps its query-string key, and 1.8.0 §2.7 item 3 stays open (§2.3).
   - **Every request is sent with `store: false`.** Google documents neither a default nor a
@@ -31,9 +31,11 @@ edit, `store: false`, a bad key). It is not yet tagged, because the branch must 
     id at all, so `ImageResponse::$providerRequestId` is null.
   - **Every image is returned, not only the last.** Google's own convenience accessor keeps
     only the final one (§2.4).
-  - **The model may soften a prompt rather than refuse it.** Asked for graphic gore, Nano
-    Banana 2.1 drew a toned-down image and explained the change in prose. Read
-    `ImageResponse::$text` to learn whether the request was altered (§2.9).
+  - **The model may soften a prompt rather than refuse it, silently.** Asked for graphic
+    gore, Nano Banana 2.1 twice drew a toned-down image instead of raising. Once it explained
+    the change in `ImageResponse::$text`; once it returned no text at all. So an absent
+    `$text` does not mean the prompt was honoured as written, and no response field signals
+    the change (§2.9).
   - **No `delivery` field is sent.** The live run found that Google refuses one for image models
     and returns the bytes inline regardless; the mocked suite had asserted it was sent (§2.12).
 
@@ -60,8 +62,8 @@ edit, `store: false`, a bad key). It is not yet tagged, because the branch must 
   printed, alongside a redacted copy of Google's raw response. This file is export-ignored.
 
 ### Documentation
-- **`ReleaseNotes_1.9.0.md`** (draft until its live gate is met), plus `API_Contracts.md`,
-  `RepoMap.md` and `CLAUDE.md`.
+- **`ReleaseNotes_1.9.0.md`**, frozen with its live gate met, plus `API_Contracts.md`,
+  `RepoMap.md`, `TestingStrategy.md` and `CLAUDE.md`.
 
 ### Changed
 - **CI now tests PHP 8.4 and 8.5 as well as 8.2 and 8.3.** The supported floor is unchanged at

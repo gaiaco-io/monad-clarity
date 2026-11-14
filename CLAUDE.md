@@ -134,9 +134,10 @@ canonical for every document below — where the skeleton repo carries a mirror,
   against a list this repo cannot keep current and stripping would silently weaken what the
   caller wrote — Anthropic's own response is the evidence (§2.4).
 - `ReleaseNotes_1.9.0.md` — WHAT ships in 1.9.0 (`Gemini::generateImage()` for the Nano Banana
-  image models, and the four `Services\LLM\` image value objects), and eleven decisions.
-  **DRAFT until its live gate is met**: no Gemini credential has yet worked, so 1.8.0 §3's
-  rule holds the tag. Read before touching image generation. The three most load-bearing:
+  image models, and the four `Services\LLM\` image value objects), and twelve decisions.
+  Its live gate was met before the tag, and one of its decisions (§2.12) exists only because a
+  live run caught what the mocked suite asserted. Read before touching image generation. The
+  three most load-bearing:
   image generation is a **public method on the adapter, not on the `LLM` contract** (§2.1); it
   speaks the **Interactions API** while `complete()` stays on legacy `generateContent`, so one
   class authenticates two ways until 1.8.0 §2.7 item 3 is verified and closed (§2.2, §2.3); and
