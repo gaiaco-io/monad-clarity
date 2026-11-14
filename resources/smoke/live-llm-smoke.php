@@ -49,6 +49,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/vendor/autoload.php';
 
 use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\LLM;
 use Monad\Clarity\Services\LLM\ImageRequest;
 use Monad\Clarity\Services\LLM\ImageResponse;
 use Monad\Clarity\Services\LLM\LLMException;
@@ -161,6 +162,36 @@ function assertPlainText(LLMResponse $r, string $provider): true|string
     }
 
     return true;
+}
+
+/**
+ * 1.10.0's image input, end to end: a 64×64 solid red PNG, drawn here so the check needs no
+ * fixture file, sent as a user message's `images`. The model must name the colour.
+ */
+function assertSeesRed(LLM $adapter, string $model, string $provider): true|string
+{
+    $image = imagecreatetruecolor(64, 64);
+    imagefill($image, 0, 0, imagecolorallocate($image, 220, 20, 20));
+    ob_start();
+    imagepng($image);
+    $png = (string) ob_get_clean();
+
+    $r = $adapter->complete(new LLMRequest(
+        model: $model,
+        messages: [[
+            'role' => 'user',
+            'content' => 'What single colour fills this image? Reply with one word.',
+            'images' => [new ReferenceImage('image/png', $png)],
+        ]],
+        maxOutputTokens: 512,
+    ));
+
+    $verdict = assertPlainText($r, $provider);
+    if ($verdict !== true) {
+        return $verdict;
+    }
+
+    return stripos((string) $r->content, 'red') !== false ? true : 'did not name red: ' . Smoke::trim((string) $r->content);
 }
 
 /** @param array<string,mixed> $c */
@@ -414,6 +445,10 @@ $suites['anthropic'] = static function () use ($http): void {
             return 'REFUSED — ' . Smoke::trim($e->getMessage(), 200);
         }
     });
+
+    Smoke::check('image input — names the colour of a solid red square (1.10.0)', static function () use ($forced, $model) {
+        return assertSeesRed($forced, $model, 'anthropic');
+    });
 };
 
 $suites['openai'] = static function () use ($http): void {
@@ -462,6 +497,10 @@ $suites['openai'] = static function () use ($http): void {
         }
 
         return 'no exception raised for an invalid key';
+    });
+
+    Smoke::check('image input — names the colour of a solid red square (1.10.0)', static function () use ($adapter, $model) {
+        return assertSeesRed($adapter, $model, 'openai');
     });
 };
 
@@ -630,11 +669,15 @@ $suites['gemini'] = static function () use ($http): void {
             is_array($body) ? implode(', ', array_keys($body)) : 'not JSON'
         );
     });
+
+    Smoke::check('image input — names the colour of a solid red square (1.10.0)', static function () use ($adapter, $model) {
+        return assertSeesRed($adapter, $model, 'gemini');
+    });
 };
 
 $suites['deepseek'] = static function () use ($http): void {
     $key = Smoke::key('DEEPSEEK_API_KEY');
-    $model = getenv('DEEPSEEK_MODEL') ?: 'deepseek-chat';
+    $model = getenv('DEEPSEEK_MODEL') ?: 'deepseek-flash';
     echo "  model: {$model}\n";
 
     $adapter = new DeepSeek($key, $http);
@@ -678,6 +721,10 @@ $suites['deepseek'] = static function () use ($http): void {
         }
 
         return 'no exception raised for an invalid key';
+    });
+
+    Smoke::check('image input — names the colour of a solid red square (1.10.0)', static function () use ($adapter, $model) {
+        return assertSeesRed($adapter, $model, 'deepseek');
     });
 };
 

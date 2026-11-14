@@ -208,6 +208,18 @@ adapter has an equivalent — OpenAI, Gemini and DeepSeek each have exactly one 
 whose API keys are not themselves scoped to a workspace — Anthropic refuses such a key unless
 the request names one. An empty string is refused at construction.
 
+**Image input (1.10.0).** A user message may carry an optional `images` key, a non-empty
+`list<ReferenceImage>`:
+`['role' => 'user', 'content' => string, 'images' => [new ReferenceImage($mimeType, $bytes), ...]]`.
+
+- `content` stays a string. A message with images may have empty `content`.
+- Images on an assistant message, an empty list, a keyed array or a non-`ReferenceImage` entry
+  are each refused at construction, naming the message index.
+- All four adapters send the images in their provider's format, images before text.
+- A message without the key is sent exactly as in earlier releases.
+- Count, size and media type are the provider's to refuse (`ReleaseNotes_1.10.0.md` §2.6).
+- A custom `LLM` subclass written before 1.10.0 ignores `images` (§2.10).
+
 `Gemini` alone has image generation (1.9.0), as a public method rather than on the `LLM`
 contract, since no other adapter has it (`ReleaseNotes_1.9.0.md` §2.1):
 
