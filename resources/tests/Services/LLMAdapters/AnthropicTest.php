@@ -6,6 +6,7 @@ namespace Monad\Clarity\Tests\Services\LLMAdapters;
 
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\ReferenceImage;
 use Monad\Clarity\Services\LLMAdapters\Anthropic;
 use Monad\Clarity\Services\LLMAdapters\AnthropicStructuredOutput;
 use Nyholm\Psr7\Response;
@@ -449,4 +450,48 @@ final class AnthropicTest extends TestCase
         self::assertArrayNotHasKey('tool_choice', $body);
     }
 
+
+    // ------------------------------------------------------------- image input (1.10.0)
+
+    public function testOnlyTheImageBearingMessageChangesShapeWithImagesBeforeText(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new Anthropic('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [
+                ['role' => 'user', 'content' => 'Hello'],
+                ['role' => 'assistant', 'content' => 'Hi'],
+                [
+                    'role' => 'user',
+                    'content' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?',
+                    'images' => [new ReferenceImage('image/jpeg', 'before-bytes'), new ReferenceImage('image/png', 'after-bytes')],
+                ],
+            ],
+        ));
+
+        self::assertSame([
+            ['role' => 'user', 'content' => 'Hello'],
+            ['role' => 'assistant', 'content' => 'Hi'],
+            ['role' => 'user', 'content' => [
+                ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/jpeg', 'data' => base64_encode('before-bytes')]],
+                ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/png', 'data' => base64_encode('after-bytes')]],
+                ['type' => 'text', 'text' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?'],
+            ]],
+        ], $fake->decodedLastRequestBody()['messages']);
+    }
+
+    public function testAnImageMessageWithEmptyContentSendsNoTextPart(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new Anthropic('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [['role' => 'user', 'content' => '', 'images' => [new ReferenceImage('image/jpeg', 'only-bytes')]]],
+        ));
+
+        self::assertSame([
+            ['type' => 'image', 'source' => ['type' => 'base64', 'media_type' => 'image/jpeg', 'data' => base64_encode('only-bytes')]],
+        ], $fake->decodedLastRequestBody()['messages'][0]['content']);
+    }
 }

@@ -6,6 +6,59 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-15
+
+Image input for `complete()`. Purely additive. An application that sends no images sends
+byte-for-byte the requests 1.9.1 sent, and no existing test was modified to show it.
+**Verified live before the tag:** all four adapters passed 25/25 smoke checks, and in each
+provider's recommended mode the checklist measurement scored 36/36. Canonical spec:
+`ReleaseNotes_1.10.0.md`.
+
+### Added
+- **`images` on a user message in `LLMRequest`.** It is an optional, non-empty list of the
+  `ReferenceImage` objects 1.9.0 introduced, sent by all four adapters in their provider's own
+  format, images before text:
+  - OpenAI and DeepSeek: `image_url` data URLs
+  - Anthropic: base64 `image` blocks
+  - Gemini: `inline_data`
+
+  `content` stays a string, so code that reads it never meets an array (§2.1). Images on an
+  assistant message, an empty list, a keyed array or a non-`ReferenceImage` entry are each
+  refused at construction, naming the message index. Count, size and media type are passed
+  through for the provider to refuse (§2.6).
+
+  **Measured before it shipped.** The test was before and after images of 9 Nano Banana edits,
+  with a `responseSchema` built from a 4-item checklist (36 judgments per model):
+
+  | Model | Correct |
+  |---|---|
+  | Gemini `gemini-3.5-flash` | 36/36 |
+  | OpenAI `gpt-5.6-sol` | 36/36 |
+  | Anthropic `claude-opus-5` (`NativeSchema`) | 36/36 |
+  | DeepSeek `deepseek-flash` | 36/36 |
+  | OpenAI `gpt-4o-mini` | 33/36 |
+
+  That pattern, for checking specific objects in an image, is documented rather than added as
+  a helper (§2.9). It needs 1.8.2's fix whenever its schema uses `additionalProperties`.
+
+  **Two things to know:**
+  - **On Anthropic, an image request with a schema should use `NativeSchema`.** With images,
+    the default `ForcedTool` mode answered in the wrong shape every time it was measured
+    (0 of 4), and it refuses schema keys containing spaces (§2.13, §2.14). This is documented
+    rather than switched automatically, keeping 1.8.0's rule that the caller chooses the mode.
+  - **Custom adapters:** an `LLM` subclass written outside Clarity before 1.10.0 silently
+    ignores `images` (§2.10).
+
+### Changed
+- **`resources/smoke/live-llm-smoke.php`** gains an image-input check in every suite: a
+  solid red square the model must name. DeepSeek's default model is now `deepseek-flash`,
+  because DeepSeek discontinued `deepseek-chat` on 2026-07-24 (§2.11). This file is
+  export-ignored.
+
+### Documentation
+- **`ReleaseNotes_1.10.0.md`**, frozen with its live gate met, plus `API_Contracts.md`,
+  `TestingStrategy.md` and `CLAUDE.md`. `ReferenceImage`'s docblock now covers both of its uses.
+
 ## [1.9.1] - 2026-11-15
 
 Documents and locks in a guarantee 1.9.0 already kept: `Gemini::generateImage()` returns only

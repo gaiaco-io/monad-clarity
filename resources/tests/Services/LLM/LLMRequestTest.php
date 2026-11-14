@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Monad\Clarity\Tests\Services\LLM;
 
 use Monad\Clarity\Services\LLM\LLMRequest;
+use Monad\Clarity\Services\LLM\ReferenceImage;
+use PHPUnit\Framework\Attributes\DataProvider;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 
@@ -90,5 +92,64 @@ final class LLMRequestTest extends TestCase
         $request = new LLMRequest(model: 'gpt-5', messages: self::validMessages(), responseSchema: $schema);
 
         self::assertSame($schema, $request->responseSchema);
+    }
+
+    // ------------------------------------------------------------- images (1.10.0)
+
+    public function testAUserMessageMayCarryImagesAndKeepsItsStringContent(): void
+    {
+        $images = [new ReferenceImage('image/jpeg', 'before'), new ReferenceImage('image/png', 'after')];
+        $request = new LLMRequest(model: 'gemini-3.5-flash', messages: [
+            ['role' => 'user', 'content' => 'What changed?', 'images' => $images],
+        ]);
+
+        self::assertSame('What changed?', $request->messages[0]['content']);
+        self::assertSame($images, $request->messages[0]['images']);
+    }
+
+    public function testAnImageMessageMayHaveEmptyContent(): void
+    {
+        $request = new LLMRequest(model: 'm', messages: [
+            ['role' => 'user', 'content' => '', 'images' => [new ReferenceImage('image/jpeg', 'x')]],
+        ]);
+
+        self::assertSame('', $request->messages[0]['content']);
+    }
+
+    public function testMessagesWithoutImagesAreUnchanged(): void
+    {
+        $request = new LLMRequest(model: 'gpt-5', messages: self::validMessages());
+
+        self::assertArrayNotHasKey('images', $request->messages[0]);
+    }
+
+    /**
+     * @return iterable<string, array{array<string, mixed>, string}>
+     */
+    public static function invalidImageMessages(): iterable
+    {
+        yield 'assistant turn' => [
+            ['role' => 'assistant', 'content' => 'x', 'images' => [new ReferenceImage('image/jpeg', 'x')]],
+            'Message 1 is an assistant turn carrying images',
+        ];
+        yield 'empty list' => [['role' => 'user', 'content' => 'x', 'images' => []], 'must be a non-empty list'];
+        yield 'keyed array' => [
+            ['role' => 'user', 'content' => 'x', 'images' => ['a' => new ReferenceImage('image/jpeg', 'x')]],
+            'must be a non-empty list',
+        ];
+        yield 'null' => [['role' => 'user', 'content' => 'x', 'images' => null], 'must be a non-empty list'];
+        yield 'raw bytes' => [['role' => 'user', 'content' => 'x', 'images' => ['jpeg-bytes']], 'found string'];
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
+    #[DataProvider('invalidImageMessages')]
+    public function testRejectsInvalidImagesNamingTheMessage(array $message, string $expected): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($expected);
+
+        new LLMRequest(model: 'm', messages: [['role' => 'user', 'content' => 'first'], $message]);
     }
 }

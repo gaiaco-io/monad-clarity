@@ -9,6 +9,7 @@ use Monad\Clarity\Services\LLM;
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
 use Monad\Clarity\Services\LLM\LLMResponse;
+use Monad\Clarity\Services\LLM\ReferenceImage;
 use InvalidArgumentException;
 use JsonException;
 
@@ -87,7 +88,10 @@ final class Anthropic extends LLM
         $body = [
             'model' => $request->model,
             'messages' => array_map(
-                static fn (array $message): array => ['role' => $message['role'], 'content' => $message['content']],
+                static fn (array $message): array => [
+                    'role' => $message['role'],
+                    'content' => isset($message['images']) ? self::contentBlocks($message) : $message['content'],
+                ],
                 $request->messages
             ),
             'max_tokens' => $request->maxOutputTokens,
@@ -272,6 +276,31 @@ final class Anthropic extends LLM
         $reason = $decoded['stop_reason'] ?? null;
 
         return is_string($reason) ? $reason : 'none reported';
+    }
+
+    /**
+     * A user message carrying images (1.10.0) becomes an array of content blocks: each image
+     * as a base64 `image` block, then the text, if any. Images first is Anthropic's own advice
+     * — "Claude works best when images come before text" (`ReleaseNotes_1.10.0.md` §2.5).
+     *
+     * @param array{role: string, content: string, images: list<ReferenceImage>} $message
+     * @return list<array<string, mixed>>
+     */
+    private static function contentBlocks(array $message): array
+    {
+        $blocks = array_map(
+            static fn (ReferenceImage $image): array => [
+                'type' => 'image',
+                'source' => ['type' => 'base64', 'media_type' => $image->mimeType, 'data' => base64_encode($image->bytes)],
+            ],
+            $message['images']
+        );
+
+        if ($message['content'] !== '') {
+            $blocks[] = ['type' => 'text', 'text' => $message['content']];
+        }
+
+        return $blocks;
     }
 
     protected function providerName(): string

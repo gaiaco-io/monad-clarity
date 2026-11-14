@@ -9,6 +9,7 @@ use Monad\Clarity\Services\LLM;
 use Monad\Clarity\Services\LLM\LLMException;
 use Monad\Clarity\Services\LLM\LLMRequest;
 use Monad\Clarity\Services\LLM\LLMResponse;
+use Monad\Clarity\Services\LLM\ReferenceImage;
 use JsonException;
 
 /**
@@ -55,7 +56,10 @@ final class OpenAI extends LLM
         }
 
         foreach ($request->messages as $message) {
-            $messages[] = ['role' => $message['role'], 'content' => $message['content']];
+            $messages[] = [
+                'role' => $message['role'],
+                'content' => isset($message['images']) ? self::contentParts($message) : $message['content'],
+            ];
         }
 
         $body = [
@@ -122,6 +126,32 @@ final class OpenAI extends LLM
         }
 
         return $decoded;
+    }
+
+    /**
+     * A user message carrying images (1.10.0) becomes Chat Completions' array of content
+     * parts: each image as a base64 data URL, then the text, if any — images first, the order
+     * every provider's guidance prefers (`ReleaseNotes_1.10.0.md` §2.5). `detail` is left out,
+     * so OpenAI applies its own default.
+     *
+     * @param array{role: string, content: string, images: list<ReferenceImage>} $message
+     * @return list<array<string, mixed>>
+     */
+    private static function contentParts(array $message): array
+    {
+        $parts = array_map(
+            static fn (ReferenceImage $image): array => [
+                'type' => 'image_url',
+                'image_url' => ['url' => 'data:' . $image->mimeType . ';base64,' . base64_encode($image->bytes)],
+            ],
+            $message['images']
+        );
+
+        if ($message['content'] !== '') {
+            $parts[] = ['type' => 'text', 'text' => $message['content']];
+        }
+
+        return $parts;
     }
 
     protected function providerName(): string

@@ -452,4 +452,48 @@ final class GeminiTest extends TestCase
 
         self::assertSame('https://proxy.test/v1beta/interactions', (string) $fake->lastRequest()->getUri());
     }
+
+    // ------------------------------------------------------------- image input (1.10.0)
+
+    public function testOnlyTheImageBearingMessageChangesShapeWithImagesBeforeText(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new Gemini('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [
+                ['role' => 'user', 'content' => 'Hello'],
+                ['role' => 'assistant', 'content' => 'Hi'],
+                [
+                    'role' => 'user',
+                    'content' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?',
+                    'images' => [new ReferenceImage('image/jpeg', 'before-bytes'), new ReferenceImage('image/png', 'after-bytes')],
+                ],
+            ],
+        ));
+
+        self::assertSame([
+            ['role' => 'user', 'parts' => [['text' => 'Hello']]],
+            ['role' => 'model', 'parts' => [['text' => 'Hi']]],
+            ['role' => 'user', 'parts' => [
+                ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode('before-bytes')]],
+                ['inline_data' => ['mime_type' => 'image/png', 'data' => base64_encode('after-bytes')]],
+                ['text' => 'Image 1 is BEFORE, image 2 is AFTER. What changed?'],
+            ]],
+        ], $fake->decodedLastRequestBody()['contents']);
+    }
+
+    public function testAnImageMessageWithEmptyContentSendsNoTextPart(): void
+    {
+        $fake = new FakeHttpClient(static fn () => self::textResponse());
+
+        (new Gemini('test-key', $fake))->complete(new LLMRequest(
+            model: 'vision-model',
+            messages: [['role' => 'user', 'content' => '', 'images' => [new ReferenceImage('image/jpeg', 'only-bytes')]]],
+        ));
+
+        self::assertSame([
+            ['inline_data' => ['mime_type' => 'image/jpeg', 'data' => base64_encode('only-bytes')]],
+        ], $fake->decodedLastRequestBody()['contents'][0]['parts']);
+    }
 }
