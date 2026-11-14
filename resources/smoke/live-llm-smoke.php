@@ -197,6 +197,29 @@ function assertImages(ImageResponse $r, string $dir, string $label): true|string
     return true;
 }
 
+/**
+ * Writes Google's raw response with every base64 payload cut to a stub, so the mocked
+ * fixtures in GeminiTest can be reconciled against what Google actually sent (1.9.0 §2.9).
+ *
+ * @param array<string, mixed> $raw
+ */
+function writeRedactedRaw(array $raw, string $dir, string $label): void
+{
+    array_walk_recursive($raw, static function (mixed &$value, int|string $key): void {
+        if ($key === 'data' && is_string($value) && strlen($value) > 64) {
+            $value = substr($value, 0, 16) . '…(' . strlen($value) . ' base64 chars)';
+        }
+    });
+
+    if (!is_dir($dir)) {
+        mkdir($dir, 0700, true);
+    }
+
+    $path = "{$dir}/{$label}-response.json";
+    file_put_contents($path, json_encode($raw, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    echo "         wrote {$path}\n";
+}
+
 function assertStructured(LLMResponse $r): true|string
 {
     if (!is_array($r->content)) {
@@ -512,21 +535,44 @@ $suites['gemini'] = static function () use ($http): void {
         ));
 
         $generated = $r;
+        writeRedactedRaw($r->raw, $imageDir, 'text-to-image');
+
+        // §2.9 item 4: the usage field names are read from the reference, not measured, and
+        // a wrong name would silently yield 0/0 rather than fail.
+        if ($r->usage['inputTokens'] < 1 || $r->usage['outputTokens'] < 1) {
+            return sprintf(
+                'usage read as %d in / %d out — the field names do not match what Google sent; see the raw response',
+                $r->usage['inputTokens'],
+                $r->usage['outputTokens']
+            );
+        }
 
         return assertImages($r, $imageDir, 'text-to-image');
     });
 
     Smoke::check('store: false leaves nothing retrievable at Google (1.9.0 §2.6)', static function () use ($http, $key, &$generated) {
-        if ($generated?->providerRequestId === null) {
-            return 'no interaction id to look up — the text-to-image check must pass first';
+        if ($generated === null) {
+            return 'inconclusive — the text-to-image check must pass first';
+        }
+
+        // An unstored interaction may have no id at all, which is the strongest answer.
+        if ($generated->providerRequestId === null) {
+            echo "         no interaction id was returned, so there is nothing to retrieve\n";
+
+            return true;
         }
 
         $status = $http->get(
             'https://generativelanguage.googleapis.com/v1beta/interactions/' . rawurlencode($generated->providerRequestId),
-            ['x-goog-api-key' => $key]
+            ['x-goog-api-key' => $key, 'Api-Revision' => '2026-05-20']
         )->getStatusCode();
 
-        return $status === 200 ? 'Google returned the interaction (HTTP 200) although it was sent with store: false' : true;
+        // Only a 404 proves absence; a 429 or 5xx proves nothing either way.
+        return match (true) {
+            $status === 404 => true,
+            $status === 200 => 'Google returned the interaction (HTTP 200) although it was sent with store: false',
+            default => "inconclusive — the lookup returned HTTP {$status}, which neither proves nor disproves storage",
+        };
     });
 
     Smoke::check('editing a reference image returns an image', static function () use ($adapter, $imageModel, $imageDir, &$generated) {
@@ -536,11 +582,14 @@ $suites['gemini'] = static function () use ($http): void {
             return 'no source image to edit — the text-to-image check must pass first';
         }
 
-        return assertImages($adapter->generateImage(new ImageRequest(
+        $r = $adapter->generateImage(new ImageRequest(
             model: $imageModel,
             prompt: 'Make the lighthouse green; keep everything else the same',
             referenceImages: [new ReferenceImage($source->mimeType, $source->bytes)],
-        )), $imageDir, 'edit');
+        ));
+        writeRedactedRaw($r->raw, $imageDir, 'edit');
+
+        return assertImages($r, $imageDir, 'edit');
     });
 
     Smoke::check('generateImage with a bad key raises LLMException', static function () use ($http, $imageModel) {

@@ -105,14 +105,18 @@ touched. `HttpClient` is unchanged: `postJson()` already took headers.
 `resources/smoke/live-llm-smoke.php`'s Gemini suite gains four checks and two observations:
 
 - **Checks:**
-  - text-to-image returns an image PHP decodes, whose bytes match its claimed type
-  - `store: false` leaves the interaction unretrievable
+  - text-to-image returns an image PHP decodes, whose bytes match its claimed type, with
+    non-zero usage. Usage is checked because a wrong field name would otherwise read silently
+    as 0/0 (§2.9 item 4).
+  - `store: false` leaves the interaction unretrievable. Only a 404, or no interaction `id` at
+    all, passes. A 429 or 5xx is reported as inconclusive rather than as proof.
   - editing that image as a reference returns an image
   - a bad key raises
 - **Observations:** how a refused prompt surfaces, and what changes without `Api-Revision`. They are recorded, not gated, because Google specifies neither (§2.9).
 
 Every image received is written under the system temp directory and its path printed, so the
-last check is a human eye.
+last check is a human eye. So is Google's raw response, with base64 cut to a stub, so the
+mocked fixtures in `GeminiTest` can be reconciled against what Google actually sent.
 
 ## 2. Decisions this release records
 
@@ -126,8 +130,8 @@ last check is a human eye.
   implementation, which is exactly what this repo declines to build. It would also be the
   1.5.0 §2.1 scope expansion for a capability with one provider behind it.
 - **Add a public method on `Gemini`.** This is the rule Checkout set for subscriptions
-  (`ReleaseNotes_1.3.0.md` §2.4, `1.4.0`): a capability only some providers have is a public
-  method on the adapter that has it.
+  (`ReleaseNotes_1.4.0.md` §2.2, "The facade gains no fifth method"): a capability only some
+  providers have is a public method on the adapter that has it.
 
 This release takes the third. If a second provider's image API is ever added, it gets its own
 method, and an abstraction can then be drawn from two real implementations rather than guessed
@@ -177,9 +181,10 @@ reference after the plan was written:
 - **There is no cap on reference images.** The plan said at most 14, but that figure belongs
   to one model, and `ImageRequest` serves any model.
 - **`outputMimeType` is nullable and unvalidated beyond shape.** The plan said PNG or JPEG.
-  The reference lists only `image/jpeg` as an output type, while Google's own examples request
-  `image/png`. The documents disagree, so the request omits the field unless the caller sets
-  it, and `GeneratedImage::$mimeType` reports what actually came back.
+  The reference lists only `image/jpeg` as an output type, and Google's REST, Python, Java and
+  CLI examples all use it, but one JavaScript example on the same image-generation page
+  requests `image/png`. The documents disagree, so the request omits the field unless the
+  caller sets it, and `GeneratedImage::$mimeType` reports what actually came back.
 
 ### 2.6 `store: false`
 

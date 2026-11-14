@@ -41,14 +41,15 @@ credential has been available. Canonical spec: `ReleaseNotes_1.9.0.md`.
   counts are passed to Google unchecked, because they differ per model and grow with each
   release, and Google's 400 is the authority. That is 1.8.0 §2.4's rule, applied again (§2.5).
 
-  `GeneratedImage::$mimeType` is what Google reported, not what was requested. Its timeout
-  defaults to 120 seconds, because a 4K render outlasts `LLMRequest`'s 30.
+  `GeneratedImage::$mimeType` is what Google reported, not what was requested.
+  `ImageRequest::$timeoutSeconds` defaults to 120, because a 4K render outlasts `LLMRequest`'s 30.
 
 - **`resources/smoke/live-llm-smoke.php`**: the Gemini suite gains an image step. It checks
   that text-to-image returns decodable images of the claimed type, that `store: false` is
-  honoured, that an edit works and that a bad key raises. It records how a refused prompt
-  surfaces and what changes without `Api-Revision`. Every image is written to the temp
-  directory, and its path is printed. This file is export-ignored.
+  honoured (only a 404 or an absent `id` counts), that an edit works, that usage reads
+  non-zero and that a bad key raises. It records how a refused prompt surfaces and what
+  changes without `Api-Revision`. Every image is written to the temp directory with its path
+  printed, alongside a redacted copy of Google's raw response. This file is export-ignored.
 
 ### Documentation
 - **`ReleaseNotes_1.9.0.md`** (draft until its live gate is met), plus `API_Contracts.md`,
