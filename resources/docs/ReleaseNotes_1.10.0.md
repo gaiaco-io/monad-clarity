@@ -1,12 +1,11 @@
 # Monad Clarity 1.10.0 Release Notes
 
-**Status:** DRAFT. Not frozen until §3's live gate is met. The code is complete, the mocked
-suite is green, and the Gemini half of the gate is met in full, the checklist measurement
-included. OpenAI, Anthropic and DeepSeek have not yet been reached live: all three smoke
-credentials are refused with HTTP 401, the 1.8.0 text checks included, so the failure is the
-credentials, not this release. 1.8.0 §3's rule holds the tag until they are replaced and the
-suite runs green. This document does not restate 1.0.0 through 1.9.1; those remain frozen for
-what they specified.
+**Status:** FROZEN — canonical specification for the 1.10.0 release. Every box in §3 is
+ticked. All four adapters ran green against their live providers before the tag (25/25
+smoke checks), and the checklist measurement scored 36/36 on every provider in its
+recommended mode (§3). The gate run also found two things about Anthropic's default
+structured-output mode, recorded in §2.13 and §2.14. This document does not restate 1.0.0
+through 1.9.1; those remain frozen for what they specified.
 
 > **Scope note.** 1.10.0 lets `complete()` look at images. A user message in `LLMRequest`
 > may now carry an `images` key: a list of the `ReferenceImage` objects 1.9.0 introduced for
@@ -182,6 +181,42 @@ as it has since 1.0.0, so an application that logs exceptions logs that fragment
 new in 1.10.0 and is not changed here. Redacting provider bodies would be a separate decision,
 because the body is also what makes these errors useful.
 
+### 2.13 On Anthropic, an image request with a schema uses `NativeSchema`
+
+The gate run found that `claude-opus-5`, in the default `ForcedTool` mode, does not keep to the
+schema's top-level shape **when the request carries images**. It wraps its answer in a key
+the schema does not contain (`input` or `response`). Measured with a two-key schema:
+
+| Anthropic mode | With images | Text only |
+|---|---|---|
+| `ForcedTool` (the default) | 0 of 4 answers matched the schema's shape | 4 of 4 |
+| `NativeSchema` | 4 of 4 | 4 of 4 |
+
+The adapter passes the schema through and reads the tool's input unchanged, so the wrapper is
+the model's, not Clarity's. A forced tool's `input_schema` is guidance Anthropic does not
+enforce, while native mode's schema is enforced. `NativeSchema` on the same images scored
+36/36 on the checklist (§3).
+
+**Decision: document it, do not switch modes behind the caller's back.** 1.8.0 §2.1 put the
+mode choice with the caller, because a model id does not say which mechanism it supports.
+Switching silently whenever a request carries images would bring back exactly the hidden,
+per-request guess 1.8.0 rejected. Unwrapping a single unexpected key would be worse, because
+it would guess at the model's intent and could strip real data. Image input is new in this
+release, so no existing caller depends on the default for it. The API contract and the docs
+page say: on Anthropic, construct the adapter with `NativeSchema` for image requests that use
+a `responseSchema`.
+
+### 2.14 Schema property names should be identifier-style
+
+The same run found that `ForcedTool` refuses any schema property name outside
+`^[a-zA-Z0-9_.-]{1,64}$`, with or without images. That is Anthropic's rule for a tool's
+`input_schema`. A checklist that becomes schema keys (§2.9) and contains spaces, such as
+`'teacup color'`, therefore fails on Anthropic's default mode with a 400, which
+`assertSuccessful()` reports. `NativeSchema`, OpenAI, Gemini and DeepSeek all accepted such
+names. It is documented rather than rewritten: the keys are the caller's, and the answer must
+come back under the names the caller chose. The docs example uses identifier-style names, and
+the docs page says why.
+
 ## 3. Acceptance gate
 
 - [x] `LLMRequest` accepts `images` on user messages and refuses each malformed form, naming
@@ -200,10 +235,24 @@ because the body is also what makes these errors useful.
       §2.9 describes. The gate required at least 35/36. The ground truth is pixel
       measurement, with one value (run 6's saucer) corrected by eye: the measurement missed a
       dark-blue-to-dark-green change that the model caught.
-- [ ] **Not met: OpenAI, Anthropic and DeepSeek live.** Every authenticated call returned
-      HTTP 401 ("Incorrect API key", "invalid x-api-key", "Authentication Fails"). That
-      includes the 1.8.0 text checks those adapters passed on 2026-09-07, so these are
-      credentials that have since been revoked or expired, not a code fault. Each suite's
-      bad-key check passes. **Before tagging:** replace the three keys in
-      `~/.monad-llm-smoke.env` and run the suite to green, which includes DeepSeek's first
-      run on `deepseek-flash` (§2.11).
+- [x] **All four adapters live, 25/25 green on 2026-11-15**, once Marshal had replaced the
+      OpenAI, Anthropic and DeepSeek smoke credentials. The first run had stopped at HTTP 401
+      on all three, including the 1.8.0 text checks, which showed the keys had been revoked or
+      had expired. Every suite now passes, including its image-input check:
+      - Anthropic `claude-opus-5`: 6/6
+      - OpenAI `gpt-4o-mini`: 5/5
+      - Gemini: 9/9
+      - DeepSeek `deepseek-flash`: 5/5, its first live run on that model (§2.11)
+- [x] **Checklist on every provider**, through Clarity's own adapters with `images`, on the
+      same 36 items. Only Gemini was gated; the others are recorded:
+
+      | Provider and model | Result |
+      |---|---|
+      | Gemini `gemini-3.5-flash` | **36/36** (gated) |
+      | OpenAI `gpt-5.6-sol` | **36/36** |
+      | OpenAI `gpt-4o-mini` | 33/36 (the small legacy model: 2 false "changed", 1 missed) |
+      | Anthropic `claude-opus-5`, `NativeSchema` | **36/36** |
+      | Anthropic `claude-opus-5`, `ForcedTool` | 400 on every request: the checklist keys contain spaces (§2.14). With identifier keys it answers, but in the wrong shape (§2.13). |
+      | DeepSeek `deepseek-flash` | **36/36** |
+
+      In every provider's recommended mode, the pattern §2.9 documents is 36/36.

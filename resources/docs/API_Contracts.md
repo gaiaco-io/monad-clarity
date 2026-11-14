@@ -218,6 +218,9 @@ the request names one. An empty string is refused at construction.
 - All four adapters send the images in their provider's format, images before text.
 - A message without the key is sent exactly as in earlier releases.
 - Count, size and media type are the provider's to refuse (`ReleaseNotes_1.10.0.md` §2.6).
+- **On Anthropic, an image request with a `responseSchema` should use `NativeSchema`.** With
+  images, the default `ForcedTool` mode was measured not to keep the schema's shape. Separately,
+  `ForcedTool` refuses schema property names outside `^[a-zA-Z0-9_.-]{1,64}$` (§2.13, §2.14).
 - A custom `LLM` subclass written before 1.10.0 ignores `images` (§2.10).
 
 `Gemini` alone has image generation (1.9.0), as a public method rather than on the `LLM`

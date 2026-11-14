@@ -144,7 +144,7 @@ canonical for every document below — where the skeleton repo carries a mirror,
   every request is sent with **`store: false`**, because Google documents no default or
   retention period and a stored request holds the caller's reference images (§2.6).
 - `ReleaseNotes_1.10.0.md` — WHAT ships in 1.10.0 (image input for `complete()`: an optional
-  `images` key on user messages, sent by all four adapters), and twelve decisions. Read before
+  `images` key on user messages, sent by all four adapters), and fourteen decisions. Read before
   touching how an `LLMRequest` message is shaped. The three most load-bearing:
   - Images get a **key beside `content`, never a wider `content`**, because code that reads
     `content` as a string must never be handed an array (§2.1).
