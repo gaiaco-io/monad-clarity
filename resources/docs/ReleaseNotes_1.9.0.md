@@ -291,8 +291,12 @@ takes these unchanged.
          decoded correctly. It also still takes a Google OpenAPI-style schema (`"STRING"`,
          `nullable`, `propertyOrdering`), so switching fields breaks no schema that works
          today. Both styles were verified on `gemini-3.5-flash-lite` and `gemini-3.5-flash`;
-         `gemini-3.8-flash` was overloaded (503) for the whole run. Where the fix ships is
-         Marshal's decision and is still open.
+         `gemini-3.8-flash` was overloaded (503) for the whole run. **The fix ships separately
+         as patch 1.8.2** (PR #24), Marshal's decision: it is a bug fix, it is verified live,
+         and it should not wait on this release's billing blocker. With it applied, the Gemini
+         suite runs 4/4 green on `gemini-3.5-flash-lite` and `gemini-3.5-flash`. This branch
+         takes the fix by updating from `main` once 1.8.2 merges, and this release's notes do
+         not restate it.
       3. **`generateImage()` is blocked by the account's billing tier, not by code.**
          Google answered `429 … limit: 0 requests per day on Free Tier` for
          `gemini-nano-banana-2.1`. Google got past authentication to a quota decision, which
