@@ -467,7 +467,7 @@ $suites['openai'] = static function () use ($http): void {
 
 $suites['gemini'] = static function () use ($http): void {
     $key = Smoke::key('GEMINI_API_KEY');
-    $model = getenv('GEMINI_MODEL') ?: 'gemini-2.0-flash';
+    $model = getenv('GEMINI_MODEL') ?: 'gemini-3.5-flash-lite';
     echo "  model: {$model}\n";
 
     $adapter = new Gemini($key, $http);

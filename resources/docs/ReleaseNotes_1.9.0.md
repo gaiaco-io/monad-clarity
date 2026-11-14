@@ -274,3 +274,29 @@ takes these unchanged.
       this release does not touch, so the failure is the credential, not this code. It is the
       `AQ.`-format key problem 1.8.0 §3 recorded, unchanged. **Do not tag until the Gemini
       suite runs green with a working key** and §2.9 items 1 to 4 are answered here.
+
+      **Re-run later on 2026-11-14 with a credential Google accepts.** The 401 is gone, and
+      the run produced three findings:
+
+      1. **`complete()` is verified live for the first time since 1.0.0**, against
+         `gemini-3.5-flash-lite`: plain text, multi-turn with the `model` role, and an
+         invalid key raising. The smoke script's old default model, `gemini-2.0-flash`, has
+         been retired by Google (HTTP 404), so the default is now `gemini-3.5-flash-lite`.
+      2. **Confirmed defect in `complete()`, present since 1.0.0.** Structured output returns
+         HTTP 400: `Unknown name "additionalProperties" at 'generation_config.response_schema'`.
+         `responseSchema` takes Google's OpenAPI-style subset, not JSON Schema. Any schema
+         containing `additionalProperties` is refused, and OpenAI's strict mode requires
+         that keyword, so a schema written once for every adapter cannot reach Gemini.
+         Google's `responseJsonSchema` field takes the same schema: HTTP 200, with the object
+         decoded correctly. It also still takes a Google OpenAPI-style schema (`"STRING"`,
+         `nullable`, `propertyOrdering`), so switching fields breaks no schema that works
+         today. Both styles were verified on `gemini-3.5-flash-lite` and `gemini-3.5-flash`;
+         `gemini-3.8-flash` was overloaded (503) for the whole run. Where the fix ships is
+         Marshal's decision and is still open.
+      3. **`generateImage()` is blocked by the account's billing tier, not by code.**
+         Google answered `429 … limit: 0 requests per day on Free Tier` for
+         `gemini-nano-banana-2.1`. Google got past authentication to a quota decision, which
+         confirms the endpoint, the header auth and the `Api-Revision` header are accepted.
+         It does not verify the request body or any response handling. On this path Google's
+         error body was a JSON object (`{"error": {"message", "code"}}`), not the array the
+         401 used. §2.9 items 1 to 4 remain open until the Google project has a paid tier.
