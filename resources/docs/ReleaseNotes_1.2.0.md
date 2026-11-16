@@ -160,8 +160,21 @@ Semver **minor**. Every change is additive:
   was routine traffic rather than an edge case. Fixed by requiring a `checkout.session` object
   and throwing otherwise.
 
-**Outstanding before tagging** (see `ReleasePolicy.md` § Packagist publication checklist):
+**The two skeleton-side checklist items** (see `ReleasePolicy.md` § Packagist publication
+checklist). These were listed here as outstanding at tagging. They were recorded after the
+fact, on 2026-11-17, so that a later reader can see what was actually verified, and when:
 
-1. `php mitosis health` green on a fresh `create-project` against the **tagged** version, not
-   a path repository — requires the skeleton repo and a pushed tag.
-2. `CrossRepoContracts.md` mirror in `monad/skeleton` synced per its §10 procedure.
+1. **`php mitosis health` green on a fresh `create-project` against the tagged version.** ✔
+   This was **verified retroactively, not before tagging**: nothing records it being run at
+   release time. The 2026-11-17 run used:
+   - a fresh `create-project` of `monad/skeleton` 1.1.4, the skeleton release paired with 1.2.0;
+   - `monad/clarity` pinned to exactly `1.2.0` and resolved from Packagist — the dist at the
+     tag commit `188c596`, not a path repository;
+   - SQLite, with `setup`, `checkout:install` and `migrate` run first.
+
+   `health` passed all five checks and exited 0. That run was on PHP 8.5; 1.2.0's CI covered
+   8.2 and 8.3.
+2. **`CrossRepoContracts.md` mirror in `monad/skeleton` synced per its §10 procedure.** ✔
+   Done at release. Skeleton commit `1f26978`, made four minutes after the tag, carries a copy
+   that is byte-for-byte the same as this repo's at `v1.2.0`. Skeleton 1.1.4's CHANGELOG records
+   the sync.
