@@ -1,7 +1,9 @@
 # Monad Clarity 1.11.0 — `StripeSubscription` Gap Analysis & Sequenced Build Plan
 
-**Status:** DRAFT 2026-11-17, awaiting Marshal's decisions in §2. Nothing is built. Once the
-decisions are taken they move, frozen, into `ReleaseNotes_1.11.0.md` (Task 1), and from then on
+**Status:** APPROVED 2026-11-17. Marshal took every recommendation in §2. Task 0's
+test-mode spike ran the same day, and its answers (§3.1) refined D2, D5 and D6 without
+reopening any of them; the refinements are written into those decisions below. Nothing else is
+built. The decisions move, frozen, into `ReleaseNotes_1.11.0.md` (Task 1), and from then on
 that document is the specification. This one stays as the build sequence and the acceptance
 gate, which is how `GapAnalysis_BuildPlan_1.6.0.md` is used.
 
@@ -148,7 +150,12 @@ you choose the alternative, the tasks named under that decision change. No other
 - Tasks affected: 2 (the version is read per class), 4 and 5 (where the PaymentIntent is read),
   and 8.
 
-### D2. What "pause" means on Stripe (read Task 0's L1 answer first)
+### D2. What "pause" means on Stripe
+
+**Taken, and refined by Task 0.** The spike settled the trial question in this decision's
+favour: only a *currently trialing* subscription is refused a pause. It also found that
+`resume()` must pay the invoice it creates. Both points are recorded below, under "Settled by
+Task 0".
 
 - **Recommended: use the real `POST /subscriptions/{id}/pause` and `/resume`.** After a pause,
   `status` is `paused`, so the adapter's `SubscriptionStatus::Paused` is Stripe's own word. The
@@ -176,6 +183,38 @@ you choose the alternative, the tasks named under that decision change. No other
   **What a paused snapshot reports:** Stripe moves `current_period_end` to the moment of the
   pause. So `currentPeriodEndsAt` and `accessEndsAt()` are that moment, and `nextBilledAt` is
   null. That matches "service stops when billing stops", and the docblock says so.
+
+  **Settled by Task 0, and binding on Task 8:**
+
+  - **Only an active trial blocks a pause.** Pausing a trialing subscription is refused with
+    "Can't pause a subscription that is trialing. Set `trial_end` to `now`…". The same
+    subscription paused normally once its trial had ended. The adapter does not refuse this
+    locally: whether a subscription is trialing needs a read, and Stripe's own message already
+    says what to do. The docblock records it.
+  - **Pausing credits the unused period.** Under Stripe's default
+    `invoicing_behavior=pending_invoice_item`, the pause created a pending −1450 proration
+    ("Unused time … after 19 Nov"). That credit lands on the invoice raised at resume. This is
+    unlike Paddle, where a paused subscription keeps its period. The adapter sends the default
+    and the docblock says so plainly.
+  - **`resume()` with `StartNewBillingPeriod` must pay the invoice it raises.** `/resume` with
+    `billing_cycle_anchor[type]=now` returned **still `paused`**. Its new invoice was `open`,
+    with `auto_advance: false` and no `next_payment_attempt`. Stripe's default
+    `payment_behavior=resume_on_payment_attempt` resumes only when someone attempts that
+    payment, and Stripe never will on its own: two hours later on the test clock it was still
+    `open` and the subscription still `paused`. `POST /invoices/{id}/pay` moved it to `active`
+    with a fresh period. So:
+    - `resume()` calls `/resume`.
+    - If the returned subscription's `latest_invoice` is `open`, `resume()` pays it.
+    - It then re-reads the subscription and returns that snapshot.
+    - A declined payment raises `CheckoutException`. The message names the invoice and says
+      the subscription is **still paused**, so a caller never mistakes a failed resume for a
+      successful one.
+    - Paddle's `resume()` "may charge the customer immediately", so charging here is parity,
+      not a new behaviour.
+  - **`ContinueExistingBillingPeriod` (`anchor=unchanged`) resumes at once.** It raised no
+    charge inside the original period: Stripe restored the period end the pause had cut short.
+    It also voided an open resume invoice left by an earlier `anchor=now` call, so a second
+    resume safely supersedes a first that was never paid.
 - *Alternative:* `pause_collection[behavior]=void`, which works on any version. The status
   stays `active`, so the adapter would have to report `Paused` for something Stripe calls
   active. A scheduled resume would ride on `resumes_at`. That is a less honest mapping, and it
@@ -220,7 +259,10 @@ Stripe has three proration behaviours; Clarity's enum has five cases.
 Stripe's Checkout takes `subscription_data[trial_period_days]`, an integer number of days.
 
 - **Recommended:**
-  - `BillingInterval::Day` maps directly.
+  - `BillingInterval::Day` maps directly, **with a minimum of 2**. Task 0 found that
+    `trial_period_days=1` is refused: "The trial end date must be at least 2 days after the
+    customer's test clock time." So `BillingCycle(Day, 1)` is refused at construction with
+    that reason, rather than at the first checkout.
   - `Week` becomes 7 × frequency days.
   - `Month` and `Year` are **refused at construction**. Converting them would silently turn
     "one month" into 30 days.
@@ -236,13 +278,24 @@ Stripe's Checkout takes `subscription_data[trial_period_days]`, an integer numbe
 Stripe's subscription update takes `price_data` only with an existing `product` id; it does not
 take `product_data`.
 
-- **Recommended:** for each inline item, `POST /products` with `name` set to the item's
-  description. Use an idempotency key derived from the call's key and the item index. Then send
-  `price_data[product]`. Without this an "upgrade" button needs a Stripe catalogue, which 1.4.0
-  §1.1 promised Paddle merchants they would never need. Live gate L6 confirms the call
-  succeeds, and records whether Checkout's `product_data` already creates products the same
-  way. If it does, a merchant's catalogue grows identically whether the plan was set at
-  checkout or changed later.
+- **Taken, as refined by Task 0:**
+  1. For each inline item, `POST /products` with `name` set to the item's description. It
+     must be created **active**: Stripe refuses an inactive product on a subscription update
+     ("…is marked as inactive, and thus no new subscriptions can be create[d]…").
+  2. Send the subscription update with `price_data[product]`.
+  3. **Archive** each product just created, with `POST /products/{id}` `active=false`. Do this
+     whether step 2 succeeded or failed, so a refused change never leaves a stray active
+     product.
+  4. Each product call carries an idempotency key derived from the call's key and the item
+     index.
+
+  Task 0 confirmed the result is the footprint Checkout already leaves:
+  - Checkout's own `product_data` creates a real Product, **inactive**.
+  - The live subscription kept billing against a product archived after the update.
+
+  So a merchant's catalogue grows identically whether the plan was set at checkout or changed
+  later. Without this, an "upgrade" button needs a Stripe catalogue, which 1.4.0 §1.1 promised
+  Paddle merchants they would never need.
 - *Alternative:* refuse inline items on Stripe and require `SubscriptionItem::catalogPrice()`.
   That is simpler and creates no catalogue objects, but Stripe merchants would not get the
   parity Paddle merchants have.
@@ -379,6 +432,65 @@ None is assumed.
   for the *first* invoice, with `billing_reason=subscription_create`? This settles D7's
   documented handler shape.
 
+### 3.1 What Task 0 established (2026-11-17)
+
+Run in Stripe test mode with the CLI, on one test clock that was deleted afterwards, with
+requests pinned to `2026-09-30.endive`.
+
+- Both sessions were completed through `/v1/payment_pages/{cs}/confirm`, the internal endpoint
+  the Stripe CLI's own `trigger` fixtures use. It needs a real PaymentMethod with
+  `billing_details[name]` set, which makes the whole subscription path drivable without a
+  browser.
+- Deliveries were captured twice with `stripe listen`: once in the account's default version,
+  once with `--latest`.
+
+**The four pre-decision questions:**
+
+- **L1 — yes, and yes.**
+  - Checkout accepts `subscription_data[billing_mode][type]=flexible`, and the subscription
+    comes out `billing_mode.type: flexible`.
+  - A subscription that *had* a trial pauses normally once the trial is over. Only a
+    currently trialing one is refused. D2 stands.
+- **L2 — yes.** A completed subscription-mode session has `payment_intent: null`, with
+  `invoice` and `subscription` both populated synchronously.
+  - **Correction to the plan:** a *trial* session completes with `payment_status: "paid"` at
+    `amount_total: 0`, not `no_payment_required`. Its invoice is `paid`, totals 0, and has an
+    empty `payments` list. Tasks 4 and 5 use this real shape.
+- **L6 — yes, with two refinements, both written into D6.**
+  - Checkout's `product_data` creates a real, **inactive** Product.
+  - A subscription update refuses an inactive product, but accepts an active one that is
+    archived immediately afterwards.
+  - The whole-set replacement (old item `deleted=true`, new inline item added) worked, and
+    `always_invoice` charged the 1400 proration at once.
+- **L7 — yes.**
+  - At the pinned version, `GET /invoices/{id}` has no `payment_intent` field.
+    `expand[]=payments` gives `payments.data[].payment.payment_intent` with
+    `payment.type: "payment_intent"`.
+  - An `invoice.paid` webhook rendered at `2026-10-28.endive` carries no `payments`, no
+    `payment_intent` and no top-level `subscription`, only
+    `parent.subscription_details.subscription`.
+
+**Answered early, ahead of Task 12:**
+
+- **L3 — yes.** `subscription.metadata.reference` is set from `subscription_data[metadata]`.
+- **L11 — yes.** The first invoice of every signup raises `invoice.paid` and
+  `invoice.payment_succeeded` with `billing_reason: subscription_create`, the $0 trial invoice
+  included. D7's warning is real: the obvious handler would throw on every signup.
+- **L4 — partly.** Pause, both resume anchors, and the paused period are covered under D2.
+  Task 12 still owes a declined resume payment.
+
+**Found without being asked:**
+
+- **This account's default API version is `2025-02-24.acacia`, which is pre-basil.** An
+  endpoint created with defaults therefore receives the legacy shape: a top-level
+  `invoice.subscription` and `invoice.payment_intent` alongside `parent`. Review Focus 1 is a
+  real merchant's configuration, not a hypothesis.
+- **Same-second siblings occur in practice.** `customer.subscription.resumed` and
+  `invoice.paid` were delivered with the same `created` second. Review Focus 4 pins it.
+- **The newest version is now `2026-10-28.endive`.** The adapter pins `2026-09-30.endive`,
+  the version every request in this spike used. Moving to the newer one is a deliberate
+  later change, verified the same way, not a silent bump.
+
 ---
 
 ## 4. Tasks
@@ -408,22 +520,18 @@ This is about an hour of `curl` against a test-mode account, sent with
 `Stripe-Version: 2026-09-30.endive`. No code is written in the repo, and no credential is
 committed.
 
-- [ ] **Step 1:** Create a subscription-mode Checkout Session with
-  `subscription_data[billing_mode][type]=flexible`, `trial_period_days=1`, and an inline
-  `price_data` with `product_data`.
-  - Complete it with card `4242…`.
-  - Record the completed session's `payment_intent`, `invoice` and `subscription` fields (L2).
-  - Record whether a Product was created (L6, part 2).
-- [ ] **Step 2:** Pause that subscription while it is trialing, then end the trial on a test
-  clock and pause it again. Record both answers, which decide between D2's two readings (L1).
-  Resume it.
-- [ ] **Step 3:** Run `POST /products`, then `POST /subscriptions/{id}` with
-  `price_data[product]`. Record whether it is accepted (L6, part 1).
-- [ ] **Step 4:** Capture an `invoice.paid` delivery with `stripe listen`. Record whether
-  `payments` is present, and the path to the PaymentIntent from
-  `GET /invoices/{id}?expand[]=payments` (L7).
-- [ ] **Step 5:** Append the four answers to §3 of this document and commit. If L1 shows that
-  any past trial blocks a pause, flag D2 for Marshal before Task 1.
+**Done 2026-11-17. The answers are in §3.1.** The spike was run with the Stripe CLI rather
+than `curl`, and with a 2-day trial (1 day is refused; see D5).
+
+- [x] **Step 1:** Created and completed a subscription-mode Checkout Session with flexible
+  billing, a trial and inline `product_data`. Recorded L2, and L6 part 2.
+- [x] **Step 2:** Paused while trialing (refused), then after the trial on a test clock
+  (accepted). Resumed with both anchors (L1, L4).
+- [x] **Step 3:** `POST /products` plus `price_data[product]` on an update: refused for an
+  inactive product, accepted for an active one archived afterwards (L6, part 1).
+- [x] **Step 4:** Captured `invoice.paid` deliveries at the account default and at `--latest`
+  (L7, L11).
+- [x] **Step 5:** Answers appended to §3.1. D2 stands; D5 and D6 were refined in place.
 
 ### Task 1: Freeze the decisions into `ReleaseNotes_1.11.0.md`
 
@@ -533,6 +641,8 @@ In catalogue mode it never falls back to `$request->amount`, which is inert ther
     `Money(0,'USD')`, `amount_total: 2900` → `amount->minorUnits === 2900`.
   - `testCatalogueModeThrowsWhenTheSessionCarriesNoAmount`
   - `testATrialInDaysIsSentAsTrialPeriodDays`: `Day,14` → `14`.
+  - `testAOneDayTrialIsRefusedAtConstruction`: `Day,1` → `CheckoutException`. The message
+    says Stripe requires a trial of at least 2 days.
   - `testATrialInWeeksIsConvertedToDays`: `Week,2` → `14`.
   - `testATrialInMonthsIsRefusedAtConstruction` (data provider over `Month` and `Year`):
     `CheckoutException`, and the message contains `trial_period_days`.
@@ -579,7 +689,9 @@ Session status: `payment_status` `paid` or `no_payment_required` → `Success`; 
 - [ ] **Step 1: Write the failing tests:**
   - `testRetrieveStatusOfACompletedSessionIsSuccessAndCarriesTheSubscription`:
     `subscriptionReferenceOf($snapshot) === 'sub_test_1'`.
-  - `testRetrieveStatusOfATrialSessionWithNoPaymentRequiredIsSuccess`
+  - `testRetrieveStatusOfATrialSessionPaidAtZeroIsSuccess`: `payment_status: "paid"` and
+    `amount_total: 0`, the shape Task 0 observed. Keep `no_payment_required` mapped to
+    `Success` as well, because `StripeCheckout` maps it.
   - `testRetrieveStatusOfAnInvoiceExpandsPaymentsAndReadsThePaymentIntent`: the request URI
     contains `expand%5B0%5D=payments`, and `paymentReference === 'pi_test_9'`.
   - `testInvoiceStatesMapOntoTransactionStatus` (data provider over the D8 table).
@@ -631,9 +743,10 @@ Then `POST /refunds` with `refundParams()` and the request's idempotency key.
   - `testRefundResolvesARenewalInvoiceToItsPaymentIntent`: two requests; the second form has
     `payment_intent=pi_test_9`.
   - `testRefundResolvesASubscriptionSessionThroughItsInvoice`
-  - `testRefundExplainsItselfForATrialSessionThatChargedNothing`: `no_payment_required` and an
-    invoice with no payments. The `CheckoutException` names the session and says nothing was
-    charged. Exactly one request is sent. Review Focus 5.
+  - `testRefundExplainsItselfForATrialSessionThatChargedNothing`: `payment_status: "paid"`,
+    `amount_total: 0`, and an expanded invoice whose `payments.data` is empty — Task 0's
+    real shape. The `CheckoutException` names the session and says nothing was charged.
+    Exactly one request is sent. Review Focus 5.
   - `testRefundExplainsItselfForAnInvoiceThatIsNotPaid`. Review Focus 5.
   - `testRefundKeepsAFreeTextReasonAsMetadataRatherThanFailing`, which pins the shared
     `refundParams()`.
@@ -731,7 +844,14 @@ Steps:
 - `pause(string $subscriptionReference, SubscriptionEffectiveFrom $effectiveFrom, ?DateTimeInterface $resumeAt = null, ?ResumeBilling $onResume = null, int $timeoutSeconds = 30): SubscriptionSnapshot`
   — `POST /subscriptions/{id}/pause` with `type=subscription`.
 - `resume(string $subscriptionReference, SubscriptionEffectiveFrom $effectiveFrom, ResumeBilling $onResume = ResumeBilling::StartNewBillingPeriod, int $timeoutSeconds = 30): SubscriptionSnapshot`
-  — `POST /subscriptions/{id}/resume` with `billing_cycle_anchor[type]` = `now` or `unchanged`.
+  1. `POST /subscriptions/{id}/resume` with `billing_cycle_anchor[type]` set to `now` or
+     `unchanged`.
+  2. If the response's `latest_invoice` is `open`, `POST /invoices/{id}/pay`. Expand
+     `latest_invoice` on the resume call so its status is known without another read.
+  3. `GET /subscriptions/{id}`, and return that snapshot.
+
+  A gateway error from the pay call becomes a `CheckoutException` saying the subscription is
+  still paused and naming the open invoice (D2, "Settled by Task 0").
 
 Steps:
 
@@ -743,6 +863,14 @@ Steps:
     `resume()` should be called when the time comes. No request is sent.
   - `testResumeMapsResumeBillingOntoTheBillingCycleAnchor` (data provider over both cases).
   - `testResumeRefusesNextBillingPeriod`
+  - `testResumeStartingANewPeriodPaysTheOpenResumeInvoiceThenReReads`: three requests in
+    order (`/resume`, `/invoices/in_r/pay`, then GET). The returned status is `Active` — the
+    re-read's status, not the `paused` the resume response carried.
+  - `testResumeThatRaisesNoOpenInvoiceDoesNotPay`: `anchor=unchanged`, `latest_invoice`
+    already `paid`. No `/pay` request is sent.
+  - `testADeclinedResumePaymentSaysTheSubscriptionIsStillPaused`: `/pay` answers `402
+    card_declined`. The `CheckoutException` message contains `still paused` and the invoice
+    id.
   - `testPauseAndResumeSendTheAdaptersPinnedApiVersion`: the `Stripe-Version` header is
     `2026-09-30.endive`.
 - [ ] **Steps 2–4:** fail, implement, pass.
@@ -768,7 +896,8 @@ The algorithm, which the signature and tests alone do not determine:
      requires.
    - The proration mode must not be `Full*` (D4).
 2. `GET /subscriptions/{id}`, and collect every existing `items.data[*].id`.
-3. For each inline item, `POST /products` with `name` set to the line item's description and
+3. For each inline item, `POST /products` with `name` set to the line item's description. The
+   product is left active, which Stripe requires. Send
    `Idempotency-Key` = `"{$idempotencyKey}:product:{$index}"` when a key was given.
 4. `POST /subscriptions/{id}` with:
    - first `items[n][id]=si_…` and `items[n][deleted]=true` for every existing item;
@@ -777,15 +906,20 @@ The algorithm, which the signature and tests alone do not determine:
      with its quantity;
    - `proration_behavior` and `payment_behavior` from D4;
    - the `Idempotency-Key` header when one was given.
+5. Archive every product created in step 3 with `POST /products/{id}` `active=false`, in a
+   `finally`, so it happens whether step 4 succeeded or threw. A failure to archive must not
+   mask step 4's own exception.
 
 Steps:
 
 - [ ] **Step 1: Write the failing tests:**
   - `testChangePlanReplacesTheWholeItemSet`: the existing `si_a` and `si_b` are both
     `deleted=true`, and the new `price_pro` is added.
-  - `testChangePlanCreatesAProductForAnInlineItemThenPricesAgainstIt`: three requests in
-    order (GET, `POST /products`, `POST /subscriptions/…`), and
-    `price_data[product]=prod_new`.
+  - `testChangePlanCreatesAProductForAnInlineItemThenPricesAgainstIt`: four requests in
+    order (GET, `POST /products`, `POST /subscriptions/…`, `POST /products/prod_new` with
+    `active=false`), and `price_data[product]=prod_new`.
+  - `testChangePlanArchivesTheProductItCreatedEvenWhenTheChangeIsRefused`: the update answers
+    `402`. The archive request is still sent, and the thrown exception is the update's.
   - `testChangePlanMapsProrationModes` (data provider over the three allowed modes).
   - `testChangePlanRefusesTheFullProrationModesBeforeSendingAnything` (data provider).
     `requestCount() === 0`.

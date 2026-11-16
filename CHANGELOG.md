@@ -17,6 +17,18 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
   It also records a gap shared with `PaddleSubscription`: a renewal transaction that was
   never `open()`ed cannot be recorded by `TransactionLedger`.
+
+  Marshal approved every recommendation on 2026-11-17. The pre-decision spike then ran in
+  Stripe test mode and is recorded in §3.1. It found four things the documentation does not
+  say:
+  - a 1-day trial is refused;
+  - a subscription update refuses an inactive product;
+  - `resume()` starting a new period leaves the subscription paused until its invoice is
+    explicitly paid;
+  - a trial checkout completes as `paid` at zero, not as `no_payment_required`.
+
+  It also found that this test account's default API version is pre-basil, so its webhooks
+  arrive in the legacy shape.
 - **`ReleaseNotes_1.2.0.md` no longer lists the live Stripe test-mode run as outstanding.** §5
   records that run as done before the tag, including the `parseCallback()` defect it found, but
   the "Outstanding before tagging" list still named it as item 3.
