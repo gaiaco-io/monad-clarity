@@ -9,8 +9,14 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 ### Documentation
 - **`ReleaseNotes_1.2.0.md` no longer lists the live Stripe test-mode run as outstanding.** §5
   records that run as done before the tag, including the `parseCallback()` defect it found, but
-  the "Outstanding before tagging" list still named it as item 3. The list now holds only the
-  two skeleton-side items.
+  the "Outstanding before tagging" list still named it as item 3.
+- **`ReleaseNotes_1.2.0.md` now records its two skeleton-side checklist items as done**,
+  instead of listing them as outstanding.
+  - **The skeleton mirror sync** was done at release. The mirror commit is byte-for-byte the
+    same as the canonical copy at `v1.2.0`.
+  - **`mitosis health` against the tagged version** has no record from release time. The note
+    says so, and records a run on 2026-11-17: a fresh skeleton 1.1.4 project, with Clarity
+    pinned to `1.2.0` from Packagist, passed all five checks.
 
 ## [1.10.0] - 2026-11-15
 
