@@ -165,7 +165,3 @@ Semver **minor**. Every change is additive:
 1. `php mitosis health` green on a fresh `create-project` against the **tagged** version, not
    a path repository — requires the skeleton repo and a pushed tag.
 2. `CrossRepoContracts.md` mirror in `monad/skeleton` synced per its §10 procedure.
-3. A live Stripe **test-mode** run against the real API. Every automated test here mocks
-   `HttpClient`, so the wire format, the webhook signature scheme, and the refund path have
-   never touched Stripe's servers. This is a payment integration; mocked coverage is not
-   evidence that it works.
