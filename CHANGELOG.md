@@ -7,6 +7,11 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 ## [Unreleased]
 
 ### Documentation
+- **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
+  until the live checks listed in its §5.2 are done. It records:
+  - what ships, with the build plan's twelve decisions written up as resolved decisions;
+  - what is explicitly not in 1.11.0;
+  - what the pre-decision Stripe test-mode spike established.
 - **`GapAnalysis_BuildPlan_1.11.0.md` plans recurring billing through Stripe.** The plan is
   for a `StripeSubscription` adapter beside `StripeCheckout`, and nothing is built yet. It
   contains:
