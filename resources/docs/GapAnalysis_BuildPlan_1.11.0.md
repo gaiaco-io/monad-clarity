@@ -148,7 +148,7 @@ you choose the alternative, the tasks named under that decision change. No other
 - Tasks affected: 2 (the version is read per class), 4 and 5 (where the PaymentIntent is read),
   and 8.
 
-### D2. What "pause" means on Stripe
+### D2. What "pause" means on Stripe (read Task 0's L1 answer first)
 
 - **Recommended: use the real `POST /subscriptions/{id}/pause` and `/resume`.** After a pause,
   `status` is `paused`, so the adapter's `SubscriptionStatus::Paused` is Stripe's own word. The
@@ -161,6 +161,21 @@ you choose the alternative, the tasks named under that decision change. No other
     `ContinueExistingBillingPeriod` maps to `unchanged`.
   - `createCheckout()` sends `subscription_data[billing_mode][type]=flexible`, because Stripe
     pauses only flexible-mode subscriptions. (Live gate L1.)
+
+  **The conflict with trials (D5), stated here so it is weighed now and not discovered later:**
+  Stripe documents "no subscription-level trial (`trial_end` or `trial_period_days`)" as a pause
+  restriction. Read literally, any subscription started with a trial could never be paused,
+  even long after the trial ended. Task 0 settles which reading holds:
+
+  - **If only an active trial blocks a pause,** the adapter documents that a trialing
+    subscription cannot be paused, and lets Stripe's own refusal surface.
+  - **If any past trial blocks it,** D2's recommendation costs trial merchants the ability to
+    pause. Then `pause_collection` is the better choice for them, and this decision should be
+    reopened before anything is built.
+
+  **What a paused snapshot reports:** Stripe moves `current_period_end` to the moment of the
+  pause. So `currentPeriodEndsAt` and `accessEndsAt()` are that moment, and `nextBilledAt` is
+  null. That matches "service stops when billing stops", and the docblock says so.
 - *Alternative:* `pause_collection[behavior]=void`, which works on any version. The status
   stays `active`, so the adapter would have to report `Paused` for something Stripe calls
   active. A scheduled resume would ride on `resumes_at`. That is a less honest mapping, and it
@@ -251,6 +266,16 @@ renewal is a `txn_` with none either. The 1.4.0 end-to-end renewal test only pas
   be done for one gateway when the gap is two gateways wide.
 - Tasks affected: none if recommended; one new task if not.
 
+**The cost is higher on Stripe than on Paddle, and must be documented, not discovered.** On
+Paddle, the first payment's events name the `txn_` the application `open()`ed, so only renewals
+miss the ledger. On Stripe, a subscription checkout is expected to raise `invoice.paid` for the
+*first* invoice too (live gate L11), and that `in_` was never opened.
+
+So the obvious handler, `$ledger->recordCallback($adapter->parseCallback($body, $headers))`,
+would throw on **every signup**, not just on renewals. Task 11 documents the handler shape that
+works: branch on the `CallbackEvent`'s reference prefix, and send `cs_` to the ledger while
+handling `in_` in the application. `parseCallback()`'s docblock says the same in one sentence.
+
 ### D8. Dunning on a renewal invoice (the 1.4.0 §2.6 question, asked of Stripe)
 
 - **Recommended:** map invoice states as follows.
@@ -303,11 +328,31 @@ renewal is a `txn_` with none either. The 1.4.0 end-to-end renewal test only pas
   charges.
 - Tasks affected: 9.
 
+### D12. 1.4.0 §3's facade question, answered
+
+`ReleaseNotes_1.4.0.md` §3 deferred a `Services\Subscription` facade to "the release that
+revisits it, if a second gateway's subscription surface turns out not to fit."
+
+- **Recommended answer: it fits, so no facade.** Every `PaddleSubscription` method has a
+  Stripe counterpart with the same signature. `changePlan()` gains one trailing optional
+  parameter (D11). The differences are local refusals:
+  - `pause()` and `resume()` are immediate only (D2);
+  - two proration modes are refused (D4);
+  - month-based trials are refused (D5).
+
+  Those are gateway constraints, and a facade would have to express them as the same
+  refusals. Task 1 records this in the release notes' "NOT in 1.11.0" list.
+
 ## 3. Live-gate questions
 
-These are facts the design depends on that the documentation does not settle. Each was checked
-against Stripe's docs on 2026-11-17, and each is answered by the live run in Task 12, not
-assumed:
+These are facts the design depends on that the documentation does not settle, each checked
+against Stripe's docs on 2026-11-17.
+
+- **L1, L2, L6 and L7 are answered by Task 0, before Marshal decides**, because D1, D2, D5 and
+  D6 rest on them.
+- **The rest are answered by the release-gate run in Task 12.**
+
+None is assumed.
 
 - **L1.** Does `subscription_data[billing_mode][type]=flexible` work on a Checkout Session at
   the pinned version? Can a Checkout-created subscription that had a trial be paused once the
@@ -330,6 +375,9 @@ assumed:
   refused with a `402` and the subscription left on its old plan?
 - **L10.** Do real `stripe listen` signatures verify in both parsers? As a negative control,
   does the same delivery fail under the wrong secret?
+- **L11.** Does a subscription checkout raise `invoice.paid` (or `invoice.payment_succeeded`)
+  for the *first* invoice, with `billing_reason=subscription_create`? This settles D7's
+  documented handler shape.
 
 ---
 
@@ -354,6 +402,29 @@ and `const WEBHOOK_SECRET = 'whsec_test_secret'`. Run every command from the wor
 `composer install` there first: a symlinked `vendor/` silently tests the main checkout's
 `src/`.
 
+### Task 0: Pre-decision spike in Stripe test mode (L1, L2, L6, L7)
+
+This is about an hour of `curl` against a test-mode account, sent with
+`Stripe-Version: 2026-09-30.endive`. No code is written in the repo, and no credential is
+committed.
+
+- [ ] **Step 1:** Create a subscription-mode Checkout Session with
+  `subscription_data[billing_mode][type]=flexible`, `trial_period_days=1`, and an inline
+  `price_data` with `product_data`.
+  - Complete it with card `4242…`.
+  - Record the completed session's `payment_intent`, `invoice` and `subscription` fields (L2).
+  - Record whether a Product was created (L6, part 2).
+- [ ] **Step 2:** Pause that subscription while it is trialing, then end the trial on a test
+  clock and pause it again. Record both answers, which decide between D2's two readings (L1).
+  Resume it.
+- [ ] **Step 3:** Run `POST /products`, then `POST /subscriptions/{id}` with
+  `price_data[product]`. Record whether it is accepted (L6, part 1).
+- [ ] **Step 4:** Capture an `invoice.paid` delivery with `stripe listen`. Record whether
+  `payments` is present, and the path to the PaymentIntent from
+  `GET /invoices/{id}?expand[]=payments` (L7).
+- [ ] **Step 5:** Append the four answers to §3 of this document and commit. If L1 shows that
+  any past trial blocks a pause, flag D2 for Marshal before Task 1.
+
 ### Task 1: Freeze the decisions into `ReleaseNotes_1.11.0.md`
 
 **Files:** Create `resources/docs/ReleaseNotes_1.11.0.md`. Modify `CHANGELOG.md` (`[Unreleased]`).
@@ -361,9 +432,13 @@ and `const WEBHOOK_SECRET = 'whsec_test_secret'`. Run every command from the wor
 - [ ] **Step 1:** Write the notes in the shape of `ReleaseNotes_1.4.0.md`:
   - §1 What ships (§1 of this plan, as decided)
   - §2 Resolved decisions (D1–D11 as Marshal chose them, each with its reasoning)
-  - §3 Explicitly NOT in 1.11.0: scheduled pauses or resumes (Subscription Schedules),
-    `TransactionLedger` recording of renewals (D7), `StripeConnectExpress`, §9.5, §9.6.7, and
-    `Event::` constants
+  - §3 Explicitly NOT in 1.11.0:
+    - scheduled pauses or resumes (Subscription Schedules)
+    - `TransactionLedger` recording of renewals (D7)
+    - a `Services\Subscription` facade (D12)
+    - `StripeConnectExpress`
+    - §9.5 and §9.6.7
+    - `Event::` constants
   - §4 Compatibility (minor; the list in Global Constraints)
   - §5 Verification (left for Task 12)
 
@@ -749,7 +824,8 @@ exactly as `SubscriptionLedgerTest` does, so that the shipped DDL is what gets t
 
 - `resources/docs/API_Contracts.md`: a "Subscriptions — Stripe (1.11.0)" block under
   Subscriptions, with signatures, the local refusals (D2, D4, D5), and the
-  `cs_` → `sub_` bridge.
+  `cs_` → `sub_` bridge. It also shows the webhook handler shape D7 requires: `cs_` events go
+  to `TransactionLedger`, and `in_` events are the application's to handle.
 - `RepoMap.md`: `SpeaksStripe.php` and `StripeSubscription.php` with a `1.11.0` comment.
 - `CLAUDE.md`:
   - the Checkout hard-rule paragraph, adding `StripeSubscription` and `SpeaksStripe`;
@@ -778,7 +854,8 @@ credential is committed, as in 1.6.0 §7.7. The script drives the adapter itself
 written to agree with it. Use `stripe listen --forward-to` capturing **raw bytes** for
 deliveries, and a **test clock** for renewals.
 
-- [ ] **Step 1:** Answer L1–L10 (§3), one line of evidence each.
+- [ ] **Step 1:** Answer L3–L5 and L8–L11 (§3), one line of evidence each. Re-confirm
+  L1, L2, L6 and L7 against the built adapter.
 - [ ] **Step 2:** For any answer that contradicts the plan: write the failing mocked test first,
   fix the code, and record the defect in `ReleaseNotes_1.11.0.md` §5 in 1.4.0's
   "found live, which no mock could" voice.
@@ -794,6 +871,7 @@ deliveries, and a **test clock** for renewals.
 4. `Services\Checkout` and every existing `final readonly` value object have an unchanged public
    surface (`git diff v1.10.0 -- src/Services/Checkout.php src/Services/Checkout/` shows only
    docblock lines).
-5. L1–L10 answered live and recorded in §5, with any defect fixed test-first.
+5. L1–L11 answered live (L1, L2, L6 and L7 before the decisions) and recorded in §5, with any
+   defect fixed test-first.
 6. CHANGELOG, `API_Contracts.md`, `RepoMap.md` and `CLAUDE.md` updated, and nothing stray in
    `src/`.

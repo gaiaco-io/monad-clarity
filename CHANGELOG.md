@@ -7,6 +7,16 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 ## [Unreleased]
 
 ### Documentation
+- **`GapAnalysis_BuildPlan_1.11.0.md` plans recurring billing through Stripe.** The plan is
+  for a `StripeSubscription` adapter beside `StripeCheckout`, and nothing is built yet. It
+  contains:
+  - twelve decisions for Marshal, each with a recommendation;
+  - eleven live-gate questions that Stripe's documentation does not settle, four of them to
+    be answered by a test-mode spike before any decision is taken;
+  - the sequenced tasks and the acceptance gate.
+
+  It also records a gap shared with `PaddleSubscription`: a renewal transaction that was
+  never `open()`ed cannot be recorded by `TransactionLedger`.
 - **`ReleaseNotes_1.2.0.md` no longer lists the live Stripe test-mode run as outstanding.** §5
   records that run as done before the tag, including the `parseCallback()` defect it found, but
   the "Outstanding before tagging" list still named it as item 3.
