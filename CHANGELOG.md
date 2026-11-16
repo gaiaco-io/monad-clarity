@@ -6,6 +6,12 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- **`ReleaseNotes_1.2.0.md` no longer lists the live Stripe test-mode run as outstanding.** §5
+  records that run as done before the tag, including the `parseCallback()` defect it found, but
+  the "Outstanding before tagging" list still named it as item 3. The list now holds only the
+  two skeleton-side items.
+
 ## [1.10.0] - 2026-11-15
 
 Image input for `complete()`. Purely additive. An application that sends no images sends
