@@ -6,6 +6,14 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- **`ReleaseNotes_1.12.0.md` §5.3 now records the 1.12.0 checklist as complete.** The release
+  commit could tick only what was done in this repository before the tag. This post-tag record
+  ticks the rest, with their evidence:
+  - the `mitosis health` run against 1.12.0 resolved from Packagist;
+  - the tag, Packagist and the GitHub Release;
+  - the skeleton's `RepoMap.md` mirror sync and README line, in `monad-skeleton` #25.
+
 ## [1.12.0] - 2026-11-17
 
 A typed exception for Stripe's refusal of a reused idempotency key. Additive: every existing
