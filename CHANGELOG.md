@@ -22,6 +22,12 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   - **`resume()` pays the open resume invoice itself.** Stripe never collects it, and the
     subscription stays `paused` until someone does. A declined payment raises
     `CheckoutException` saying the subscription is still paused.
+  - **An invoice's amount is its amount due.** `retrieveStatus()` on an `in_` reports
+    `amount_due`, what the card is charged, rather than the total, so a downgrade's credit
+    invoice reads as zero instead of failing.
+  - **A refund is posted only against a paid payment.** The invoice behind an `in_` or a `cs_`
+    must be `paid`, so a first payment still processing is refused, and the PaymentIntent
+    chosen is the attempt whose own status is `paid`, never an earlier declined one.
   - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
     record because it was never `open()`ed. A handler that passes every `parseCallback()` result
     to `recordCallback()` therefore throws on every signup. Route on the reference prefix: `cs_`
@@ -51,8 +57,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   - what is explicitly not in 1.11.0;
   - what the pre-decision Stripe test-mode spike established.
 - **`GapAnalysis_BuildPlan_1.11.0.md` plans recurring billing through Stripe.** The plan is
-  for a `StripeSubscription` adapter beside `StripeCheckout`, and nothing is built yet. It
-  contains:
+  for a `StripeSubscription` adapter beside `StripeCheckout`. Tasks 1 to 11 are built; the live
+  release gate, Task 12, is outstanding. It contains:
   - twelve decisions for Marshal, each with a recommendation;
   - eleven live-gate questions that Stripe's documentation does not settle, four of them to
     be answered by a test-mode spike before any decision is taken;

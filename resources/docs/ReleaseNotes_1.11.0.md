@@ -230,8 +230,9 @@ Stripe's Checkout takes `subscription_data[trial_period_days]`, an integer numbe
 
 - `BillingInterval::Day` maps directly, **with a minimum of 2.** The first live run found that
   `trial_period_days=1` is refused: "The trial end date must be at least 2 days after the
-  customer's test clock time." So `BillingCycle(Day, 1)` is refused at construction with that
-  reason, rather than at the first checkout.
+  customer's test clock time." So `BillingCycle(Day, 1)` is refused at construction, rather than
+  at the first checkout. That run used a test clock, so the refusal says only that Stripe refused
+  a one-day trial when the adapter was verified; whether it does off a test clock is in §5.2.
 - `Week` becomes 7 × frequency days.
 - `Month` and `Year` are **refused at construction**. Converting them would silently turn "one
   month" into 30 days.
@@ -254,6 +255,8 @@ take `product_data`. So, for each inline `SubscriptionItem`:
 3. **Archive** each product just created, with `POST /products/{id}` `active=false`. Do this
    whether step 2 succeeded or failed, so a refused change never leaves a stray active product.
 4. Each product call carries an idempotency key derived from the call's key and the item index.
+   *Superseded by §2.13 item 7:* only product **creation** carries the derived key; activation
+   and archiving carry none.
 
 The first live run confirmed the result is the footprint Checkout already leaves: Checkout's own
 `product_data` creates a real Product, **inactive**, and the live subscription kept billing
@@ -525,7 +528,24 @@ assumed:
   it raises totals zero, so that nothing is open for `resume()` to pay (§2.13 item 5).
 - **A reused idempotency key on `changePlan()`.** Whether Stripe refuses the same key with
   different parameters, which is how a retry after a successful change is recognised (§2.13
-  item 7).
+  item 7). Record the error's exact shape too (HTTP status, `type`, `code`), and decide from it
+  whether the adapter should recognise an `idempotency_error` in code instead of leaving the
+  caller to read the message.
+- **A quantity-only `changePlan()` on the same price.** Whether replacing an item with the same
+  `price_` at a new quantity is accepted as a whole-set replacement, and what it prorates.
+- **A resume with the anchor unchanged after a pause that outlasts the original period.**
+  Whether `ContinueExistingBillingPeriod` then raises an invoice, and whether `resume()` pays it
+  as it does for `StartNewBillingPeriod`. Inside the period it raised no charge (§2.2).
+- **A one-day trial off a test clock.** Whether Stripe still refuses `trial_period_days=1` on a
+  real customer, which is the only evidence for the two-day minimum the constructor enforces
+  (§2.5).
+- **The nested `expand[]=invoice.payments` on a session `GET`.** Whether Stripe honours the
+  two-level expansion, so that `retrieveStatus()` and `refund()` read a `cs_`'s PaymentIntent
+  off its invoice's payments, and each entry's `status`, which a refund now requires to be
+  `paid`.
+- **`nextBilledAt` for a `past_due` subscription.** The adapter reports null for anything not
+  `Active` or `Trialing`. Whether Stripe still bills a `past_due` subscription at its period end,
+  in which case that date, not null, is the honest answer.
 
 This is a payment integration; mocked coverage is not evidence that it works. This document stays
 DRAFT until the items above are recorded here as done.

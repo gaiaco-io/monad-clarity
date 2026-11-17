@@ -399,7 +399,8 @@ Construction, with one plan per instance as on Paddle:
 
 Pass exactly one of `$billingCycle` and `$catalogPriceId`. A trial **is** allowed in catalogue
 mode, unlike Paddle. In catalogue mode `CheckoutRequest::$amount` is inert (1.7.0 §2.3): pass
-`new Money(0, $currency)` and read the real figure off `CheckoutSession::$amount`.
+`new Money(0, $currency)` and read the real figure off `CheckoutSession::$amount`. With a trial,
+`CheckoutSession::$amount` is what the checkout charges today, which is zero.
 
 Subscription methods:
 
@@ -413,7 +414,12 @@ Subscription methods:
 - `changePlan(string $subscriptionReference, list<Checkout\SubscriptionItem> $items, Checkout\ProrationBillingMode $prorationBillingMode, Checkout\PaymentFailureBehaviour $onPaymentFailure = PreventChange, int $timeoutSeconds = 30, ?string $idempotencyKey = null): Checkout\SubscriptionSnapshot`
 
 The leading parameters match `PaddleSubscription`'s; `changePlan()` adds one trailing optional
-`$idempotencyKey`, passed on the call that charges (`ProratedImmediately`).
+`$idempotencyKey`, passed on the call that charges (`ProratedImmediately`). Retry with the same
+key, and send every outcome of that retry other than success to `retrieveSubscription()` before
+deciding anything: a refusal of the reused key means the change already happened, so never retry
+with a fresh key (`ReleaseNotes_1.11.0.md` §2.13 item 7). `resume()` may charge the customer
+immediately: when Stripe leaves the resume invoice open, `resume()` pays it itself, and a declined
+payment throws saying the subscription is still paused (`ReleaseNotes_1.11.0.md` §2.2).
 
 Local refusals, each a `CheckoutException` raised before anything reaches Stripe:
 
@@ -424,8 +430,10 @@ Local refusals, each a `CheckoutException` raised before anything reaches Stripe
 - A `Month` or `Year` trial, or a `Day` trial under two days, is refused at construction.
 - A catalogue id that does not start `price_` is refused, in the constructor and on a catalogue
   `SubscriptionItem` in `changePlan()`.
-- `changePlan()` refuses a subscription whose item list Stripe reports as partial (`has_more`),
-  because an item left out of the replacement set would keep billing.
+
+One refusal follows a read instead: `changePlan()` first `GET`s the subscription, and refuses one
+whose item list Stripe reports as partial (`has_more`) before creating or changing anything,
+because an item left out of the replacement set would keep billing.
 
 **`createCheckout()` returns a `cs_`, never a `sub_`.** The `sub_` is born when the customer
 completes the session. Unlike Paddle, the bridge is synchronous: `subscriptionReferenceOf()` reads
