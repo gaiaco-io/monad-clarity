@@ -363,7 +363,7 @@ Those are gateway constraints, and a facade would have to express them as the sa
 
 ### 2.13 Decisions taken during the build
 
-Ten further decisions were taken while the adapter was built. They are facts about the shipped
+Twelve further decisions were taken while the adapter was built. They are facts about the shipped
 code that the sections above could not know, and each is recorded with its reason.
 
 1. **Every parser refuses a malformed signed payload as `CheckoutException`, and nothing else.**
@@ -408,6 +408,18 @@ code that the sections above could not know, and each is recorded with its reaso
    refused locally exactly as the constructor refuses one.
 10. **`removeScheduledChange()` sends only `cancel_at_period_end=false`.** Whether `cancel_at=''`
     is also needed is release-gate item L5 (§5.2).
+11. **An invoice's reported amount is its `amount_due`, not its `total`.** `amount_due` is never
+    negative, is what the card is actually charged, and is 0 for the credit invoice a downgrade
+    through `changePlan()` produces. So `retrieveStatus()` on a credit invoice reports `Success`
+    at zero rather than failing, because a negative `total` is an amount no `Money` can hold. A
+    missing, non-integer or negative `amount_due`, or an unreadable currency, is refused as
+    `CheckoutException`.
+12. **A refund resolves only to a payment whose status is `paid`, on an invoice whose status is
+    `paid`.** An unpaid invoice, including a first payment still processing, is refused before
+    anything is posted, and so is a declined or processing attempt, because a refund posted
+    against a payment that collected nothing cannot succeed and should not be tried. Snapshot and
+    event `paymentReference` prefers a paid payment, then one still processing, and never reports
+    a canceled one, because a caller could hand that `pi_` straight to `refund()`.
 
 ## 3. Explicitly NOT in 1.11.0
 
