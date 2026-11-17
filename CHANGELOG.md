@@ -6,6 +6,20 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-17
+
+Recurring billing through Stripe: `StripeSubscription`, beside `StripeCheckout`. Also a security
+fix to the error messages of every Checkout adapter.
+
+- **Additive, apart from exception text.** No signature on `Services\Checkout` or on any value
+  object changed. `StripeCheckoutTest` passes byte-unmodified after `SpeaksStripe` was extracted
+  from the class it tests.
+- **Verified live before the tag, in Stripe test mode, twice.** A spike ran before any design
+  decision was taken. A release-gate run followed, and it found five defects that no mock
+  written from the documentation had caught. All five were fixed test-first before the tag.
+  The fixes themselves are covered by mocked tests only, because the gate ran before them.
+- **Canonical spec:** `ReleaseNotes_1.11.0.md`.
+
 ### Security
 - **A failed gateway call no longer writes the gateway's response body into the exception
   message.** `Checkout::assertSuccessful()` has embedded the whole body in `CheckoutException`

@@ -1,8 +1,10 @@
 # Monad Clarity 1.11.0 Release Notes
 
-**Status:** DRAFT — canonical specification for the 1.11.0 release. The live release gate is
-complete as of 2026-11-17 (§5.3) and ran against the code at `42316de`, before the five fixes
-it prompted, which are covered by mocked tests only. These notes freeze at tagging.
+**Status:** FROZEN — canonical specification for the 1.11.0 release, tagged 2026-11-17.
+
+- **Live verification.** The live release gate is complete (§5.3). It ran against the code at
+  `42316de`, before the five fixes it prompted, so those fixes are covered by mocked tests only.
+- **Checklist.** §5.4 records the release checklist as it actually went.
 This document is the source of truth for WHAT ships in 1.11.0. It does not restate 1.0.0, 1.2.0,
 1.4.0 or 1.7.0; those remain frozen for what they specified, and this release inherits the
 binding parts of `ReleaseNotes_1.4.0.md` (§2.2, §2.3, §2.5, §2.7, §2.8) and
@@ -480,15 +482,32 @@ code that the sections above could not know, and each is recorded with its reaso
   and `object`, so a signed malformed payload can leak `ErrorException` there, as it could before
   1.11.0. `PaddleSubscription::recurringAmountOf()` has the same latent integer overflow that
   §2.13 item 3 fixes for Stripe.
-- **One known gap found by the release-gate run, left for Marshal to decide.** A gateway
-  error's body is embedded in exception messages by the shared `Checkout::assertSuccessful()`.
-  For a declined PaymentIntent that body includes its `client_secret`. It affects every adapter
-  and predates 1.11.0. (The gate's other finding, Stripe's reused-key refusal, is resolved in
-  §2.13 item 7.)
+- **The release-gate run's two further findings are both resolved in this release, not
+  deferred:**
+  - **Stripe's reused-key refusal.** Resolved in §2.13 item 7.
+  - **The gateway-error leak in the shared `Checkout::assertSuccessful()`.** Since 1.2.0 it
+    embedded the whole response body in exception messages, which for a declined PaymentIntent
+    includes its `client_secret`. It is fixed for every Checkout adapter: see §4 and the
+    CHANGELOG's `### Security` entry.
 
 ## 4. Compatibility
 
-Semver **minor**. Every change is additive:
+Semver **minor**. Every change is additive, with one exception that the CHANGELOG records under
+`### Security`:
+
+- **Exception text.** `Checkout::assertSuccessful()` no longer embeds a gateway's raw response
+  body in a `CheckoutException` message. The message keeps its
+  `'<gateway> request failed with HTTP <status>: '` prefix, followed by a one-line summary of the
+  gateway's error fields:
+  - nested objects such as the PaymentIntent are dropped;
+  - `*_secret_*` tokens are masked;
+  - other bodies are redacted and truncated.
+
+  This affects every Checkout adapter. No signature changes. Exception text was never a
+  documented contract. Code that parsed the old raw body out of the message must read the
+  gateway's state through the adapter instead.
+
+Otherwise:
 
 - New class `Services\CheckoutAdapters\StripeSubscription` and new trait `SpeaksStripe`, both in
   a namespace that already existed.
@@ -500,8 +519,10 @@ Semver **minor**. Every change is additive:
 - No new table, no new `mitosis` command, no new Composer dependency, no entry-point or
   `Console::run()` change.
 - No setup-owned table DDL changed, and `checkout:install` is untouched, so
-  `CrossRepoContracts.md` §8's compatibility surface is untouched and the skeleton mirror does
-  not drift.
+  `CrossRepoContracts.md` §8's compatibility surface is untouched and its skeleton mirror does
+  not drift. **`RepoMap.md` does drift**, because it gains `SpeaksStripe.php` and
+  `StripeSubscription.php`. Its skeleton mirror therefore needs the sync that
+  `ReleasePolicy.md`'s checklist item 8 describes (§5.4).
 
 ## 5. Verification
 
@@ -715,3 +736,34 @@ sends no `payment_method_types`, and a subscription session built exactly as it 
 only `card` and `link` on this account, in USD and in EUR. Neither is asynchronous, and SEPA
 Direct Debit and ACH are not enabled. §2.8's `async_payment_failed` mapping therefore stays
 unverified live.
+
+### 5.4 The release checklist
+
+This follows `ReleasePolicy.md`'s numbering and records what was actually done. Items done in this
+repository before the tag are ticked. Items that can only happen at or after the tag, or in
+another repository, are marked outstanding, and a post-tag commit records them rather than this
+document claiming them in advance.
+
+1. **CHANGELOG** cut to `[1.11.0] - 2026-11-17`, with an empty `[Unreleased]` above it. ✔
+2. **`composer.json` reviewed.** The PHP floor and dependencies are unchanged. The `dev-main`
+   branch alias was stale at `1.7.x-dev` and is now `1.11.x-dev`. ✔
+3. **Full suite green:** 1394 tests, 3087 assertions, locally on PHP 8.5. CI runs PHP 8.2–8.5
+   on the release PR. ✔
+4. **`php mitosis health` against a fresh `create-project` resolving the tagged `1.11.0` from
+   Packagist.** Outstanding, because it can only run once the tag exists.
+5. **`.gitattributes` export-ignore confirmed** against `git archive` of the release commit. The
+   archive holds `src`, `composer.json`, `CHANGELOG.md`, `LICENSE`, `README.md`,
+   `phpunit.xml.dist` and `.github/`, with no `resources/` and no `CLAUDE.md`. `.github/`
+   (the CI workflow) ships in the archive. It is not on the policy's exclusion list and is
+   harmless, so it is left as it is. ✔
+6. **Tag `v1.11.0` pushed, Packagist updated, and a GitHub Release published.**
+   Outstanding at this commit. Note that v1.9.0, v1.9.1 and v1.10.0 were tagged without
+   GitHub Releases, so the website's `/changelog`, which keys on published Releases, likely
+   skips them.
+7. **Website documentation (`monad-www`).** This release is user-facing: a new adapter, and
+   changed exception text for every Checkout adapter. So a `monad-www` change is required
+   before the tag. Outstanding.
+8. **Skeleton mirrors.** `RepoMap.md` changed in this release, so the skeleton's mirror needs
+   syncing. `CrossRepoContracts.md` did not change. Outstanding.
+9. **README Status line** bumped to `1.11.0` in this repository ✔. The skeleton's README is
+   outstanding.
