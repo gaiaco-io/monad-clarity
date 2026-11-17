@@ -943,7 +943,9 @@ final class PaddleSubscriptionTest extends TestCase
      */
     public static function unrepresentableItemAmounts(): array
     {
-        $max = (string) PHP_INT_MAX;
+        // Fits in an int on its own, so the last two cases reach the product and sum guards rather
+        // than being refused at the range check before them.
+        $large = '5000000000000000000';
         $item = static fn (mixed $amount, mixed $quantity): array => [
             'quantity' => $quantity,
             'price' => ['unit_price' => ['amount' => $amount, 'currency_code' => 'USD']],
@@ -953,8 +955,8 @@ final class PaddleSubscriptionTest extends TestCase
             'a unit price past PHP_INT_MAX as a numeric string' => [[$item('99999999999999999999', 1)]],
             'a unit price past PHP_INT_MAX as a JSON number' => [[$item(1e30, 1)]],
             'a quantity past PHP_INT_MAX' => [[$item('100', 1e30)]],
-            'a unit price times its quantity' => [[$item($max, 2)]],
-            'the sum of two items' => [[$item($max, 1), $item($max, 1)]],
+            'a unit price times its quantity' => [[$item($large, 2)]],
+            'the sum of two items' => [[$item($large, 1), $item($large, 1)]],
         ];
     }
 
