@@ -472,7 +472,42 @@ final class PaddleSubscriptionTest extends TestCase
 
                 return $e;
             }, false],
+            'array occurred_at is refused' => [static fn (array $e): array => ['occurred_at' => $arr] + $e, true],
         ];
+    }
+
+    /**
+     * The fields a subscription event carries only to describe it. Each was already read through
+     * a type-checking helper; these pin that a malformed one reads as absent, never as a warning.
+     */
+    public function testParseSubscriptionCallbackReadsMalformedDescriptiveFieldsAsAbsent(): void
+    {
+        $arr = ['not' => 'a string'];
+        $payload = self::eventPayload('evt_bad', 'subscription.updated', [
+            'status' => 'active',
+            'custom_data' => ['reference' => $arr],
+            'transaction_id' => $arr,
+            'customer_id' => $arr,
+            'next_billed_at' => $arr,
+            'current_billing_period' => ['starts_at' => $arr, 'ends_at' => $arr],
+        ]);
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $subscription = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload))->subscription;
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertNull($subscription->reference);
+        self::assertNull($subscription->transactionReference);
+        self::assertNull($subscription->customerReference);
+        self::assertNull($subscription->nextBilledAt);
+        self::assertNull($subscription->currentPeriodStartsAt);
+        self::assertNull($subscription->currentPeriodEndsAt);
     }
 
     /**

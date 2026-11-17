@@ -444,6 +444,18 @@ final class PaddleCheckoutTest extends TestCase
 
                 return $e;
             }, TransactionStatus::Pending],
+            'array failed-payment error code falls back to the event type' => [static function (array $e) use ($arr): array {
+                $e['event_type'] = 'transaction.payment_failed';
+                $e['data']['payments'] = [['error_code' => $arr], $arr];
+
+                return $e;
+            }, TransactionStatus::Failed],
+            'array payments list reads as no payments' => [static function (array $e): array {
+                $e['event_type'] = 'transaction.payment_failed';
+                $e['data']['payments'] = 'not a list';
+
+                return $e;
+            }, TransactionStatus::Failed],
         ];
     }
 
