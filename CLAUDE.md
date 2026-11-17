@@ -169,7 +169,7 @@ canonical for every document below — where the skeleton repo carries a mirror,
     record because it was never `open()`ed. This is the renewal-recording gap Stripe shares with
     Paddle, so a webhook handler routes on the reference prefix (§2.7).
 - `ReleaseNotes_1.12.0.md` — WHAT ships in 1.12.0 (`Checkout\IdempotencyKeyReusedException`), and
-  the decisions behind it. DRAFT until `v1.12.0` is tagged. Read before adding an exception
+  the decisions behind it. FROZEN since the tag. Read before adding an exception
   type or touching how a Stripe call sends its idempotency key. The three most load-bearing:
   - **`CheckoutException` is no longer `final`, and that is one-way.** Restoring `final` breaks
     every subclass written since, so it is semver-major (§2.2).

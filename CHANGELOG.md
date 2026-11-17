@@ -6,6 +6,12 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-17
+
+A typed exception for Stripe's refusal of a reused idempotency key. Additive: every existing
+`catch (CheckoutException)` still catches it, and no signature changes. The specification is
+`ReleaseNotes_1.12.0.md`.
+
 ### Added
 - **`Services\Checkout\IdempotencyKeyReusedException`.** Stripe's refusal of an idempotency key
   already used on a different request now has its own type, so a caller can catch it by class
@@ -33,7 +39,7 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   explanation. No signature changes.
 
 ### Documentation
-- **`ReleaseNotes_1.12.0.md`,** the specification for this release, drafted until the tag.
+- **`ReleaseNotes_1.12.0.md`,** the specification for this release, frozen at the tag.
 
 ## [1.11.1] - 2026-11-17
 
