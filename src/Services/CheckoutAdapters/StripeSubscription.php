@@ -31,6 +31,7 @@ use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionSnapshot;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\HttpClient;
+use Monad\Clarity\Services\HttpClientException;
 use Throwable;
 
 /**
@@ -166,7 +167,9 @@ final class StripeSubscription extends Checkout
      * parseSubscriptionCallback() to learn the `sub_` once the customer completes the page.
      *
      * In catalogue mode CheckoutRequest::$amount is inert (`ReleaseNotes_1.7.0.md` §2.3): pass
-     * `Money(0, $currency)` and read the real figure back off CheckoutSession::$amount.
+     * `Money(0, $currency)` and read the real figure back off CheckoutSession::$amount. With a
+     * trial, that figure is what the checkout charges today, which is zero — not the plan's
+     * price; read that off the subscription's recurringAmount once it exists.
      */
     public function createCheckout(CheckoutRequest $request): CheckoutSession
     {
@@ -224,18 +227,17 @@ final class StripeSubscription extends Checkout
      * Re-query a payment: a `cs_` checkout session or an `in_` invoice, which is how a renewal
      * arrives. Anything else is refused by name — a `sub_` is a standing arrangement, not a
      * payment, and belongs to retrieveSubscription().
+     *
+     * **For an invoice, `amount` is the amount due** — what the card is charged — not the
+     * invoice's total. The two differ whenever credit is applied, and a downgrade through
+     * changePlan() raises an invoice whose total is negative and whose amount due is zero.
+     * paymentReference is the PaymentIntent that paid, when one did; otherwise the attempt in
+     * flight, or null.
      */
     public function retrieveStatus(string $reference, int $timeoutSeconds = 30): TransactionSnapshot
     {
         if (str_starts_with($reference, 'cs_')) {
-            // The invoice's payments are expanded so the PaymentIntent behind the first charge
-            // is reported; a session carries only a bare invoice id.
-            $session = $this->send(
-                'GET',
-                '/checkout/sessions/' . rawurlencode($reference),
-                ['expand' => ['invoice.payments']],
-                $timeoutSeconds
-            );
+            $session = $this->fetchSession($reference, $timeoutSeconds);
             $invoice = $session['invoice'] ?? null;
 
             return new TransactionSnapshot(
@@ -249,19 +251,14 @@ final class StripeSubscription extends Checkout
         }
 
         if (str_starts_with($reference, 'in_')) {
-            $invoice = $this->send(
-                'GET',
-                '/invoices/' . rawurlencode($reference),
-                ['expand' => ['payments']],
-                $timeoutSeconds
-            );
+            $invoice = $this->fetchInvoice($reference, $timeoutSeconds);
             $status = $this->mapInvoiceStatus($invoice);
 
             return new TransactionSnapshot(
                 gateway: self::GATEWAY,
                 gatewayReference: $this->requireString($invoice, 'id'),
                 status: $status,
-                amount: $this->amountOf($invoice),
+                amount: $this->amountDueOf($invoice, $reference),
                 failureReason: $status === TransactionStatus::Failed ? 'Stripe marked this invoice uncollectible.' : null,
                 paymentReference: $this->paymentIntentOfInvoice($invoice),
                 raw: $invoice,
@@ -587,17 +584,29 @@ final class StripeSubscription extends Checkout
      * on its own. Returning that as a success would leave a subscription the caller believes is
      * running and Stripe believes is paused, so when the resume raises an open invoice this
      * method pays it, then re-reads the subscription and returns what Stripe reports. That
-     * invoice carries the proration credited at pause time. ContinueExistingBillingPeriod
-     * resumes inside the original period, raises nothing to collect, and charges nothing.
+     * invoice carries the proration credited at pause time. With ContinueExistingBillingPeriod,
+     * a resume inside the original period raised no charge when this adapter was verified; a
+     * pause that outlasts the period may still invoice on resume, and any invoice the resume
+     * leaves open is paid here exactly the same way, whichever anchor was chosen.
      *
-     * If the payment is refused the exception says so and the subscription **is still paused**,
-     * with the invoice left open. Retry, or resume with ContinueExistingBillingPeriod.
+     * **This can return normally with the status still `Paused`.** When Stripe raised nothing to
+     * pay, the `/resume` response is returned as it stands, and it is Stripe's state at that
+     * moment. The returned status is authoritative: check it rather than assuming the resume
+     * took effect.
+     *
+     * If the payment is refused, or never gets an answer, the exception says so and the
+     * subscription **is still paused as far as this call knows**, with the invoice left open.
+     * Confirm with retrieveSubscription(), then retry. If the payment went through but the
+     * subscription could not be re-read, the exception says the invoice was paid and the resume
+     * has very likely taken effect; confirm with retrieveSubscription() rather than resuming
+     * again.
      *
      * NextBillingPeriod is not a legal choice here: a Stripe resume is immediate, and is refused
      * locally for the same reason pause() refuses it.
      *
      * @throws CheckoutException if $subscriptionReference is not a sub_ id, if $effectiveFrom
-     *         is NextBillingPeriod, if Stripe refuses, or if the resume invoice cannot be paid.
+     *         is NextBillingPeriod, if Stripe refuses, if the resume invoice cannot be paid, or
+     *         if the subscription cannot be re-read after it was.
      */
     public function resume(
         string $subscriptionReference,
@@ -630,20 +639,31 @@ final class StripeSubscription extends Checkout
 
         try {
             $this->send('POST', '/invoices/' . rawurlencode($invoiceId) . '/pay', [], $timeoutSeconds);
-        } catch (CheckoutException $e) {
+        } catch (CheckoutException|HttpClientException $e) {
             throw new CheckoutException(sprintf(
                 'Subscription %1$s is still paused as far as this call knows: resuming raised invoice %2$s, '
                 . 'and paying it failed, so the resume has not been seen to take effect. Confirm where things '
                 . 'stand with retrieveSubscription(), then retry resume() once the customer\'s payment method '
-                . 'is fixed, or resume with ResumeBilling::ContinueExistingBillingPeriod, which raises no '
-                . 'invoice. Stripe said: %3$s',
+                . 'is fixed, or resume with ResumeBilling::ContinueExistingBillingPeriod, which raised no charge '
+                . 'inside the original period when this adapter was verified. Paying failed with: %3$s',
                 $subscriptionReference,
                 $invoiceId,
                 $e->getMessage()
             ), previous: $e);
         }
 
-        return $this->snapshotFrom($this->send('GET', $path, [], $timeoutSeconds));
+        try {
+            return $this->snapshotFrom($this->send('GET', $path, [], $timeoutSeconds));
+        } catch (CheckoutException|HttpClientException $e) {
+            throw new CheckoutException(sprintf(
+                'Invoice %2$s was paid, so the resume of subscription %1$s has very likely taken effect, but '
+                . 'reading the subscription back failed. Confirm with retrieveSubscription() rather than calling '
+                . 'resume() again. Reading it failed with: %3$s',
+                $subscriptionReference,
+                $invoiceId,
+                $e->getMessage()
+            ), previous: $e);
+        }
     }
 
     /**
@@ -667,6 +687,12 @@ final class StripeSubscription extends Checkout
      *   the first attempt replaced). That refusal means the change already happened. Confirm it
      *   with retrieveSubscription(), and never retry with a fresh key, whatever Stripe's error
      *   text suggests: a new key is a new request, and it could charge a second time.
+     * - The first attempt met a server error (a 5xx): Stripe saves that answer against the key
+     *   too, and replays it to the retry, so the retry tells you nothing new.
+     *
+     * So route **every** outcome of a keyed retry other than success to retrieveSubscription()
+     * before deciding anything: the subscription's items, not the retry's error, say whether the
+     * change happened.
      *
      * Without a key a blind retry can charge twice, so read the subscription with
      * retrieveSubscription() first. The key derives one for each product this call creates;
@@ -788,8 +814,11 @@ final class StripeSubscription extends Checkout
     /**
      * Refund all or part of a payment. Stripe refunds act on a PaymentIntent, so the reference
      * is resolved to one: a `pi_` is used as is, an `in_` is read for the PaymentIntent that
-     * paid it, and a `cs_` is read through its invoice. A refund that cannot exist — a trial
-     * that charged nothing, an invoice that is not paid — is refused in plain words and never
+     * paid it, and a `cs_` is read through its invoice. Either invoice must be `paid`, and the
+     * PaymentIntent chosen is one whose own payment status is `paid`, never an earlier attempt
+     * that was declined. A refund that cannot exist — an invoice that is not paid, including a
+     * first payment still processing; one paid without a PaymentIntent, such as a zero-total
+     * trial; a session the customer never completed — is refused in plain words and never
      * posted to Stripe.
      */
     public function refund(RefundRequest $request): RefundResult
@@ -872,8 +901,10 @@ final class StripeSubscription extends Checkout
      * Stripe's `trial_period_days` is a whole number of days, and nothing else. A day is a
      * day, a week is seven; a month or a year has no fixed length, and converting one would
      * silently turn "one month" into thirty days, so those are refused. A one-day trial is
-     * refused because Stripe refuses it ("The trial end date must be at least 2 days after…")
-     * and failing at construction is kinder than failing at the first checkout.
+     * refused because Stripe refused one when this adapter was verified, and failing at
+     * construction is kinder than failing at the first checkout. Whether Stripe refuses it in
+     * every setting is a release-gate question (ReleaseNotes_1.11.0.md §5.2); the guard stands
+     * until it is answered.
      *
      * @throws CheckoutException
      */
@@ -893,9 +924,8 @@ final class StripeSubscription extends Checkout
 
         if ($days < 2) {
             throw new CheckoutException(
-                'Stripe requires a trial of at least 2 days — trial_period_days of 1 is refused with "The '
-                . 'trial end date must be at least 2 days after the customer\'s test clock time". Pass a '
-                . 'longer trial, or none.'
+                'A trial must be at least 2 days here: Stripe refused a one-day trial when this adapter was '
+                . 'verified, so this adapter will not send one. Pass a longer trial, or none.'
             );
         }
 
@@ -947,36 +977,130 @@ final class StripeSubscription extends Checkout
     }
 
     /**
-     * The PaymentIntent that paid an invoice. Current API versions list it under
-     * `payments.data[*].payment.payment_intent`, and only when `payments` is expanded; older
-     * ones carry a top-level `payment_intent`. A trial's zero-amount invoice and an unexpanded
-     * webhook carry neither, and null is the honest answer.
+     * The PaymentIntent behind an invoice. Current API versions list every attempt under
+     * `payments.data[*]`, and only when `payments` is expanded; each entry carries its own
+     * `status`, so a declined attempt and the retry that paid sit side by side. **The paid one
+     * is chosen.** Failing that, the first attempt listed is reported — a payment still
+     * processing is the best answer to "which payment is this" — unless $paidOnly, which a
+     * refund passes so that it is never posted against a payment that did not pay.
+     *
+     * Older API versions carry a top-level `payment_intent` instead, read only when no payments
+     * list is present at all. A trial's zero-amount invoice lists none and an unexpanded webhook
+     * carries neither, and null is the honest answer.
      *
      * @param array<string, mixed> $invoice
      */
-    private function paymentIntentOfInvoice(array $invoice): ?string
+    private function paymentIntentOfInvoice(array $invoice, bool $paidOnly = false): ?string
     {
-        $legacy = $this->referenceOf($invoice['payment_intent'] ?? null);
-
-        if ($legacy !== null) {
-            return $legacy;
-        }
-
         $payments = $invoice['payments']['data'] ?? null;
 
-        foreach (is_array($payments) ? $payments : [] as $entry) {
-            $payment = is_array($entry) ? ($entry['payment'] ?? null) : null;
-
-            if (is_array($payment) && ($payment['type'] ?? null) === 'payment_intent') {
-                $reference = $this->referenceOf($payment['payment_intent'] ?? null);
-
-                if ($reference !== null) {
-                    return $reference;
-                }
-            }
+        if (!is_array($payments)) {
+            return $this->referenceOf($invoice['payment_intent'] ?? null);
         }
 
-        return null;
+        $attempt = null;
+
+        foreach ($payments as $entry) {
+            $payment = is_array($entry) ? ($entry['payment'] ?? null) : null;
+
+            if (!is_array($payment) || ($payment['type'] ?? null) !== 'payment_intent') {
+                continue;
+            }
+
+            $reference = $this->referenceOf($payment['payment_intent'] ?? null);
+
+            if ($reference !== null && ($entry['status'] ?? null) === 'paid') {
+                return $reference;
+            }
+
+            $attempt ??= $reference;
+        }
+
+        return $paidOnly ? null : $attempt;
+    }
+
+    /**
+     * The PaymentIntent a refund of $reference is posted against, which must be one that paid.
+     * The invoice is refused unless Stripe reports it `paid` — an asynchronous first payment
+     * leaves it `open` with a PaymentIntent that has collected nothing yet — and then only a
+     * payment whose own status is `paid` is chosen.
+     *
+     * @param array<string, mixed> $invoice
+     * @throws CheckoutException naming $reference, before anything is posted.
+     */
+    private function paidPaymentIntentOf(array $invoice, string $reference): string
+    {
+        $subject = str_starts_with($reference, 'cs_')
+            ? sprintf('The invoice behind checkout session %s', $reference)
+            : sprintf('Invoice %s', $reference);
+        $status = $invoice['status'] ?? null;
+
+        if ($status !== 'paid') {
+            throw new CheckoutException(sprintf(
+                '%s is not paid (it is %s), so there is nothing to refund.',
+                $subject,
+                is_string($status) ? '"' . $status . '"' : 'in an unknown state'
+            ));
+        }
+
+        return $this->paymentIntentOfInvoice($invoice, paidOnly: true) ?? throw new CheckoutException(sprintf(
+            '%s was paid without a Stripe PaymentIntent — a zero-total trial, customer credit, or marked paid '
+            . 'out of band — so there is no payment here to refund.',
+            $subject
+        ));
+    }
+
+    /**
+     * A checkout session with its first invoice's payments expanded, so the PaymentIntent behind
+     * the first charge can be read; unexpanded, a session carries only a bare invoice id.
+     *
+     * @return array<string, mixed>
+     */
+    private function fetchSession(string $reference, int $timeoutSeconds): array
+    {
+        return $this->send(
+            'GET',
+            '/checkout/sessions/' . rawurlencode($reference),
+            ['expand' => ['invoice.payments']],
+            $timeoutSeconds
+        );
+    }
+
+    /**
+     * An invoice with its payments expanded: at the pinned version that is the only place its
+     * PaymentIntent appears.
+     *
+     * @return array<string, mixed>
+     */
+    private function fetchInvoice(string $reference, int $timeoutSeconds): array
+    {
+        return $this->send('GET', '/invoices/' . rawurlencode($reference), ['expand' => ['payments']], $timeoutSeconds);
+    }
+
+    /**
+     * An invoice's amount, read as what the card is charged: `amount_due`, which Stripe never
+     * reports below zero. The `total` is not used, because credit makes the two differ and a
+     * downgrade's credit invoice has a negative total, which no Money can hold. Nothing is cast,
+     * and the currency is checked here so that Money cannot throw anything but this.
+     *
+     * @param array<string, mixed> $invoice
+     * @throws CheckoutException if `amount_due` is not a non-negative integer or `currency` is
+     *         not a three-letter code.
+     */
+    private function amountDueOf(array $invoice, string $reference): Money
+    {
+        $due = $invoice['amount_due'] ?? null;
+        $currency = $invoice['currency'] ?? null;
+
+        if (!is_int($due) || $due < 0 || !is_string($currency) || preg_match('/^[A-Za-z]{3}$/', $currency) !== 1) {
+            throw new CheckoutException(sprintf(
+                'Stripe invoice %s carried no amount_due and currency this adapter can read — amount_due must be '
+                . 'a whole number of minor units, zero or more — so its amount cannot be reported.',
+                $reference
+            ));
+        }
+
+        return new Money($due, $currency);
     }
 
     /**
@@ -1444,51 +1568,26 @@ final class StripeSubscription extends Checkout
         }
 
         if (str_starts_with($reference, 'in_')) {
-            $invoice = $this->send(
-                'GET',
-                '/invoices/' . rawurlencode($reference),
-                ['expand' => ['payments']],
-                $request->timeoutSeconds
-            );
-
-            if (($invoice['status'] ?? null) !== 'paid') {
-                throw new CheckoutException(sprintf(
-                    'Invoice %s is not paid (it is %s), so there is nothing to refund.',
-                    $reference,
-                    isset($invoice['status']) ? '"' . $invoice['status'] . '"' : 'in an unknown state'
-                ));
-            }
-
-            return $this->paymentIntentOfInvoice($invoice) ?? throw $this->nothingChargedFor($reference);
+            return $this->paidPaymentIntentOf($this->fetchInvoice($reference, $request->timeoutSeconds), $reference);
         }
 
         if (str_starts_with($reference, 'cs_')) {
-            $session = $this->send(
-                'GET',
-                '/checkout/sessions/' . rawurlencode($reference),
-                ['expand' => ['invoice.payments']],
-                $request->timeoutSeconds
-            );
-            $invoice = $session['invoice'] ?? null;
+            $invoice = $this->fetchSession($reference, $request->timeoutSeconds)['invoice'] ?? null;
 
-            return (is_array($invoice) ? $this->paymentIntentOfInvoice($invoice) : null)
-                ?? throw $this->nothingChargedFor($reference);
+            if (!is_array($invoice)) {
+                throw new CheckoutException(sprintf(
+                    'Checkout session %s carries no invoice to refund. A session the customer never completed has '
+                    . 'none, and so has no payment behind it.',
+                    $reference
+                ));
+            }
+
+            return $this->paidPaymentIntentOf($invoice, $reference);
         }
 
         throw new CheckoutException(sprintf(
             'StripeSubscription refunds a PaymentIntent (pi_...), an invoice (in_...) or a checkout session '
             . '(cs_...), not "%s".',
-            $reference
-        ));
-    }
-
-    private function nothingChargedFor(string $reference): CheckoutException
-    {
-        return new CheckoutException(sprintf(
-            '%s %s has no payment to refund — nothing was charged. A trial starts at zero, and a session the '
-            . 'customer never completed charged nothing either; the first real payment is the first renewal '
-            . 'invoice.',
-            str_starts_with($reference, 'cs_') ? 'Checkout session' : 'Invoice',
             $reference
         ));
     }

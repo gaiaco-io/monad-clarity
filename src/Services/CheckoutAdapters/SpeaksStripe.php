@@ -181,15 +181,15 @@ trait SpeaksStripe
     }
 
     /**
-     * A Checkout Session reports its total as `amount_total`; an Invoice, as `total`. Both
-     * are read the same way, the session's field first.
+     * A Checkout Session's total, `amount_total`. An invoice is not read here: StripeSubscription
+     * reports an invoice by its amount due, which has rules of its own.
      *
-     * @param array<string, mixed> $object
+     * @param array<string, mixed> $session
      */
-    private function amountOf(array $object, ?Money $fallback = null): Money
+    private function amountOf(array $session, ?Money $fallback = null): Money
     {
-        $amount = $object['amount_total'] ?? $object['total'] ?? null;
-        $currency = $object['currency'] ?? null;
+        $amount = $session['amount_total'] ?? null;
+        $currency = $session['currency'] ?? null;
 
         if (!is_numeric($amount) || !is_string($currency) || $currency === '') {
             return $fallback ?? throw new CheckoutException(
