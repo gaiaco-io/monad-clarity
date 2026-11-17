@@ -132,6 +132,7 @@ Never modified by application developers.
             │   │   │   ├── CheckoutException.php
             │   │   │   ├── CheckoutRequest.php
             │   │   │   ├── CheckoutSession.php
+            │   │   │   ├── IdempotencyKeyReusedException.php  <!-- extends CheckoutException; 1.12.0 -->
             │   │   │   ├── LineItem.php
             │   │   │   ├── Money.php
             │   │   │   ├── RefundRequest.php

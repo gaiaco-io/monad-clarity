@@ -6,6 +6,31 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`Services\Checkout\IdempotencyKeyReusedException`.** Stripe's refusal of an idempotency key
+  already used on a different request now has its own type, so a caller can catch it by class
+  instead of reading a message. It is a final subclass of `CheckoutException`, so every existing
+  `catch (CheckoutException)` still catches it, and `$idempotencyKey` carries the key as the
+  caller knows it. Every Stripe call that sends a key throws it:
+  - `createCheckout()` and `refund()` on both `StripeCheckout` and `StripeSubscription`;
+  - `StripeSubscription::changePlan()`, which already recognised the refusal in 1.11.0.
+
+  The refused request was not carried out. Each message says what is safe next for its call: a
+  new key is safe for a checkout session and can refund twice for a refund. Verified against
+  live Stripe test mode for a session and a refund (`ReleaseNotes_1.12.0.md` §5.1).
+
+### Changed
+- **`CheckoutException` is no longer `final`,** so the subclass above can refine it. This is
+  one-way: it is never made final again outside a major release, and a custom adapter may
+  subclass it too (`ReleaseNotes_1.12.0.md` §2.2).
+- **The message for a reused key on Stripe's `createCheckout()` and `refund()`.** It was the
+  generic `request failed with HTTP 400` summary of Stripe's error, which advised trying a
+  different key. That advice was unsafe for a refund. The message is now the adapter's own
+  explanation. No signature changes.
+
+### Documentation
+- **`ReleaseNotes_1.12.0.md`,** the specification for this release, drafted until the tag.
+
 ## [1.11.1] - 2026-11-17
 
 Fixes the two Checkout defects `ReleaseNotes_1.11.0.md` §3 left for a later patch. No signature

@@ -609,6 +609,19 @@ final class StripeCheckoutTest extends TestCase
         }
     }
 
+    /**
+     * send() takes no key and PHP drops an extra argument silently, so this is what would catch
+     * a refund that stopped sending its key.
+     */
+    public function testRefundSendsItsDerivedIdempotencyKey(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::refundResponse());
+
+        $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456'));
+
+        self::assertSame('refund:pi_test_456:full', $fake->lastRequest()?->getHeaderLine('Idempotency-Key'));
+    }
+
     public function testRefundReportsAReusedKeyAndWarnsAgainstAFreshOne(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::reusedKeyResponse('refund:pi_test_456:full'));
