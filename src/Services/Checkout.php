@@ -140,14 +140,28 @@ abstract class Checkout
         $decoded = json_decode($body, associative: true);
 
         if (is_array($decoded) && is_array($decoded['error'] ?? null)) {
-            return self::summariseErrorObject($decoded);
+            return self::tidy(self::summariseErrorObject($decoded), 1000);
         }
 
         if (is_array($decoded)) {
-            $body = (string) json_encode(Redactor::redact($decoded), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $body = json_encode(Redactor::redact($decoded), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '(unreadable body)';
         }
 
-        return trim($body) === '' ? '(empty body)' : self::truncate($body, 500);
+        return trim($body) === '' ? '(empty body)' : self::tidy($body, 500);
+    }
+
+    /**
+     * The tail every summary shares: one line, valid UTF-8, no client secret echoed inside a
+     * value (`pi_..._secret_...`, `client_secret=...`), and only then cut to length so a cut
+     * cannot leave half a token behind. The patterns carry no /u flag: invalid UTF-8 must not
+     * turn a failed match into null.
+     */
+    private static function tidy(string $text, int $limit): string
+    {
+        $text = trim((string) preg_replace('/\s+/', ' ', mb_scrub($text)));
+        $text = preg_replace(['/[A-Za-z0-9_]*_secret_[A-Za-z0-9]+/', '/client_secret=[^\s&"\']+/i'], '[REDACTED]', $text) ?? '';
+
+        return self::truncate($text, $limit);
     }
 
     /**
@@ -179,6 +193,10 @@ abstract class Checkout
             }
         }
 
+        if (isset($request['request_id'])) {
+            $parts[] = '[request_id=' . self::scalarText($request['request_id']) . ']';
+        }
+
         $problems = [];
         foreach (is_array($decoded['error']['errors'] ?? null) ? $decoded['error']['errors'] : [] as $problem) {
             $pair = is_array($problem) ? Redactor::redact(array_filter($problem, is_scalar(...))) : [];
@@ -194,11 +212,7 @@ abstract class Checkout
             $parts[] = '[' . implode('; ', $problems) . ']';
         }
 
-        if (isset($request['request_id'])) {
-            $parts[] = '[request_id=' . self::scalarText($request['request_id']) . ']';
-        }
-
-        return $parts === [] ? '(no error details)' : self::truncate(implode(' ', $parts), 1000);
+        return $parts === [] ? '(no error details)' : implode(' ', $parts);
     }
 
     /** One line, whatever the gateway put in it. */

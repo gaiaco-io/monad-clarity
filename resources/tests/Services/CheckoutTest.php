@@ -109,6 +109,54 @@ final class CheckoutTest extends TestCase
         self::assertSame('fake request failed with HTTP 503: (empty body)', $this->failureMessage(503, ''));
     }
 
+    public function testAClientSecretEchoedInsideAnErrorMessageIsScrubbed(): void
+    {
+        $message = $this->failureMessage(404, ['error' => [
+            'message' => "No such checkout.session: 'cs_test_a1_secret_zz9'",
+            'type' => 'invalid_request_error',
+            'code' => 'resource_missing',
+            'param' => 'id',
+        ]]);
+
+        self::assertStringContainsString('No such checkout.session', $message);
+        self::assertStringContainsString('[REDACTED]', $message);
+        self::assertStringNotContainsString('_secret_zz9', $message);
+    }
+
+    public function testAClientSecretInsideAnUnkeyedJsonValueIsScrubbed(): void
+    {
+        $message = $this->failureMessage(400, [
+            'detail' => 'bad ref pi_9_secret_Qx7 or client_secret=abcDEF123&x=1',
+        ]);
+
+        self::assertStringNotContainsString('_secret_Qx7', $message);
+        self::assertStringNotContainsString('abcDEF123', $message);
+        self::assertStringContainsString('bad ref', $message);
+    }
+
+    public function testAMultiLineBodyBecomesOneLine(): void
+    {
+        $message = $this->failureMessage(502, "<html>\r\n<body>\n\n  Bad   gateway\t</body>\r\n</html>");
+
+        self::assertSame('fake request failed with HTTP 502: <html> <body> Bad gateway </body> </html>', $message);
+    }
+
+    public function testPaddlesRequestIdSurvivesALongProblemList(): void
+    {
+        $errors = [];
+        for ($i = 0; $i < 80; $i++) {
+            $errors[] = ['field' => "items[$i].price_id", 'message' => 'price_id is required for this item'];
+        }
+
+        $message = $this->failureMessage(400, [
+            'error' => ['type' => 'request_error', 'code' => 'invalid_field', 'detail' => 'Invalid request', 'errors' => $errors],
+            'meta' => ['request_id' => 'req-keep-me'],
+        ]);
+
+        self::assertStringContainsString('req-keep-me', $message);
+        self::assertStringContainsString('invalid_field', $message);
+    }
+
     public function testAMalformedErrorShapeNeverThrowsAnythingButCheckoutException(): void
     {
         $bodies = [
