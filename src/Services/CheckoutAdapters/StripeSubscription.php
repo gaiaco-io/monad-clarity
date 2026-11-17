@@ -884,7 +884,18 @@ final class StripeSubscription extends Checkout
                     ));
                 }
 
+                // Money does its arithmetic in plain ints, and an overflow becomes a float that its
+                // typed constructor answers with a TypeError. Refuse before that can happen.
+                if ($quantity > 0 && $unitAmount > intdiv(PHP_INT_MAX, $quantity)) {
+                    throw $this->tooLargeToRepresent($id);
+                }
+
                 $line = (new Money($unitAmount, $price['currency']))->multipliedBy($quantity);
+
+                if ($total !== null && $line->minorUnits > PHP_INT_MAX - $total->minorUnits) {
+                    throw $this->tooLargeToRepresent($id);
+                }
+
                 $total = $total?->plus($line) ?? $line;
             }
         } catch (InvalidArgumentException $e) {
@@ -895,6 +906,14 @@ final class StripeSubscription extends Checkout
         }
 
         return $fixed ? $total : null;
+    }
+
+    private function tooLargeToRepresent(string $id): CheckoutException
+    {
+        return new CheckoutException(sprintf(
+            'Stripe subscription %s carried prices whose total is too large to represent as an amount.',
+            $id
+        ));
     }
 
     /**

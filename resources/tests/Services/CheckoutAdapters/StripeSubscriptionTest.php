@@ -1176,6 +1176,67 @@ final class StripeSubscriptionTest extends TestCase
         $this->adapter()->parseSubscriptionCallback(str_replace('order-1', 'order-2', $payload), $headers);
     }
 
+    public function testParseSubscriptionCallbackRejectsASignatureFromTheWrongSecret(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated');
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/did not verify/');
+
+        $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload, secret: 'whsec_someone_elses_secret'));
+    }
+
+    public function testParseSubscriptionCallbackRejectsATimestampOutsideTheReplayTolerance(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated');
+        $headers = self::signedHeaders($payload, timestamp: time() - 3600);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/replay/');
+
+        $this->adapter()->parseSubscriptionCallback($payload, $headers);
+    }
+
+    public function testParseSubscriptionCallbackRejectsAMissingSignatureHeader(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/no Stripe-Signature header/');
+
+        $this->adapter()->parseSubscriptionCallback(self::subscriptionEvent('evt_s1', 'customer.subscription.updated'), []);
+    }
+
+    public function testParseSubscriptionCallbackRejectsAMalformedSignatureHeader(): void
+    {
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/malformed/');
+
+        $this->adapter()->parseSubscriptionCallback(
+            self::subscriptionEvent('evt_s1', 'customer.subscription.updated'),
+            ['Stripe-Signature' => 'v1=deadbeef']
+        );
+    }
+
+    public function testParseSubscriptionCallbackMatchesTheSignatureHeaderCaseInsensitively(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated');
+        $headers = ['stripe-signature' => self::signedHeaders($payload)['Stripe-Signature']];
+
+        self::assertSame('evt_s1', $this->adapter()->parseSubscriptionCallback($payload, $headers)->eventId);
+    }
+
+    public function testParseSubscriptionCallbackAcceptsAnyOneOfSeveralSignaturesDuringSecretRotation(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated');
+        $timestamp = time();
+        $valid = HMAC::sign($timestamp . '.' . $payload, self::WEBHOOK_SECRET);
+        $header = sprintf('t=%d,v1=%s,v1=%s', $timestamp, str_repeat('0', 64), $valid);
+
+        self::assertSame(
+            'evt_s1',
+            $this->adapter()->parseSubscriptionCallback($payload, ['Stripe-Signature' => $header])->eventId
+        );
+    }
+
     /**
      * Signed does not mean well-formed. Each of these must come out as a CheckoutException — or,
      * where the field is optional and a malformed value reasonably reads as absent, as a
@@ -1248,6 +1309,20 @@ final class StripeSubscriptionTest extends TestCase
 
                 return $e;
             }, false],
+            'unit amount times quantity overflow is refused' => [static function (array $e): array {
+                $e['data']['object']['items']['data'][0]['price']['unit_amount'] = PHP_INT_MAX;
+                $e['data']['object']['items']['data'][0]['quantity'] = 2;
+
+                return $e;
+            }, true],
+            'sum of items overflow is refused' => [static function (array $e): array {
+                foreach ([0, 1] as $i) {
+                    $e['data']['object']['items']['data'][$i]['price']['unit_amount'] = PHP_INT_MAX;
+                    $e['data']['object']['items']['data'][$i]['quantity'] = 1;
+                }
+
+                return $e;
+            }, true],
             'array items data is refused' => [static function (array $e) use ($arr): array {
                 $e['data']['object']['items']['data'] = $arr;
 
