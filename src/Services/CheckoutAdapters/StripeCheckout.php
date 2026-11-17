@@ -95,7 +95,7 @@ final class StripeCheckout extends Checkout
         return new CheckoutSession(
             gateway: self::GATEWAY,
             gatewayReference: $this->requireString($session, 'id'),
-            redirectUrl: isset($session['url']) ? (string) $session['url'] : null,
+            redirectUrl: is_string($session['url'] ?? null) ? $session['url'] : null,
             status: $this->mapSessionStatus($session),
             amount: $this->amountOf($session, $request->amount),
             paymentReference: $this->referenceOf($session['payment_intent'] ?? null),
@@ -207,11 +207,8 @@ final class StripeCheckout extends Checkout
             gateway: self::GATEWAY,
             gatewayRefundId: $this->requireString($refund, 'id'),
             reference: $paymentIntent,
-            amount: new Money(
-                (int) ($refund['amount'] ?? $request->amount?->minorUnits ?? 0),
-                (string) ($refund['currency'] ?? $request->amount?->currency ?? 'USD')
-            ),
-            status: (string) ($refund['status'] ?? 'unknown'),
+            amount: self::refundedMoney($refund['amount'] ?? null, $refund['currency'] ?? null, $request),
+            status: is_string($refund['status'] ?? null) ? $refund['status'] : 'unknown',
             reason: $request->reason,
             raw: $refund,
         );

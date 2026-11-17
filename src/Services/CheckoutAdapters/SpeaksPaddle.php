@@ -119,11 +119,14 @@ trait SpeaksPaddle
         /** @var array<string, mixed> $event */
         $event = json_decode($rawBody, associative: true) ?: [];
 
-        if (!isset($event['event_id'], $event['event_type'])) {
+        // Signed does not mean well-formed: a field of the wrong type is refused or read as absent
+        // rather than cast, because casting an array raises a warning, which the framework's error
+        // handler turns into an ErrorException that escapes this method's CheckoutException contract.
+        if (!is_string($event['event_id'] ?? null) || !is_string($event['event_type'] ?? null)) {
             throw new CheckoutException('Paddle webhook payload verified but carried no event_id or event_type.');
         }
 
-        $type = (string) $event['event_type'];
+        $type = $event['event_type'];
         $data = $event['data'] ?? [];
 
         if (!is_array($data)) {
@@ -146,7 +149,7 @@ trait SpeaksPaddle
             ));
         }
 
-        $reference = isset($data['id']) ? (string) $data['id'] : '';
+        $reference = is_string($data['id'] ?? null) ? $data['id'] : '';
 
         if (!str_starts_with($reference, 'txn_')) {
             throw new CheckoutException(sprintf(
@@ -165,7 +168,7 @@ trait SpeaksPaddle
 
         return new CallbackEvent(
             gateway: $this->gatewayName(),
-            eventId: (string) $event['event_id'],
+            eventId: $event['event_id'],
             eventType: $type,
             gatewayReference: $reference,
             status: $status,
@@ -203,18 +206,14 @@ trait SpeaksPaddle
             gateway: $this->gatewayName(),
             gatewayRefundId: $this->requireString($adjustment, 'id'),
             reference: $request->reference,
-            amount: new Money(
-                (int) ($adjustment['totals']['total'] ?? $request->amount?->minorUnits ?? 0),
-                (string) (
-                    $adjustment['currency_code']
-                    ?? $adjustment['totals']['currency_code']
-                    ?? $request->amount?->currency
-                    ?? 'USD'
-                )
+            amount: self::refundedMoney(
+                $adjustment['totals']['total'] ?? null,
+                $adjustment['currency_code'] ?? $adjustment['totals']['currency_code'] ?? null,
+                $request
             ),
             // `pending_approval` in live, `approved` in sandbox. Kept verbatim: a refund's
             // lifecycle is not a transaction's, and this is the gateway's own word for it.
-            status: (string) ($adjustment['status'] ?? 'unknown'),
+            status: is_string($adjustment['status'] ?? null) ? $adjustment['status'] : 'unknown',
             reason: $request->reason,
             raw: $adjustment,
         );
@@ -553,7 +552,7 @@ trait SpeaksPaddle
             $request->timeoutSeconds
         );
 
-        $currency = (string) ($transaction['currency_code'] ?? '');
+        $currency = is_string($transaction['currency_code'] ?? null) ? $transaction['currency_code'] : '';
 
         if ($currency !== $amount->currency) {
             throw new CheckoutException(sprintf(
@@ -572,7 +571,18 @@ trait SpeaksPaddle
                 continue;
             }
 
-            $remaining[(string) $lineItem['id']] = (int) ($lineItem['totals']['total'] ?? 0);
+            // Nothing has moved yet, so a figure that cannot be read is refused rather than
+            // guessed: allocating against a wrong remainder would ask Paddle for the wrong refund.
+            $total = self::intOrNull($lineItem['totals']['total'] ?? 0);
+
+            if (!is_string($lineItem['id']) || $total === null) {
+                throw new CheckoutException(sprintf(
+                    'Paddle transaction %s carried a line item whose id or total this adapter cannot read.',
+                    $request->reference
+                ));
+            }
+
+            $remaining[$lineItem['id']] = $total;
         }
 
         if ($remaining === []) {
@@ -608,11 +618,13 @@ trait SpeaksPaddle
         $refunded = [];
 
         foreach ($adjustments as $adjustment) {
-            if (!is_array($adjustment) || (string) ($adjustment['action'] ?? '') !== 'refund') {
+            // Compared strictly rather than cast: an action that is not a string is not a refund,
+            // and a status that is not a string is not a rejection, so the refund still counts.
+            if (!is_array($adjustment) || ($adjustment['action'] ?? null) !== 'refund') {
                 continue;
             }
 
-            if (in_array((string) ($adjustment['status'] ?? ''), ['rejected', 'reversed'], true)) {
+            if (in_array($adjustment['status'] ?? null, ['rejected', 'reversed'], true)) {
                 continue;
             }
 
@@ -623,9 +635,17 @@ trait SpeaksPaddle
                     continue;
                 }
 
-                $itemId = (string) $item['item_id'];
-                $refunded[$itemId] = ($refunded[$itemId] ?? 0)
-                    + (int) ($item['amount'] ?? $item['totals']['total'] ?? 0);
+                $amount = self::intOrNull($item['amount'] ?? $item['totals']['total'] ?? 0);
+
+                if (!is_string($item['item_id']) || $amount === null) {
+                    throw new CheckoutException(sprintf(
+                        'An earlier refund of transaction %s carried an item this adapter cannot read, so what is '
+                        . 'left to refund is unknown.',
+                        $request->reference
+                    ));
+                }
+
+                $refunded[$item['item_id']] = ($refunded[$item['item_id']] ?? 0) + $amount;
             }
         }
 
@@ -780,6 +800,32 @@ trait SpeaksPaddle
     }
 
     /**
+     * A numeric value as an int, or null when it is not numeric or would not convert exactly.
+     */
+    private static function intOrNull(mixed $value): ?int
+    {
+        return is_numeric($value) && self::fitsInAnInt($value) ? (int) $value : null;
+    }
+
+    /**
+     * The money a refund moved, read off Paddle's answer. That answer arrives after the refund is
+     * made, and Paddle takes no idempotency key, so this never throws: an exception would invite a
+     * retry, and a retry is a second refund. A figure that is absent or unreadable reads as what
+     * was asked for, as an absent one always has; the gateway's own answer stays in `raw`.
+     */
+    private static function refundedMoney(mixed $amount, mixed $currency, RefundRequest $request): Money
+    {
+        $minorUnits = self::intOrNull($amount) ?? $request->amount?->minorUnits ?? 0;
+        $currency = is_string($currency) && $currency !== '' ? $currency : ($request->amount?->currency ?? 'USD');
+
+        try {
+            return new Money($minorUnits, $currency);
+        } catch (InvalidArgumentException) {
+            return $request->amount ?? new Money(0, 'USD');
+        }
+    }
+
+    /**
      * @param array<string, mixed> $payload
      * @throws CheckoutException if $key is missing or empty.
      */
@@ -836,7 +882,7 @@ trait SpeaksPaddle
             }
 
             $last = end($page);
-            $cursor = is_array($last) && isset($last['id']) ? (string) $last['id'] : null;
+            $cursor = is_array($last) && is_string($last['id'] ?? null) ? $last['id'] : null;
             $params['after'] = $cursor;
         } while (($body['meta']['pagination']['has_more'] ?? false) === true && $cursor !== null);
 

@@ -270,6 +270,31 @@ final class StripeSubscriptionTest extends TestCase
         });
     }
 
+    /**
+     * The shared refund-result reading and this adapter's own session url, through this adapter.
+     * StripeCheckoutTest covers every case; these prove StripeSubscription reaches the same code.
+     */
+    public function testUnreadableRefundFieldsAndUrlReadAsAbsentWithoutAWarning(): void
+    {
+        $refund = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 're_test_1',
+            'amount' => 1e30,
+            'currency' => ['not' => 'a string'],
+            'status' => ['not' => 'a string'],
+        ]));
+        $session = ['url' => ['not' => 'a string']] + self::completedSession();
+        $checkout = new FakeHttpClient(static fn (): Response => self::jsonResponse($session));
+
+        $this->assertWarningsBecomeExceptions(function () use ($refund, $checkout): void {
+            $result = $this->adapter($refund)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::assertSame(0, $result->amount->minorUnits);
+            self::assertSame('USD', $result->amount->currency);
+            self::assertSame('unknown', $result->status);
+
+            self::assertNull($this->adapter($checkout)->createCheckout($this->checkoutRequest())->redirectUrl);
+        });
+    }
+
     public function testRetrieveStatusOfATrialSessionPaidAtZeroIsSuccess(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::completedSession([

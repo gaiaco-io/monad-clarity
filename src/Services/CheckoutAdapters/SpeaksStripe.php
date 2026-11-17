@@ -241,6 +241,32 @@ trait SpeaksStripe
     }
 
     /**
+     * A numeric value as an int, or null when it is not numeric or would not convert exactly.
+     */
+    private static function intOrNull(mixed $value): ?int
+    {
+        return is_numeric($value) && self::fitsInAnInt($value) ? (int) $value : null;
+    }
+
+    /**
+     * The money a refund moved, read off Stripe's answer. That answer arrives after the refund is
+     * made, so this never throws: an exception would invite a retry of a refund that happened. A
+     * figure that is absent or unreadable reads as what was asked for, as an absent one always
+     * has; the gateway's own answer stays in `raw`.
+     */
+    private static function refundedMoney(mixed $amount, mixed $currency, RefundRequest $request): Money
+    {
+        $minorUnits = self::intOrNull($amount) ?? $request->amount?->minorUnits ?? 0;
+        $currency = is_string($currency) && $currency !== '' ? $currency : ($request->amount?->currency ?? 'USD');
+
+        try {
+            return new Money($minorUnits, $currency);
+        } catch (InvalidArgumentException) {
+            return $request->amount ?? new Money(0, 'USD');
+        }
+    }
+
+    /**
      * @param array<string, mixed> $payload
      * @throws CheckoutException if $key is missing or empty.
      */

@@ -148,7 +148,7 @@ final class PaddleCheckout extends Checkout
      */
     protected function mapTransactionStatus(array $transaction): TransactionStatus
     {
-        return match (isset($transaction['status']) ? (string) $transaction['status'] : null) {
+        return match ($transaction['status'] ?? null) {
             'completed', 'paid' => TransactionStatus::Success,
             // Paddle spells it with one l; §9.6.5 spells it with two.
             'canceled' => TransactionStatus::Cancelled,

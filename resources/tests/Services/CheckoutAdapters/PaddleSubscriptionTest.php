@@ -438,6 +438,87 @@ final class PaddleSubscriptionTest extends TestCase
         }
     }
 
+    /**
+     * Signed does not mean well-formed. Casting an array raises a warning, which
+     * Mediator::register() turns into an ErrorException, so each field below is refused as a
+     * CheckoutException or read as absent. `true` means refused; `false` means it parses.
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>, bool}>
+     */
+    public static function malformedSubscriptionEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array event id is refused' => [static fn (array $e): array => ['event_id' => $arr] + $e, true],
+            'array event type is refused' => [static fn (array $e): array => ['event_type' => $arr] + $e, true],
+            'array subscription id is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['id'] = $arr;
+
+                return $e;
+            }, true],
+            'array scheduled change action is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['scheduled_change'] = ['action' => $arr, 'effective_at' => '2026-09-30T00:00:00Z'];
+
+                return $e;
+            }, true],
+            'array billing interval reads as no cycle' => [static function (array $e) use ($arr): array {
+                $e['data']['billing_cycle'] = ['interval' => $arr, 'frequency' => 1];
+
+                return $e;
+            }, false],
+            'a billing frequency past PHP_INT_MAX reads as no cycle' => [static function (array $e): array {
+                $e['data']['billing_cycle'] = ['interval' => 'month', 'frequency' => 1e30];
+
+                return $e;
+            }, false],
+        ];
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedSubscriptionEvents')]
+    public function testParseSubscriptionCallbackRefusesOrToleratesAMalformedPayloadWithoutLeakingAWarning(
+        callable $malform,
+        bool $refused
+    ): void {
+        $event = json_decode(self::eventPayload('evt_bad', 'subscription.updated'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $parsed = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+        } catch (CheckoutException $e) {
+            self::assertTrue($refused, sprintf('Expected the payload to parse, but it was refused: %s', $e->getMessage()));
+
+            return;
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertFalse($refused, 'Expected the payload to be refused, but it parsed.');
+        self::assertNull($parsed->subscription->billingCycle);
+    }
+
+    public function testRetrieveStatusReadsAnUnreadableTransactionStatusAsPending(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['status' => ['not' => 'a string']]));
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            self::assertSame(TransactionStatus::Pending, $this->adapter($fake)->retrieveStatus('txn_test_123')->status);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     #[DataProvider('transactionStates')]
     public function testRetrieveStatusMapsTheRemainingTransactionStates(string $paddle, TransactionStatus $expected): void
     {

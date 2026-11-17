@@ -228,6 +228,76 @@ final class StripeCheckoutTest extends TestCase
     }
 
     /**
+     * A refund result is read after Stripe has moved the money, so a throw here would invite a
+     * retry. A figure that is unreadable reads as absent, falling back exactly as an absent one
+     * always has, and never leaks a warning or Money's InvalidArgumentException.
+     *
+     * @return array<string, array{array<string, mixed>, int, string, string}>
+     */
+    public static function unreadableRefundFields(): array
+    {
+        $arr = ['not' => 'a scalar'];
+
+        return [
+            'an amount past PHP_INT_MAX' => [['amount' => 1e30], 0, 'USD', 'succeeded'],
+            'an array amount' => [['amount' => $arr], 0, 'USD', 'succeeded'],
+            'a negative amount' => [['amount' => -5], 0, 'USD', 'succeeded'],
+            'an array currency' => [['currency' => $arr], 2500, 'USD', 'succeeded'],
+            'a currency that is not ISO 4217' => [['currency' => 'us'], 0, 'USD', 'succeeded'],
+            'an array status' => [['status' => $arr], 2500, 'USD', 'unknown'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    #[DataProvider('unreadableRefundFields')]
+    public function testRefundReadsAnUnreadableResultFieldAsAbsentAndNeverThrows(
+        array $overrides,
+        int $minorUnits,
+        string $currency,
+        string $status
+    ): void {
+        $refund = array_merge(['id' => 're_test_1', 'amount' => 2500, 'currency' => 'usd', 'status' => 'succeeded'], $overrides);
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($refund));
+
+        $result = self::withoutAWarning(fn () => $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456')));
+
+        self::assertSame($minorUnits, $result->amount->minorUnits);
+        self::assertSame($currency, $result->amount->currency);
+        self::assertSame($status, $result->status);
+    }
+
+    public function testCreateCheckoutReadsAnUnreadableUrlAsNone(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'url' => ['not' => 'a string'],
+            'status' => 'open',
+            'payment_status' => 'unpaid',
+            'amount_total' => 2500,
+            'currency' => 'usd',
+        ]));
+
+        $session = self::withoutAWarning(fn () => $this->adapter($fake)->createCheckout($this->checkoutRequest()));
+
+        self::assertNull($session->redirectUrl);
+    }
+
+    private static function withoutAWarning(callable $call): mixed
+    {
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            return $call();
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
      * Runs $call under the framework's own behaviour (Mediator::register turns every warning into
      * an ErrorException) and requires a CheckoutException whose message starts with $message.
      */

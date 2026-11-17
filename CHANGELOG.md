@@ -28,11 +28,43 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
   `fitsInAnInt()`, which 1.11.1 added to `PaddleSubscription`, now lives in `SpeaksPaddle`, with
   a twin in `SpeaksStripe`, so no class copy can silently override a trait's.
+- **The Paddle webhook parsers no longer leak `ErrorException` on a signed but malformed
+  payload.** This is the defect 1.11.1 fixed for `StripeCheckout::parseCallback()`, still present
+  on both Paddle adapters.
+  - **`parseCallback()`** in `SpeaksPaddle`, shared by both Paddle adapters, cast `event_id`,
+    `event_type` and `data.id`.
+  - **`PaddleSubscription::parseSubscriptionCallback()`** cast the same three, plus
+    `scheduled_change.action` and the billing cycle's `interval` and `frequency`.
+  - **Both adapters' `mapTransactionStatus()`** cast `status`.
 
-  Other bare casts on gateway API responses are unchanged:
-  - the refund result's amount, currency and status, on both gateways;
-  - Stripe's session `url`;
-  - Paddle's adjustment and line-item totals.
+  Now:
+  - a non-string `event_id`, `event_type`, id or scheduled-change action is refused as a
+    `CheckoutException`;
+  - a non-string status reads as absent, so it maps to `Pending`;
+  - a billing cycle with an unreadable interval or a frequency past `PHP_INT_MAX` reads as no
+    cycle, as `StripeSubscription` reads one. A non-numeric frequency used to become a frequency
+    of 1 and now also reads as no cycle.
+- **The remaining bare casts on gateway API responses are gone, each read the way that is safe
+  for where it sits.**
+  - **Refund results, on all four adapters** (amount, currency, status). The refund has already
+    happened when these are read, and Paddle takes no idempotency key, so a throw would invite a
+    retry that refunds twice. So **an unreadable figure reads as absent**, with the fallback an
+    absent one always had: the requested amount, else 0; the requested currency, else `USD`; the
+    status `unknown`. Stripe's or Paddle's own answer stays in `RefundResult::$raw`. This is
+    deliberately the opposite of `amountOf()`, which runs before or without any money moving.
+    Before, an array amount became 1 silently, a huge one raised a warning, and a negative amount
+    or a malformed currency let `Money`'s `InvalidArgumentException` escape.
+  - **Paddle's partial-refund allocation**, which reads the transaction's line items and the
+    earlier refunds before anything is posted. A line item, or an earlier refund's item, whose id
+    or amount cannot be read is now refused as a `CheckoutException`, and nothing is posted. It
+    used to be cast, so an array amount counted as 1. An earlier adjustment whose `action` or
+    `status` is not a string is compared strictly: it is not a refund, and not a rejection.
+  - **Stripe's session `url`** on both Stripe adapters, and **Paddle's pagination cursor**: a
+    non-string reads as absent.
+
+  What still casts is guarded, or is Clarity's own value: the signature timestamps (checked with
+  `ctype_digit` first), the scheduled-change error text (`is_scalar`), and the amounts Clarity
+  itself sends.
 
 ### Changed
 - **A Stripe 409 for a key still in use now says to retry with the same key.** When another

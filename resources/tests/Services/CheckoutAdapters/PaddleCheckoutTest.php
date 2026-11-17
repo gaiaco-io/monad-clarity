@@ -418,6 +418,58 @@ final class PaddleCheckoutTest extends TestCase
         self::assertNull($event->failureReason);
     }
 
+    /**
+     * Signed does not mean well-formed. Casting an array to a string raises a warning, which
+     * Mediator::register() turns into an ErrorException, so each of these must be refused as a
+     * CheckoutException or read as absent — the defect 1.11.1 fixed for StripeCheckout.
+     * A null status means the payload is refused.
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>, ?TransactionStatus}>
+     */
+    public static function malformedEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array event id is refused' => [static fn (array $e): array => ['event_id' => $arr] + $e, null],
+            'array event type is refused' => [static fn (array $e): array => ['event_type' => $arr] + $e, null],
+            'array transaction id is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['id'] = $arr;
+
+                return $e;
+            }, null],
+            'array status reads as pending' => [static function (array $e) use ($arr): array {
+                $e['event_type'] = 'transaction.updated';
+                $e['data']['status'] = $arr;
+
+                return $e;
+            }, TransactionStatus::Pending],
+        ];
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedEvents')]
+    public function testParseCallbackRefusesOrToleratesASignedButMalformedPayloadWithoutLeakingAWarning(
+        callable $malform,
+        ?TransactionStatus $status
+    ): void {
+        $event = json_decode(self::eventPayload('evt_bad', 'transaction.completed'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        try {
+            $parsed = self::withoutAWarning(fn () => $this->adapter()->parseCallback($payload, self::signedHeaders($payload)));
+        } catch (CheckoutException $e) {
+            self::assertNull($status, sprintf('Expected the payload to parse, but it was refused: %s', $e->getMessage()));
+
+            return;
+        }
+
+        self::assertNotNull($status, 'Expected the payload to be refused, but it parsed.');
+        self::assertSame($status, $parsed->status);
+    }
+
     public function testParseCallbackRejectsATamperedPayload(): void
     {
         $payload = self::eventPayload('evt_1', 'transaction.completed');
@@ -628,6 +680,148 @@ final class PaddleCheckoutTest extends TestCase
         $fake = new FakeHttpClient(static fn (): Response => self::adjustmentResponse(['status' => 'pending_approval']));
 
         self::assertSame('pending_approval', $this->adapter($fake)->refund(new RefundRequest('txn_test_123'))->status);
+    }
+
+    /**
+     * A refund result is read after Paddle has moved the money, and Paddle takes no idempotency
+     * key, so a throw here would invite a retry that refunds twice. A figure that is unreadable
+     * therefore reads as absent, falling back exactly as an absent one always has, and never
+     * leaks a warning or Money's InvalidArgumentException.
+     *
+     * @return array<string, array{array<string, mixed>, int, string, string}>
+     */
+    public static function unreadableAdjustmentFields(): array
+    {
+        $arr = ['not' => 'a scalar'];
+
+        return [
+            'a total past PHP_INT_MAX' => [['totals' => ['total' => 1e30]], 0, 'USD', 'approved'],
+            'an array total' => [['totals' => ['total' => $arr]], 0, 'USD', 'approved'],
+            'a negative total' => [['totals' => ['total' => '-5']], 0, 'USD', 'approved'],
+            'an array currency' => [['currency_code' => $arr], 2500, 'USD', 'approved'],
+            'a currency that is not ISO 4217' => [['currency_code' => 'US'], 0, 'USD', 'approved'],
+            'an array status' => [['status' => $arr], 2500, 'USD', 'unknown'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    #[DataProvider('unreadableAdjustmentFields')]
+    public function testRefundReadsAnUnreadableResultFieldAsAbsentAndNeverThrows(
+        array $overrides,
+        int $minorUnits,
+        string $currency,
+        string $status
+    ): void {
+        $fake = new FakeHttpClient(static fn (): Response => self::adjustmentResponse($overrides));
+
+        $result = self::withoutAWarning(fn () => $this->adapter($fake)->refund(new RefundRequest('txn_test_123')));
+
+        self::assertSame($minorUnits, $result->amount->minorUnits);
+        self::assertSame($currency, $result->amount->currency);
+        self::assertSame($status, $result->status);
+    }
+
+    /**
+     * Before a partial refund nothing has moved yet, so a figure the allocation cannot read is
+     * refused: guessing it would allocate against the wrong remainder.
+     *
+     * @return array<string, array{list<array<string, mixed>>, list<array<string, mixed>>, string}>
+     */
+    public static function unreadableAllocationInputs(): array
+    {
+        $arr = ['not' => 'a scalar'];
+        $lineItem = 'Paddle transaction txn_test_123 carried a line item whose id or total this adapter cannot read.';
+        $earlier = 'An earlier refund of transaction txn_test_123 carried an item this adapter cannot read, so what is '
+            . 'left to refund is unknown.';
+
+        return [
+            'a line item total past PHP_INT_MAX' => [[['id' => 'txnitm_1', 'totals' => ['total' => 1e30]]], [], $lineItem],
+            'an array line item total' => [[['id' => 'txnitm_1', 'totals' => ['total' => $arr]]], [], $lineItem],
+            'an array line item id' => [[['id' => $arr, 'totals' => ['total' => '2500']]], [], $lineItem],
+            'an earlier refund with an array amount' => [
+                [self::lineItem('txnitm_1', '2500')],
+                [['id' => 'adj_earlier', 'action' => 'refund', 'status' => 'approved', 'items' => [['item_id' => 'txnitm_1', 'amount' => $arr]]]],
+                $earlier,
+            ],
+            'an earlier refund with an array item id' => [
+                [self::lineItem('txnitm_1', '2500')],
+                [['id' => 'adj_earlier', 'action' => 'refund', 'status' => 'approved', 'items' => [['item_id' => $arr, 'amount' => '100']]]],
+                $earlier,
+            ],
+        ];
+    }
+
+    /**
+     * @param list<array<string, mixed>> $lineItems
+     * @param list<array<string, mixed>> $adjustments
+     */
+    #[DataProvider('unreadableAllocationInputs')]
+    public function testRefundRefusesAPartialRefundItCannotAllocate(array $lineItems, array $adjustments, string $message): void
+    {
+        $fake = new FakeHttpClient(self::refundResponder($lineItems, $adjustments));
+
+        try {
+            self::withoutAWarning(fn () => $this->adapter($fake)->refund(new RefundRequest('txn_test_123', new Money(1000, 'USD'))));
+            self::fail('Expected the refund to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertSame($message, $e->getMessage());
+        }
+
+        foreach ($fake->requests() as $request) {
+            self::assertSame('GET', $request->getMethod(), 'Nothing may be posted once the allocation is refused.');
+        }
+    }
+
+    /**
+     * An earlier adjustment whose action or status is not a string is read strictly rather than
+     * cast: an unreadable action is not a refund, and an unreadable status is not a rejection.
+     */
+    public function testRefundReadsAnEarlierAdjustmentsUnreadableActionOrStatusStrictly(): void
+    {
+        $arr = ['not' => 'a scalar'];
+        $responder = static fn (): Closure => self::refundResponder(
+            [self::lineItem('txnitm_1', '2500')],
+            [
+                ['id' => 'adj_1', 'action' => $arr, 'status' => 'approved', 'items' => [['item_id' => 'txnitm_1', 'amount' => '2000']]],
+                ['id' => 'adj_2', 'action' => 'refund', 'status' => $arr, 'items' => [['item_id' => 'txnitm_1', 'amount' => '500']]],
+            ]
+        );
+
+        // 2000 fits only if adj_1 (unreadable action) is not counted as a refund.
+        $fake = new FakeHttpClient($responder());
+        self::withoutAWarning(fn () => $this->adapter($fake)->refund(new RefundRequest('txn_test_123', new Money(2000, 'USD'))));
+        self::assertSame(
+            [['item_id' => 'txnitm_1', 'type' => 'partial', 'amount' => '2000']],
+            $fake->decodedLastRequestBody()['items']
+        );
+
+        // 2100 is refused only if adj_2 (unreadable status) is counted, not taken as rejected.
+        try {
+            self::withoutAWarning(fn () => $this->adapter(new FakeHttpClient($responder()))
+                ->refund(new RefundRequest('txn_test_123', new Money(2100, 'USD'))));
+            self::fail('An unreadable status is not a rejection, so 500 of the 2500 is already refunded.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('exceed what is left to refund', $e->getMessage());
+        }
+    }
+
+    /**
+     * Runs $call under the framework's own behaviour: Mediator::register() turns every warning
+     * into an ErrorException, which must never escape an adapter.
+     */
+    private static function withoutAWarning(callable $call): mixed
+    {
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            return $call();
+        } finally {
+            restore_error_handler();
+        }
     }
 
     public function testRefundResolvesLineItemsForAPartialRefund(): void
