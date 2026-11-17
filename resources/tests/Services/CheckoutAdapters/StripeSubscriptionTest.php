@@ -2307,6 +2307,115 @@ final class StripeSubscriptionTest extends TestCase
         self::assertSame(['active' => 'false'], self::formOf($requests[3]));
     }
 
+    public function testAReusedKeyOnThePlanChangeIsRecognisedAsAChangeAlreadyMade(): void
+    {
+        $fake = $this->changePlanFake(update: self::reusedKeyResponse());
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem()],
+                ProrationBillingMode::ProratedImmediately,
+                idempotencyKey: 'change-42'
+            );
+            self::fail('A reused key must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('"change-42"', $e->getMessage());
+            self::assertStringContainsString('already went through', $e->getMessage());
+            self::assertStringContainsString('retrieveSubscription()', $e->getMessage());
+            self::assertStringNotContainsString('Try using a key other than', $e->getMessage());
+        }
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/products/prod_new',
+                'POST /v1/subscriptions/sub_test_1',
+                'POST /v1/products/prod_new',
+            ],
+            self::requestLines($fake)
+        );
+        self::assertSame(['active' => 'false'], self::formOf($fake->requests()[4]));
+    }
+
+    public function testAReusedKeyOnProductCreationIsRecognisedToo(): void
+    {
+        $fake = new FakeHttpClient(static fn (RequestInterface $request): Response => match (true) {
+            $request->getMethod() === 'GET' => self::jsonResponse(self::subscription()),
+            default => self::reusedKeyResponse(),
+        });
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem()],
+                ProrationBillingMode::ProratedImmediately,
+                idempotencyKey: 'change-42'
+            );
+            self::fail('A reused key must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('"change-42"', $e->getMessage());
+            self::assertStringContainsString('already went through', $e->getMessage());
+            self::assertStringNotContainsString('Try using a key other than', $e->getMessage());
+        }
+
+        self::assertSame(
+            ['GET /v1/subscriptions/sub_test_1', 'POST /v1/products'],
+            self::requestLines($fake)
+        );
+    }
+
+    public function testAnOrdinary400IsNotMistakenForAReusedKey(): void
+    {
+        $fake = $this->changePlanFake(update: self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'message' => 'No such price: price_nope',
+        ]], 400));
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem()],
+                ProrationBillingMode::ProratedImmediately,
+                idempotencyKey: 'change-42'
+            );
+            self::fail('A refused change must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('request failed with HTTP 400', $e->getMessage());
+            self::assertStringContainsString('No such price: price_nope', $e->getMessage());
+            self::assertStringNotContainsString('already went through', $e->getMessage());
+        }
+    }
+
+    public function testANonJson400IsNotMistakenForAReusedKey(): void
+    {
+        $fake = $this->changePlanFake(update: new Response(400, [], '<html>Bad Request</html>'));
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem()],
+                ProrationBillingMode::ProratedImmediately,
+                idempotencyKey: 'change-42'
+            );
+            self::fail('A refused change must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('request failed with HTTP 400', $e->getMessage());
+            self::assertStringContainsString('<html>Bad Request</html>', $e->getMessage());
+            self::assertStringNotContainsString('already went through', $e->getMessage());
+        }
+    }
+
+    private static function reusedKeyResponse(): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'idempotency_error',
+            'message' => "Keys for idempotent requests can only be used with the same parameters they were first "
+                . "used with. Try using a key other than 'change-42' if you meant to execute a different request.",
+        ]], 400);
+    }
+
     public function testChangePlanArchivesTheProductItCreatedEvenWhenTheChangeIsRefused(): void
     {
         $fake = $this->changePlanFake(update: self::jsonResponse(['error' => [

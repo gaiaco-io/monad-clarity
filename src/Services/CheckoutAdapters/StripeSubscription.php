@@ -698,9 +698,11 @@ final class StripeSubscription extends Checkout
      * - The update ran and was declined: Stripe replays the decline.
      * - The update ran and changed the items: Stripe **refuses** the retry, because the same key
      *   now arrives with different parameters (the subscription's items are no longer the ones
-     *   the first attempt replaced). That refusal means the change already happened. Confirm it
-     *   with retrieveSubscription(), and never retry with a fresh key, whatever Stripe's error
-     *   text suggests: a new key is a new request, and it could charge a second time.
+     *   the first attempt replaced). That refusal means the change already happened. The adapter
+     *   recognises it (HTTP 400 and an `error.type` of `idempotency_error`, never the message) and
+     *   throws a CheckoutException that says so, in place of Stripe's own text, which advises a
+     *   fresh key. Confirm with retrieveSubscription(), and never retry with a fresh key: a new
+     *   key is a new request, and it could charge a second time.
      * - The first attempt met a server error (a 5xx): Stripe saves that answer against the key
      *   too, and replays it to the retry, so the retry tells you nothing new.
      *
@@ -786,11 +788,12 @@ final class StripeSubscription extends Checkout
                     continue;
                 }
 
-                $products[$index] = $this->requireString($this->send(
+                $products[$index] = $this->requireString($this->sendUnderKey(
                     'POST',
                     '/products',
                     ['name' => $item->lineItem->description],
                     $timeoutSeconds,
+                    $idempotencyKey,
                     $idempotencyKey === null ? null : "{$idempotencyKey}:product:{$index}"
                 ), 'id');
 
@@ -819,7 +822,7 @@ final class StripeSubscription extends Checkout
                 ];
             }
 
-            return $this->snapshotFrom($this->send('POST', $path, $params, $timeoutSeconds, $idempotencyKey));
+            return $this->snapshotFrom($this->sendUnderKey('POST', $path, $params, $timeoutSeconds, $idempotencyKey, $idempotencyKey));
         } finally {
             $this->archiveProducts($products, $timeoutSeconds);
         }
@@ -1312,6 +1315,44 @@ final class StripeSubscription extends Checkout
 
             return $item['id'];
         }, $data);
+    }
+
+    /**
+     * A request of changePlan() that carries the caller's key, or one derived from it. Stripe
+     * refuses a key it has seen with other parameters, and its message advises a fresh key, which
+     * here would make the change, and any charge, a second time. So that refusal is recognised
+     * and explained instead of being reported as the ordinary failure it resembles.
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     * @throws CheckoutException
+     */
+    private function sendUnderKey(
+        string $method,
+        string $path,
+        array $params,
+        int $timeoutSeconds,
+        ?string $callersKey,
+        ?string $sentKey,
+    ): array {
+        $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $sentKey);
+
+        if ($callersKey !== null && $this->isIdempotencyRefusal($response)) {
+            throw new CheckoutException(sprintf(
+                'Stripe refused idempotency key "%s" because an earlier request with it was made with '
+                . 'different parameters. For changePlan() that means an earlier attempt with this key '
+                . 'already went through: either this same change, retried after it succeeded, or a '
+                . 'different change made under the same key. Confirm the subscription\'s current items '
+                . 'with retrieveSubscription() before doing anything else. Do not retry with a new key '
+                . 'unless the subscription shows the change was not made: a new key would make the '
+                . 'change, and any charge, again.',
+                $callersKey
+            ));
+        }
+
+        $this->assertSuccessful($response);
+
+        return $this->decodeJsonBody($response);
     }
 
     /**

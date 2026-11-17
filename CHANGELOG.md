@@ -13,7 +13,10 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   changed. Subscriptions start through Checkout in `subscription` mode, so `createCheckout()`
   returns a `cs_`, and `subscriptionReferenceOf()` reads the `sub_` off the completed session
   synchronously. An inline plan or a catalogue `price_` (`forCatalogPrice()`) is supported, and
-  `changePlan()` takes a trailing idempotency key, which Paddle's cannot. No new table, no new
+  `changePlan()` takes a trailing idempotency key, which Paddle's cannot, and recognises Stripe's
+  refusal of a reused key (HTTP 400, `error.type` of `idempotency_error`, never the message) as a
+  change that already went through, naming `retrieveSubscription()` instead of Stripe's advice to
+  try a fresh key. No new table, no new
   enum case, no fifth abstract method on `Checkout`, no new Composer dependency. The points that
   carry weight:
   - It **pins `2026-09-30.endive`**, per class, while `StripeCheckout` stays on `2024-06-20`.
@@ -70,9 +73,8 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   `invoice.upcoming` carries no `id`, and a declined attempt is listed as `open`. All five are
   fixed before the release, and `ReleaseNotes_1.11.0.md` §5.3 records the evidence. The gate
   ran against the code before those fixes, so they are covered by mocked tests only. It also
-  records two known gaps for a later decision in §3: gateway error bodies, including a
-  PaymentIntent's `client_secret`, are embedded in exception messages, and Stripe's reused-key
-  refusal contradicts the `changePlan()` docblock's advice.
+  records one known gap for a later decision in §3: gateway error bodies, including a
+  PaymentIntent's `client_secret`, are embedded in exception messages.
 - **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
   until tagging; its live gate is recorded in §5.3. It records:
   - what ships, with the build plan's twelve decisions written up as resolved decisions;

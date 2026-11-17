@@ -426,6 +426,17 @@ code that the sections above could not know, and each is recorded with its reaso
      refuses the reused key with different parameters, and **that refusal means the change
      happened**: confirm with `retrieveSubscription()`, and never retry with a fresh key. The
      last outcome was confirmed live (§5.3).
+   - **The adapter recognises that refusal in code** (Marshal's decision, 2026-11-17). Stripe
+     answers HTTP 400 with `error.type` of `idempotency_error` and a message that advises "try
+     using a key other than …", which is exactly what must not be done. So on every request that
+     carries the caller's key or one derived from it (the product creations and the update),
+     `changePlan()` detects the refusal **structurally, from the status and `error.type`, and
+     never by parsing the message**, and throws a `CheckoutException` that names the key, says an
+     earlier attempt with it already went through, points at `retrieveSubscription()`, and
+     forbids a fresh key unless the subscription shows the change was not made. Stripe's body is
+     not embedded. A 400 of any other type, or a body that is not JSON, is the ordinary failure.
+     An unkeyed call is unaffected, since Stripe cannot raise this without a key. Products
+     created earlier in the call are still archived. Other methods are not covered.
 8. **If the update succeeds but archiving a just-created product fails, `changePlan()` returns
    the successful snapshot and does not throw.** A throw invites a retry that could charge
    again. The product may remain active in the Stripe catalogue, which costs nothing.
@@ -469,14 +480,11 @@ code that the sections above could not know, and each is recorded with its reaso
   and `object`, so a signed malformed payload can leak `ErrorException` there, as it could before
   1.11.0. `PaddleSubscription::recurringAmountOf()` has the same latent integer overflow that
   §2.13 item 3 fixes for Stripe.
-- **Two known gaps found by the release-gate run, left for Marshal to decide.**
-  - A gateway error's body is embedded in exception messages by the shared
-    `Checkout::assertSuccessful()`. For a declined PaymentIntent that body includes its
-    `client_secret`. It affects every adapter and predates 1.11.0.
-  - Stripe's reused-key refusal (HTTP 400, `type=idempotency_error`, message "Try using a key
-    other than …") contradicts the `changePlan()` docblock's "never retry with a fresh key".
-    Recognising it in code is left as a decision; today the docblock and §2.13 item 7 are the
-    only guard.
+- **One known gap found by the release-gate run, left for Marshal to decide.** A gateway
+  error's body is embedded in exception messages by the shared `Checkout::assertSuccessful()`.
+  For a declined PaymentIntent that body includes its `client_secret`. It affects every adapter
+  and predates 1.11.0. (The gate's other finding, Stripe's reused-key refusal, is resolved in
+  §2.13 item 7.)
 
 ## 4. Compatibility
 
@@ -636,7 +644,7 @@ a wrong one. The key was asserted to be a test key before any call, and none was
   "Keys for idempotent requests can only be used with the same parameters they were first used
   with. Try using a key other than '…' …". The subscription kept its one new item, nothing was
   charged twice, and the product was archived again. §2.13 item 7 holds. The message's own
-  advice is the one the docblock forbids; see §3.
+  advice is the one the docblock forbids; the adapter now recognises it in code (§2.13 item 7).
 - **A quantity-only `changePlan()` on the same price** is accepted as a whole-set replacement
   and prorates exactly: the unused half of the old quantity is credited and the remaining half
   of the new is charged. The subscription item id changes, so anything keyed on the `si_` sees a

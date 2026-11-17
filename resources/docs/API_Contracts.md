@@ -417,7 +417,9 @@ The leading parameters match `PaddleSubscription`'s; `changePlan()` adds one tra
 `$idempotencyKey`, passed on the call that charges (`ProratedImmediately`). Retry with the same
 key, and send every outcome of that retry other than success to `retrieveSubscription()` before
 deciding anything: a refusal of the reused key means the change already happened, so never retry
-with a fresh key (`ReleaseNotes_1.11.0.md` §2.13 item 7). `resume()` may charge the customer
+with a fresh key. The adapter recognises that refusal (HTTP 400 and `error.type` of
+`idempotency_error`) and throws a `CheckoutException` saying so, in place of Stripe's own advice to
+try another key (`ReleaseNotes_1.11.0.md` §2.13 item 7). `resume()` may charge the customer
 immediately: when Stripe leaves the resume invoice open, `resume()` pays it itself, and a declined
 payment throws, and only when a re-read reports `past_due` does it say Stripe accepted the resume
 but could not collect the invoice: Stripe will not retry that invoice and a second `resume()` is
