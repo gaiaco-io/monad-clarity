@@ -24,13 +24,17 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
     `CheckoutException` saying Stripe accepted the resume but could not collect the invoice:
     the subscription is `past_due`, Stripe will not retry the invoice, a second `resume()` is
     refused, and the customer pays the invoice (its hosted page is named when Stripe gives one).
+    That wording is used only when a re-read reports `past_due`; any other failure of the
+    payment makes no claim about whether the card was charged.
   - **An invoice's amount is its amount due.** `retrieveStatus()` on an `in_` reports
     `amount_due`, what the card is charged, rather than the total, so a downgrade's credit
     invoice reads as zero instead of failing.
   - **A refund is posted only against a paid payment.** The invoice behind an `in_` or a `cs_`
     must be `paid`, so a first payment still processing is refused, and the PaymentIntent
     chosen is the attempt whose own status is `paid`, never a declined one: Stripe lists a
-    declined attempt as `open`, so `paymentReference` is null until a payment has paid.
+    declined attempt as `open`, so `paymentReference` is null until a payment has paid. A
+    legacy-shape `invoice.payment_failed` webhook therefore now yields a null
+    `paymentReference`.
   - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
     record because it was never `open()`ed. A handler that passes every `parseCallback()` result
     to `recordCallback()` therefore throws on every signup. Route on the reference prefix: `cs_`
@@ -59,22 +63,24 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 ### Documentation
 - **The live Stripe test-mode release gate ran for `StripeSubscription` on 2026-11-17.** It
   confirmed every checked behaviour except an asynchronous first-payment failure, which the
-  test account cannot produce, and it found five defects that no mocked test could have: a
+  test account cannot produce, and it found five defects that no mock written from the
+  documentation had: a
   declined resume payment leaves the subscription `past_due` and not paused, a `past_due`
   subscription is billed at its period end, a one-day trial is accepted off a test clock,
   `invoice.upcoming` carries no `id`, and a declined attempt is listed as `open`. All five are
-  fixed before the release, and `ReleaseNotes_1.11.0.md` §5.3 records the evidence. It also
+  fixed before the release, and `ReleaseNotes_1.11.0.md` §5.3 records the evidence. The gate
+  ran against the code before those fixes, so they are covered by mocked tests only. It also
   records two known gaps for a later decision in §3: gateway error bodies, including a
   PaymentIntent's `client_secret`, are embedded in exception messages, and Stripe's reused-key
   refusal contradicts the `changePlan()` docblock's advice.
 - **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
-  until the live checks listed in its §5.2 are done. It records:
+  until tagging; its live gate is recorded in §5.3. It records:
   - what ships, with the build plan's twelve decisions written up as resolved decisions;
   - what is explicitly not in 1.11.0;
   - what the pre-decision Stripe test-mode spike established.
 - **`GapAnalysis_BuildPlan_1.11.0.md` plans recurring billing through Stripe.** The plan is
   for a `StripeSubscription` adapter beside `StripeCheckout`. Tasks 1 to 11 are built; the live
-  release gate, Task 12, is outstanding. It contains:
+  release gate, Task 12, has run (`ReleaseNotes_1.11.0.md` §5.3). It contains:
   - twelve decisions for Marshal, each with a recommendation;
   - eleven live-gate questions that Stripe's documentation does not settle, four of them to
     be answered by a test-mode spike before any decision is taken;

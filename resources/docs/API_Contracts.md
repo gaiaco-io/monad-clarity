@@ -419,11 +419,12 @@ key, and send every outcome of that retry other than success to `retrieveSubscri
 deciding anything: a refusal of the reused key means the change already happened, so never retry
 with a fresh key (`ReleaseNotes_1.11.0.md` §2.13 item 7). `resume()` may charge the customer
 immediately: when Stripe leaves the resume invoice open, `resume()` pays it itself, and a declined
-payment throws saying Stripe accepted the resume but could not collect the invoice: the
-subscription is then `past_due`, Stripe will not retry that invoice, and a second `resume()` is
-refused, so the customer pays the invoice (its hosted page is named when Stripe supplies one). A
-payment that never got an answer throws saying the subscription is still paused as far as the call
-knows (`ReleaseNotes_1.11.0.md` §2.2).
+payment throws, and only when a re-read reports `past_due` does it say Stripe accepted the resume
+but could not collect the invoice: Stripe will not retry that invoice and a second `resume()` is
+refused, so the customer pays the invoice (its hosted page is named when Stripe supplies one). Any
+other failure of the payment makes no claim about whether the card was charged and points at
+`retrieveSubscription()`, and a payment that never got an answer says the subscription is still
+paused as far as the call knows (`ReleaseNotes_1.11.0.md` §2.2).
 
 `SubscriptionSnapshot::$nextBilledAt` is the period end for a Stripe status of `active`, `trialing`
 or `past_due` with nothing scheduled, and null for `incomplete` and `unpaid`.

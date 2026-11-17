@@ -1,7 +1,8 @@
 # Monad Clarity 1.11.0 Release Notes
 
 **Status:** DRAFT — canonical specification for the 1.11.0 release. The live release gate is
-complete as of 2026-11-17 (§5.3), and these notes freeze at tagging.
+complete as of 2026-11-17 (§5.3) and ran against the code at `42316de`, before the five fixes
+it prompted, which are covered by mocked tests only. These notes freeze at tagging.
 This document is the source of truth for WHAT ships in 1.11.0. It does not restate 1.0.0, 1.2.0,
 1.4.0 or 1.7.0; those remain frozen for what they specified, and this release inherits the
 binding parts of `ReleaseNotes_1.4.0.md` (§2.2, §2.3, §2.5, §2.7, §2.8) and
@@ -182,13 +183,18 @@ matches "service stops when billing stops", and the docblock says so.
     The release-gate run (§5.3) found that Stripe resumes on the payment *attempt*, so after a
     refusal the subscription is `past_due` with a new period and the invoice stays `open`.
     Stripe never retries that invoice, and a second `resume()` is refused ("You can only resume
-    a subscription if it is `paused`"). The message therefore says that Stripe accepted the
-    resume but could not collect the invoice, names the status Stripe now reports (omitted if
-    the re-read fails), says Stripe will not retry the invoice and that `resume()` will be
-    refused, and gives the invoice's `hosted_invoice_url` as the place the customer can pay it.
-    The resume completes once the invoice is paid. A payment that never got an answer keeps
-    the older wording, because there the outcome is unknown: the subscription is still paused
-    *as far as the call knows*, and `retrieveSubscription()` settles it.
+    a subscription if it is `paused`"). The failure carries no machine-readable cause, so the
+    subscription is re-read and its raw status decides. **Only `past_due`** earns the decline
+    wording: Stripe accepted the resume but could not collect the invoice, will not retry it,
+    and will refuse a second `resume()`; the resume completes once the invoice is paid, and the
+    invoice's `hosted_invoice_url` is named as the place to pay it **when Stripe supplies one**
+    (the field was not observed in the live run, so that clause rests on the documented
+    invoice shape). **Any other status, or a failed re-read,** gets the unknown-outcome wording,
+    which makes no claim about the charge, because a 5xx may have charged, a 2xx with an
+    undecodable body did, and a 429 or 401 did not. It names the status Stripe reports if
+    known and says to confirm with `retrieveSubscription()`. A payment that never got an
+    answer (a transport failure) keeps its own wording: the subscription is still paused *as far
+    as the call knows*.
   - Paddle's `resume()` "may charge the customer immediately", so charging here is parity, not a
     new behaviour.
 - **`ContinueExistingBillingPeriod` (`anchor=unchanged`) resumes at once.** It raised no charge
@@ -401,10 +407,10 @@ code that the sections above could not know, and each is recorded with its reaso
 5. **`resume()` re-reads the subscription only after paying an open resume invoice.** Otherwise
    it returns the `/resume` response's snapshot, which is Stripe's state at that moment and can
    still say `Paused` when Stripe raised nothing to pay. A failed `/pay` raises a
-   `CheckoutException`. A gateway refusal says the resume took effect and the invoice is unpaid
-   (§2.2). A payment that never got an answer says the subscription is still paused *as far as
-   this call knows*, names the invoice and points at `retrieveSubscription()`, and makes no claim
-   about whether the card was charged.
+   `CheckoutException`. Only when the re-read says `past_due` does it say the resume took effect
+   and the invoice is unpaid (§2.2). Otherwise, and when the payment never got an answer, it
+   names the invoice, points at `retrieveSubscription()`, and makes no claim about whether the
+   card was charged, because a 5xx leaves that unknown.
 6. **`changePlan()` refuses a partial item list.** When Stripe's embedded `items` reports
    `has_more: true`, the change is refused before anything is created, because any item left out
    of the replacement set would keep billing. A subscription with more items than one page is
@@ -647,7 +653,11 @@ a wrong one. The key was asserted to be a test key before any call, and none was
   absent from `GET /products`, so a merchant auditing the catalogue through the API will not see
   them.
 
-**Found live, which no mock could, and fixed before tagging:**
+**The gate ran before the fixes.** It exercised the code at `42316de`. The five fixes below were
+written afterwards, test-first, and are covered by mocked tests only; they have not been
+re-driven against Stripe. The first of them is the one that most deserves a re-run.
+
+**Found live, which no mock written from the documentation caught, and fixed before tagging:**
 
 1. **A declined resume payment is not "still paused".** Stripe resumes on the payment
    *attempt*. After the declined `/pay`, the subscription was `past_due` with a new billing
@@ -656,14 +666,14 @@ a wrong one. The key was asserted to be a test key before any call, and none was
    were refused ("You can only resume a subscription if it is `paused`"). Left alone the
    invoice stays open indefinitely, a renewal invoice raised at the period end went into
    dunning, and the subscription was cancelled with the resume invoice still `open`. Paying
-   that invoice once the card was fixed recovered the subscription. **Fix:** a gateway
-   refusal of the `/pay` now re-reads the subscription (omitting the status if that read fails
-   too) and throws a `CheckoutException`, previous chained, that says Stripe accepted the resume
-   but could not collect the invoice, names the status Stripe now reports, says Stripe will not
-   retry the invoice and that `resume()` will be refused, and gives the invoice's
-   `hosted_invoice_url` as the place to pay it. A transport failure keeps the "confirm with
-   `retrieveSubscription()`" message, because there the outcome really is unknown. §2.2 is
-   corrected.
+   that invoice once the card was fixed recovered the subscription. **Fix:** any failure of
+   the `/pay` re-reads the subscription, and only a raw `past_due` earns a
+   `CheckoutException` (previous chained) saying Stripe accepted the resume but could not collect
+   the invoice, that Stripe will not retry it, that `resume()` will be refused, and where to pay
+   it (`hosted_invoice_url`, when Stripe supplies one; not observed live). Any other status, or
+   a failed re-read, gets a message that makes no claim about the charge, because the failure
+   alone cannot say whether the card was charged. A transport failure keeps its own "confirm
+   with `retrieveSubscription()`" message. §2.2 is corrected.
 2. **A `past_due` subscription is billed at its period end.** The one a failed resume leaves
    behind had a new `subscription_cycle` invoice raised and attempted at the end of its period.
    The adapter reported `nextBilledAt` as null. **Fix:** `nextBilledAt` is the period end for a
@@ -677,8 +687,9 @@ a wrong one. The key was asserted to be a test key before any call, and none was
 4. **`invoice.upcoming` has no `id`.** Stripe delivers it before every renewal, and its object
    carries none, so `parseCallback()` raised "Stripe response was missing the expected "id"
    field" on an event the docblock tells applications to route there. **Fix:** it is refused by
-   name, as is any invoice object without a string `id`, with a message saying it previews an
-   invoice that does not exist yet, so there is no transaction to record.
+   name, with a message saying it previews an invoice that does not exist yet, so there is no
+   transaction to record. Any other invoice object without a string `id` is refused with its
+   own malformed-payload message.
 5. **A declined attempt is `open`, not `canceled`.** On every declined invoice Stripe listed the
    declined PaymentIntent with the invoice payment's status `open`, so "paid, then processing,
    never canceled" reported a payment that never collected anything. Stripe refused a refund of

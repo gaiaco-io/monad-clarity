@@ -559,6 +559,25 @@ final class StripeSubscriptionTest extends TestCase
         }
     }
 
+    public function testParseCallbackRefusesAnIdlessInvoiceAsMalformedNotAsAPreview(): void
+    {
+        $invoice = self::invoice();
+        unset($invoice['id'], $invoice['payments']);
+        $payload = json_encode(
+            ['id' => 'evt_noid', 'type' => 'invoice.paid', 'data' => ['object' => $invoice]],
+            JSON_THROW_ON_ERROR
+        );
+
+        try {
+            $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+            self::fail('An invoice with no id must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('invoice.paid', $e->getMessage());
+            self::assertStringContainsString('no id', $e->getMessage());
+            self::assertStringNotContainsString('does not exist yet', $e->getMessage());
+        }
+    }
+
     public function testParseCallbackMapsInvoicePaymentFailedToPending(): void
     {
         $payload = self::invoiceEvent('evt_2', 'invoice.payment_failed', ['status' => 'open', 'attempt_count' => 1]);
@@ -1762,7 +1781,71 @@ final class StripeSubscriptionTest extends TestCase
         );
     }
 
-    public function testADeclinedResumePaymentStillExplainsItselfWhenTheReReadFails(): void
+    /**
+     * Only a re-read that says `past_due` proves the payment was attempted and refused. Anything
+     * else leaves the outcome unknown, and the message must make no claim about the charge.
+     *
+     * @return array<string, array{int, Closure(): Response, string|null}>
+     */
+    public static function unknownResumePaymentOutcomes(): array
+    {
+        $error = static fn (): Response => self::jsonResponse(['error' => ['message' => 'Something went wrong.']], 500);
+
+        return [
+            'pay 500, subscription active' => [500, static fn (): Response => self::jsonResponse(self::subscription(['status' => 'active'])), 'active'],
+            'pay 429, subscription paused' => [429, static fn (): Response => self::jsonResponse(self::subscription(['status' => 'paused'])), 'paused'],
+            'pay 402, re-read fails' => [402, $error, null],
+        ];
+    }
+
+    /**
+     * @param Closure(): Response $reRead
+     */
+    #[DataProvider('unknownResumePaymentOutcomes')]
+    public function testAPayFailureNotShownToBeADeclineMakesNoClaimAboutTheCharge(
+        int $payStatus,
+        Closure $reRead,
+        ?string $reportedStatus,
+    ): void {
+        $fake = new FakeHttpClient(static function (RequestInterface $request) use ($payStatus, $reRead): Response {
+            return match ($request->getUri()->getPath()) {
+                '/v1/subscriptions/sub_test_1/resume' => self::jsonResponse(self::subscription([
+                    'status' => 'paused',
+                    'latest_invoice' => self::invoice([
+                        'id' => 'in_r',
+                        'status' => 'open',
+                        'hosted_invoice_url' => 'https://invoice.stripe.com/i/acct_1/test_in_r',
+                    ]),
+                ])),
+                '/v1/invoices/in_r/pay' => self::jsonResponse(['error' => ['message' => 'Not a clear answer.']], $payStatus),
+                default => $reRead(),
+            };
+        });
+
+        try {
+            $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+            self::fail('A payment with no usable answer must not read as a resumed subscription.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('in_r', $e->getMessage());
+            self::assertStringContainsString('whether it was collected is unknown', $e->getMessage());
+            self::assertStringContainsString('retrieveSubscription()', $e->getMessage());
+            self::assertStringNotContainsString('could not collect', $e->getMessage());
+            self::assertStringNotContainsString('will not retry', $e->getMessage());
+            self::assertStringNotContainsString('no longer paused', $e->getMessage());
+            self::assertStringNotContainsString('invoice.stripe.com', $e->getMessage());
+            self::assertStringNotContainsString('retry resume()', $e->getMessage());
+
+            if ($reportedStatus !== null) {
+                self::assertStringContainsString('reports the subscription as ' . $reportedStatus, $e->getMessage());
+            } else {
+                self::assertStringNotContainsString('reports the subscription', $e->getMessage());
+            }
+
+            self::assertInstanceOf(CheckoutException::class, $e->getPrevious());
+        }
+    }
+
+    public function testAPayFailureWithTheSubscriptionStillActiveMakesNoClaimAboutTheCharge(): void
     {
         $fake = new FakeHttpClient(static function (RequestInterface $request): Response {
             return match ($request->getUri()->getPath()) {
@@ -1770,25 +1853,18 @@ final class StripeSubscriptionTest extends TestCase
                     'status' => 'paused',
                     'latest_invoice' => self::invoice(['id' => 'in_r', 'status' => 'open']),
                 ])),
-                '/v1/invoices/in_r/pay' => self::jsonResponse(['error' => [
-                    'type' => 'card_error',
-                    'code' => 'card_declined',
-                    'message' => 'Your card was declined.',
-                ]], 402),
-                default => self::jsonResponse(['error' => ['message' => 'Something went wrong.']], 500),
+                '/v1/invoices/in_r/pay' => self::jsonResponse(['error' => ['message' => 'Server error.']], 500),
+                default => self::jsonResponse(self::subscription(['status' => 'active'])),
             };
         });
 
         try {
             $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
-            self::fail('A declined payment must not read as a resumed subscription.');
+            self::fail('A failed payment call must not return a snapshot.');
         } catch (CheckoutException $e) {
-            self::assertStringContainsString('in_r', $e->getMessage());
-            self::assertStringContainsString('will not retry', $e->getMessage());
-            self::assertStringNotContainsString('still paused', $e->getMessage());
-            self::assertStringNotContainsString('now reports', $e->getMessage());
-            self::assertStringNotContainsString('invoice.stripe.com', $e->getMessage());
-            self::assertStringContainsString('card_declined', $e->getPrevious()->getMessage());
+            self::assertStringContainsString('reports the subscription as active', $e->getMessage());
+            self::assertStringContainsString('whether it was collected is unknown', $e->getMessage());
+            self::assertStringNotContainsString('could not collect', $e->getMessage());
         }
     }
 
@@ -1813,6 +1889,8 @@ final class StripeSubscriptionTest extends TestCase
             self::assertStringContainsString('in_r', $e->getMessage());
             self::assertStringContainsString('retrieveSubscription()', $e->getMessage());
             self::assertStringContainsString('timed out', $e->getMessage());
+            self::assertStringNotContainsString('retry resume()', $e->getMessage());
+            self::assertStringNotContainsString('ContinueExistingBillingPeriod', $e->getMessage());
             self::assertInstanceOf(HttpClientException::class, $e->getPrevious());
         }
 

@@ -600,14 +600,16 @@ final class StripeSubscription extends Checkout
      * subscription on the payment *attempt*, not on its success: it moves to `past_due` with a
      * new billing period and the invoice stays `open`, never retried by Stripe and not payable
      * by a second resume(), which Stripe refuses because the subscription is no longer paused.
-     * The exception says so, names the invoice and the status Stripe now reports (omitted if
-     * that read fails too) and gives the invoice's hosted payment page when Stripe supplied
-     * one. The resume completes once that invoice is paid, for example after the customer fixes
-     * their payment method.
+     * When the subscription is re-read and Stripe reports `past_due`, the exception says so,
+     * names the invoice and gives its hosted payment page when Stripe supplies one. The resume
+     * completes once that invoice is paid, for example after the customer fixes their payment
+     * method.
      *
-     * If the payment never gets an answer, the outcome is unknown: the exception says the
-     * subscription is still paused as far as this call knows, and to confirm with
-     * retrieveSubscription(). If the payment went through but the subscription could not be
+     * Any other failure of the payment call leaves the outcome unknown: a 5xx may have charged
+     * and a 429 did not. When the re-read does not say `past_due` (or fails), the exception
+     * makes no claim about the charge, names the status Stripe reports if known, and says to
+     * confirm with retrieveSubscription(). The same goes when the call never got an answer, and
+     * then the subscription is still paused as far as this call knows. If the payment went through but the subscription could not be
      * re-read, the exception says the invoice was paid and the resume has very likely taken
      * effect; confirm with retrieveSubscription() rather than resuming again.
      *
@@ -652,7 +654,7 @@ final class StripeSubscription extends Checkout
         try {
             $this->send('POST', '/invoices/' . rawurlencode($invoiceId) . '/pay', [], $timeoutSeconds);
         } catch (CheckoutException $e) {
-            throw $this->declinedResume($subscriptionReference, $invoice, $invoiceId, $e, $timeoutSeconds);
+            throw $this->failedResumePayment($subscriptionReference, $invoice, $invoiceId, $e, $timeoutSeconds);
         } catch (HttpClientException $e) {
             throw new CheckoutException(sprintf(
                 'Subscription %1$s is still paused as far as this call knows: resuming raised invoice %2$s, '
@@ -940,10 +942,16 @@ final class StripeSubscription extends Checkout
      */
     private function invoiceEvent(array $event, string $type, array $invoice): CallbackEvent
     {
-        if ($type === 'invoice.upcoming' || !is_string($invoice['id'] ?? null)) {
+        if ($type === 'invoice.upcoming') {
+            throw new CheckoutException(
+                'Stripe webhook "invoice.upcoming" previews an invoice that does not exist yet, so there is no '
+                . 'transaction to record. Handle it in your application (a renewal reminder, say) or ignore it.'
+            );
+        }
+
+        if (!is_string($invoice['id'] ?? null)) {
             throw new CheckoutException(sprintf(
-                'Stripe webhook "%s" previews an invoice that does not exist yet, so there is no transaction to '
-                . 'record. Handle it in your application (a renewal reminder, say) or ignore it.',
+                'Stripe webhook "%s" carries an invoice with no id, so it names no transaction to record.',
                 $type
             ));
         }
@@ -1155,6 +1163,7 @@ final class StripeSubscription extends Checkout
      * no invoice.
      *
      * @param array<string, mixed> $resumed
+     * @return array<string, mixed>|null
      */
     private function openInvoiceOf(array $resumed, int $timeoutSeconds): ?array
     {
@@ -1172,17 +1181,20 @@ final class StripeSubscription extends Checkout
     }
 
     /**
-     * What a refused resume payment means. Stripe resumes on the payment attempt, so by now the
-     * subscription is usually `past_due` with its invoice still open; the status is re-read to
-     * say so, and left out if that read fails too, because the explanation does not depend on it.
+     * What a failed resume payment means. The failure carries no machine-readable cause (the
+     * status and error type live only in message text), so the subscription is re-read and its
+     * raw status decides. Stripe resumes on the payment *attempt*, so `past_due` proves the
+     * attempt was made and refused, and only then is it called a decline. Any other status, or
+     * no answer to the re-read, leaves the outcome unknown (a 5xx may have charged, a malformed
+     * 2xx body did charge, a 429 or 401 charged nothing), and the message makes no claim about it.
      *
      * @param array<string, mixed> $invoice the open invoice the resume raised
      */
-    private function declinedResume(
+    private function failedResumePayment(
         string $subscriptionReference,
         array $invoice,
         string $invoiceId,
-        CheckoutException $refusal,
+        CheckoutException $failure,
         int $timeoutSeconds,
     ): CheckoutException {
         try {
@@ -1191,19 +1203,30 @@ final class StripeSubscription extends Checkout
             $status = null;
         }
 
-        $payAt = $invoice['hosted_invoice_url'] ?? null;
+        if ($status === 'past_due') {
+            $payAt = $invoice['hosted_invoice_url'] ?? null;
+
+            return new CheckoutException(sprintf(
+                'Stripe accepted the resume of subscription %1$s but could not collect invoice %2$s. Stripe now '
+                . 'reports the subscription as past_due. Stripe will not retry this invoice by itself, and calling '
+                . 'resume() again will be refused because the subscription is no longer paused. The resume '
+                . 'completes once invoice %2$s is paid%3$s. Paying failed with: %4$s',
+                $subscriptionReference,
+                $invoiceId,
+                is_string($payAt) && $payAt !== '' ? sprintf(', and the customer can pay it at %s', $payAt) : '',
+                $failure->getMessage()
+            ), previous: $failure);
+        }
 
         return new CheckoutException(sprintf(
-            'Stripe accepted the resume of subscription %1$s but could not collect invoice %2$s.%3$s Stripe will '
-            . 'not retry this invoice by itself, and calling resume() again will be refused because the '
-            . 'subscription is no longer paused. The resume completes once invoice %2$s is paid%4$s. '
-            . 'Paying failed with: %5$s',
+            'Resuming subscription %1$s raised invoice %2$s, but paying it did not return a usable answer, so '
+            . 'whether it was collected is unknown.%3$s Confirm with retrieveSubscription() before doing '
+            . 'anything else. Paying failed with: %4$s',
             $subscriptionReference,
             $invoiceId,
-            is_string($status) && $status !== '' ? sprintf(' Stripe now reports the subscription as %s.', $status) : '',
-            is_string($payAt) && $payAt !== '' ? sprintf(', and the customer can pay it at %s', $payAt) : '',
-            $refusal->getMessage()
-        ), previous: $refusal);
+            is_string($status) && $status !== '' ? sprintf(' Stripe reports the subscription as %s.', $status) : '',
+            $failure->getMessage()
+        ), previous: $failure);
     }
 
     /**
