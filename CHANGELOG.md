@@ -6,6 +6,23 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Security
+- **A failed gateway call no longer writes the gateway's response body into the exception
+  message.** `Checkout::assertSuccessful()` has embedded the whole body in `CheckoutException`
+  since 1.2.0, and exception messages land in application logs. A declined Stripe card
+  (HTTP 402) answers with the PaymentIntent under `error.payment_intent`, so the message carried
+  its `client_secret`, the PaymentMethod's billing details (name, email, address, phone) and the
+  card fingerprint. That reached the logs of `StripeCheckout` (1.2.0), `PaddleCheckout` (1.3.0)
+  and `PaddleSubscription` (1.4.0); `StripeSubscription` is still unreleased, so the fix ships
+  before that adapter does. The message keeps its `<gateway> request failed with HTTP <status>: `
+  prefix and then says only what the gateway's `error` object says in scalar fields (`type`,
+  `code`, `decline_code`, `message`, `detail`, ...), Paddle's `errors[]` field and message pairs
+  and `meta.request_id`; nested objects such as `payment_intent` are dropped. Any other body is
+  redacted and cut to 500 characters, an empty one reads `(empty body)`, and every message is one
+  line with any `..._secret_...` or `client_secret=` token a gateway echoed back masked. Exception
+  text only: no signature changed. Treat a `client_secret` already in your logs as exposed. The
+  LLM and Mail services are unchanged; their bodies carry no payment secrets.
+
 ### Added
 - **`CheckoutAdapters\StripeSubscription`: recurring billing through Stripe.** It sits beside
   `StripeCheckout` as `PaddleSubscription` sits beside `PaddleCheckout`, with the same public

@@ -11,6 +11,7 @@ use Monad\Clarity\Services\Checkout\CheckoutSession;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
 use Monad\Clarity\Services\Checkout\TransactionSnapshot;
+use Monad\Clarity\Utils\Redactor;
 use JsonException;
 use Psr\Http\Message\ResponseInterface;
 
@@ -121,9 +122,110 @@ abstract class Checkout
                 '%s request failed with HTTP %d: %s',
                 $this->gatewayName(),
                 $status,
-                (string) $response->getBody()
+                self::summariseFailure((string) $response->getBody())
             ));
         }
+    }
+
+    /**
+     * What a failed call may say about itself. Exception messages reach application logs, and
+     * a declined Stripe card's body carries the whole PaymentIntent — `client_secret`, billing
+     * details, card fingerprint — so the body is never embedded verbatim. A gateway's own
+     * `error` object is reduced to its scalar fields (type, code, message, ...) and Paddle's
+     * validation pairs and request id; anything nested beyond that is dropped. Bodies without
+     * one are redacted and truncated.
+     */
+    private static function summariseFailure(string $body): string
+    {
+        $decoded = json_decode($body, associative: true);
+
+        if (is_array($decoded) && is_array($decoded['error'] ?? null)) {
+            return self::tidy(self::summariseErrorObject($decoded), 1000);
+        }
+
+        if (is_array($decoded)) {
+            $body = json_encode(Redactor::redact($decoded), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?: '(unreadable body)';
+        }
+
+        return trim($body) === '' ? '(empty body)' : self::tidy($body, 500);
+    }
+
+    /**
+     * The tail every summary shares: one line, valid UTF-8, no client secret echoed inside a
+     * value (`pi_..._secret_...`, `client_secret=...`), and only then cut to length so a cut
+     * cannot leave half a token behind. The patterns carry no /u flag: invalid UTF-8 must not
+     * turn a failed match into null.
+     */
+    private static function tidy(string $text, int $limit): string
+    {
+        $text = trim((string) preg_replace('/\s+/', ' ', mb_scrub($text)));
+        $text = preg_replace(['/[A-Za-z0-9_]*_secret_[A-Za-z0-9]+/', '/client_secret=[^\s&"\']+/i'], '[REDACTED]', $text) ?? '';
+
+        return self::truncate($text, $limit);
+    }
+
+    /**
+     * `card_error (card_declined, generic_decline) — Your card was declined. [param=x] [request_id=y]`
+     *
+     * @param array<array-key, mixed> $decoded
+     */
+    private static function summariseErrorObject(array $decoded): string
+    {
+        $error = Redactor::redact(array_filter($decoded['error'], is_scalar(...)));
+        $request = is_array($decoded['meta'] ?? null) ? Redactor::redact(array_filter($decoded['meta'], is_scalar(...))) : [];
+
+        $text = static fn (string $key): ?string => isset($error[$key]) ? self::scalarText($error[$key]) : null;
+        $codes = array_filter([$text('code'), $text('decline_code')], static fn (?string $c): bool => $c !== null && $c !== '');
+        $sentence = $text('message') ?? $text('detail');
+
+        $parts = [];
+        $headline = trim(($text('type') ?? '') . ($codes === [] ? '' : ' (' . implode(', ', $codes) . ')'));
+        if ($headline !== '') {
+            $parts[] = $headline;
+        }
+        if ($sentence !== null && $sentence !== '') {
+            $parts[] = ($parts === [] ? '' : '— ') . $sentence;
+        }
+
+        foreach ($error as $key => $value) {
+            if (!in_array($key, ['type', 'code', 'decline_code', 'message', 'detail'], true)) {
+                $parts[] = sprintf('[%s=%s]', $key, self::scalarText($value));
+            }
+        }
+
+        if (isset($request['request_id'])) {
+            $parts[] = '[request_id=' . self::scalarText($request['request_id']) . ']';
+        }
+
+        $problems = [];
+        foreach (is_array($decoded['error']['errors'] ?? null) ? $decoded['error']['errors'] : [] as $problem) {
+            $pair = is_array($problem) ? Redactor::redact(array_filter($problem, is_scalar(...))) : [];
+            $line = implode(': ', array_filter([
+                isset($pair['field']) ? self::scalarText($pair['field']) : null,
+                isset($pair['message']) ? self::scalarText($pair['message']) : null,
+            ]));
+            if ($line !== '') {
+                $problems[] = $line;
+            }
+        }
+        if ($problems !== []) {
+            $parts[] = '[' . implode('; ', $problems) . ']';
+        }
+
+        return $parts === [] ? '(no error details)' : implode(' ', $parts);
+    }
+
+    /** One line, whatever the gateway put in it. */
+    private static function scalarText(mixed $value): string
+    {
+        $text = is_bool($value) ? ($value ? 'true' : 'false') : (is_scalar($value) ? (string) $value : '');
+
+        return trim((string) preg_replace('/\s+/u', ' ', $text));
+    }
+
+    private static function truncate(string $text, int $limit): string
+    {
+        return mb_strlen($text) > $limit ? mb_substr($text, 0, $limit) . '…' : $text;
     }
 
     /**
