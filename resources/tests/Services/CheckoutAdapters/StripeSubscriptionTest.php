@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Monad\Clarity\Tests\Services\CheckoutAdapters;
 
+use DateTimeImmutable;
 use Monad\Clarity\Services\Checkout\BillingCycle;
 use Monad\Clarity\Services\Checkout\BillingInterval;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
+use Monad\Clarity\Services\Checkout\ResumeBilling;
 use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
 use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
@@ -1155,6 +1157,266 @@ final class StripeSubscriptionTest extends TestCase
         }
 
         self::assertSame(0, $fake->requestCount());
+    }
+
+    // ---------------------------------------------------------------------------------
+    // pause / resume
+    // ---------------------------------------------------------------------------------
+
+    public function testPauseImmediatelyPostsToThePauseEndpointAndReportsPaused(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['status' => 'paused'])
+        ));
+
+        $snapshot = $this->adapter($fake)->pause('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+
+        $request = $fake->lastRequest();
+        self::assertSame(1, $fake->requestCount());
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1/pause', (string) $request->getUri());
+        self::assertSame(['type' => 'subscription'], $fake->decodedLastRequestForm());
+        self::assertSame(SubscriptionStatus::Paused, $snapshot->status);
+    }
+
+    public function testPauseRefusesNextBillingPeriod(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        try {
+            $this->adapter($fake)->pause('sub_test_1', SubscriptionEffectiveFrom::NextBillingPeriod);
+            self::fail('A pause at the next billing period must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('immediately', $e->getMessage());
+            self::assertStringContainsString('subscription schedule', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testPauseRefusesAResumeDate(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        try {
+            $this->adapter($fake)->pause(
+                'sub_test_1',
+                SubscriptionEffectiveFrom::Immediately,
+                new DateTimeImmutable('2027-01-01')
+            );
+            self::fail('A resume date must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('resumeAt', $e->getMessage());
+            self::assertStringContainsString('no resume date', $e->getMessage());
+            self::assertStringContainsString('resume()', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testPauseRefusesAnOnResumeChoice(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        try {
+            $this->adapter($fake)->pause(
+                'sub_test_1',
+                SubscriptionEffectiveFrom::Immediately,
+                onResume: ResumeBilling::ContinueExistingBillingPeriod
+            );
+            self::fail('An onResume choice must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('onResume', $e->getMessage());
+            self::assertStringContainsString('resume()', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testPauseAndResumeRefuseAReferenceThatIsNotASubscription(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        foreach ([
+            fn () => $this->adapter($fake)->pause('cs_x', SubscriptionEffectiveFrom::Immediately),
+            fn () => $this->adapter($fake)->resume('cs_x', SubscriptionEffectiveFrom::Immediately),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('A checkout session id must be refused.');
+            } catch (CheckoutException $e) {
+                self::assertStringContainsString('cs_x', $e->getMessage());
+            }
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    /**
+     * @return array<string, array{ResumeBilling, string}>
+     */
+    public static function resumeBillingChoices(): array
+    {
+        return [
+            'start a new period' => [ResumeBilling::StartNewBillingPeriod, 'now'],
+            'continue the period' => [ResumeBilling::ContinueExistingBillingPeriod, 'unchanged'],
+        ];
+    }
+
+    #[DataProvider('resumeBillingChoices')]
+    public function testResumeMapsResumeBillingOntoTheBillingCycleAnchor(ResumeBilling $choice, string $anchor): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['status' => 'active', 'latest_invoice' => self::invoice(['status' => 'paid'])])
+        ));
+
+        $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately, $choice);
+
+        $request = $fake->requests()[0];
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1/resume', (string) $request->getUri());
+
+        parse_str((string) $request->getBody(), $form);
+        self::assertSame(['type' => $anchor], $form['billing_cycle_anchor']);
+        self::assertSame(['latest_invoice'], $form['expand']);
+        self::assertStringContainsString('expand%5B0%5D=latest_invoice', (string) $request->getBody());
+    }
+
+    public function testResumeRefusesNextBillingPeriod(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        try {
+            $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::NextBillingPeriod);
+            self::fail('A resume at the next billing period must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('immediately', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testResumeStartingANewPeriodPaysTheOpenResumeInvoiceThenReReads(): void
+    {
+        $fake = new FakeHttpClient(static function (RequestInterface $request): Response {
+            return match ($request->getUri()->getPath()) {
+                '/v1/subscriptions/sub_test_1/resume' => self::jsonResponse(self::subscription([
+                    'status' => 'paused',
+                    'latest_invoice' => self::invoice(['id' => 'in_r', 'status' => 'open']),
+                ])),
+                '/v1/invoices/in_r/pay' => self::jsonResponse(self::invoice(['id' => 'in_r', 'status' => 'paid'])),
+                default => self::jsonResponse(self::subscription(['status' => 'active'])),
+            };
+        });
+
+        $snapshot = $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+
+        self::assertSame(
+            [
+                'POST /v1/subscriptions/sub_test_1/resume',
+                'POST /v1/invoices/in_r/pay',
+                'GET /v1/subscriptions/sub_test_1',
+            ],
+            array_map(
+                static fn (RequestInterface $r): string => $r->getMethod() . ' ' . $r->getUri()->getPath(),
+                $fake->requests()
+            )
+        );
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+    }
+
+    public function testResumeReadsTheInvoiceWhenStripeDidNotExpandIt(): void
+    {
+        $fake = new FakeHttpClient(static function (RequestInterface $request): Response {
+            return match ($request->getUri()->getPath()) {
+                '/v1/subscriptions/sub_test_1/resume' => self::jsonResponse(
+                    self::subscription(['status' => 'paused', 'latest_invoice' => 'in_r'])
+                ),
+                '/v1/invoices/in_r' => self::jsonResponse(self::invoice(['id' => 'in_r', 'status' => 'open'])),
+                '/v1/invoices/in_r/pay' => self::jsonResponse(self::invoice(['id' => 'in_r', 'status' => 'paid'])),
+                default => self::jsonResponse(self::subscription(['status' => 'active'])),
+            };
+        });
+
+        $snapshot = $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+
+        self::assertSame(
+            [
+                'POST /v1/subscriptions/sub_test_1/resume',
+                'GET /v1/invoices/in_r',
+                'POST /v1/invoices/in_r/pay',
+                'GET /v1/subscriptions/sub_test_1',
+            ],
+            array_map(
+                static fn (RequestInterface $r): string => $r->getMethod() . ' ' . $r->getUri()->getPath(),
+                $fake->requests()
+            )
+        );
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+    }
+
+    public function testResumeThatRaisesNoOpenInvoiceDoesNotPay(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription([
+            'status' => 'active',
+            'latest_invoice' => self::invoice(['id' => 'in_old', 'status' => 'paid']),
+        ])));
+
+        $snapshot = $this->adapter($fake)->resume(
+            'sub_test_1',
+            SubscriptionEffectiveFrom::Immediately,
+            ResumeBilling::ContinueExistingBillingPeriod
+        );
+
+        self::assertSame(1, $fake->requestCount());
+        self::assertStringNotContainsString('/pay', (string) $fake->lastRequest()->getUri());
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+    }
+
+    public function testADeclinedResumePaymentSaysTheSubscriptionIsStillPaused(): void
+    {
+        $fake = new FakeHttpClient(static function (RequestInterface $request): Response {
+            return $request->getUri()->getPath() === '/v1/invoices/in_r/pay'
+                ? self::jsonResponse(['error' => [
+                    'type' => 'card_error',
+                    'code' => 'card_declined',
+                    'message' => 'Your card was declined.',
+                ]], 402)
+                : self::jsonResponse(self::subscription([
+                    'status' => 'paused',
+                    'latest_invoice' => self::invoice(['id' => 'in_r', 'status' => 'open']),
+                ]));
+        });
+
+        try {
+            $this->adapter($fake)->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+            self::fail('A declined payment must not read as a resumed subscription.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('still paused', $e->getMessage());
+            self::assertStringContainsString('in_r', $e->getMessage());
+            self::assertStringContainsString('sub_test_1', $e->getMessage());
+            self::assertInstanceOf(CheckoutException::class, $e->getPrevious());
+            self::assertStringContainsString('card_declined', $e->getPrevious()->getMessage());
+        }
+
+        self::assertSame(2, $fake->requestCount());
+    }
+
+    public function testPauseAndResumeSendTheAdaptersPinnedApiVersion(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['status' => 'paused'])
+        ));
+        $adapter = $this->adapter($fake);
+
+        $adapter->pause('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+        $adapter->resume('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+
+        self::assertSame(2, $fake->requestCount());
+
+        foreach ($fake->requests() as $request) {
+            self::assertSame('2026-09-30.endive', $request->getHeaderLine('Stripe-Version'));
+        }
     }
 
     public function testParseSubscriptionCallbackReturnsTheEventWithAUtcOccurredAt(): void

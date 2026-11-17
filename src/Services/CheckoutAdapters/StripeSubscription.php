@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Monad\Clarity\Services\CheckoutAdapters;
 
 use DateTimeImmutable;
+use DateTimeInterface;
 use DateTimeZone;
 use InvalidArgumentException;
 use Monad\Clarity\Services\Checkout;
@@ -17,6 +18,7 @@ use Monad\Clarity\Services\Checkout\CheckoutSession;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
+use Monad\Clarity\Services\Checkout\ResumeBilling;
 use Monad\Clarity\Services\Checkout\ScheduledChange;
 use Monad\Clarity\Services\Checkout\ScheduledChangeAction;
 use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
@@ -507,6 +509,135 @@ final class StripeSubscription extends Checkout
     }
 
     /**
+     * Pause a subscription — billing stops and, by convention, so does service.
+     *
+     * **A Stripe pause takes effect at once, and carries no resume date.** Both facts were
+     * established against the live test-mode API, not read from documentation. So the signature
+     * stays PaddleSubscription's but three of its arguments are refused, each before any request
+     * is made: NextBillingPeriod (a pause scheduled for later needs a subscription schedule,
+     * which this adapter does not build), $resumeAt and $onResume (call resume() when the time
+     * comes — there is nothing on Stripe's side to hold the date or the choice).
+     *
+     * **A pause credits the unused part of the period.** Under Stripe's default invoicing
+     * behaviour the unused time becomes a pending proration, which lands on the invoice raised
+     * at resume. Unlike Paddle, where a paused subscription keeps its period, a Stripe pause
+     * settles it, and this adapter sends nothing to change that: the default is the documented
+     * behaviour.
+     *
+     * **A subscription that is still trialing cannot be paused.** Stripe refuses it ("Can't
+     * pause a subscription that is trialing…") and this adapter lets that message surface
+     * rather than guess at a rule Stripe may relax.
+     *
+     * @throws CheckoutException if $subscriptionReference is not a sub_ id, if $effectiveFrom
+     *         is NextBillingPeriod, if $resumeAt or $onResume is given, or if Stripe refuses.
+     */
+    public function pause(
+        string $subscriptionReference,
+        SubscriptionEffectiveFrom $effectiveFrom,
+        ?DateTimeInterface $resumeAt = null,
+        ?ResumeBilling $onResume = null,
+        int $timeoutSeconds = 30,
+    ): SubscriptionSnapshot {
+        $this->assertSubscriptionReference($subscriptionReference);
+
+        if ($effectiveFrom === SubscriptionEffectiveFrom::NextBillingPeriod) {
+            throw new CheckoutException(
+                'A Stripe subscription pauses immediately — there is no pause that waits for the next billing '
+                . 'period. Scheduling one needs a subscription schedule, which this adapter does not create. '
+                . 'Pass SubscriptionEffectiveFrom::Immediately, or pause when the period ends.'
+            );
+        }
+
+        if ($resumeAt !== null) {
+            throw new CheckoutException(
+                'Stripe\'s pause carries no resume date, so $resumeAt cannot be honoured and is refused rather '
+                . 'than silently dropped. Pause without it, and call resume() when the time comes.'
+            );
+        }
+
+        if ($onResume !== null) {
+            throw new CheckoutException(
+                'Stripe\'s pause records no choice about how billing restarts, so $onResume cannot be honoured '
+                . 'and is refused rather than silently dropped. Pass it to resume() instead, when the time comes.'
+            );
+        }
+
+        return $this->snapshotFrom($this->send(
+            'POST',
+            '/subscriptions/' . rawurlencode($subscriptionReference) . '/pause',
+            ['type' => 'subscription'],
+            $timeoutSeconds
+        ));
+    }
+
+    /**
+     * Resume a subscription that is **already paused**.
+     *
+     * **This may charge the customer immediately, and this adapter collects that charge itself.**
+     * Resuming with StartNewBillingPeriod answers from Stripe with the subscription still
+     * `paused` and a new invoice that is `open` with `auto_advance` off — Stripe never collects it
+     * on its own. Returning that as a success would leave a subscription the caller believes is
+     * running and Stripe believes is paused, so when the resume raises an open invoice this
+     * method pays it, then re-reads the subscription and returns what Stripe reports. That
+     * invoice carries the proration credited at pause time. ContinueExistingBillingPeriod
+     * resumes inside the original period, raises nothing to collect, and charges nothing.
+     *
+     * If the payment is refused the exception says so and the subscription **is still paused**,
+     * with the invoice left open. Retry, or resume with ContinueExistingBillingPeriod.
+     *
+     * NextBillingPeriod is not a legal choice here: a Stripe resume is immediate, and is refused
+     * locally for the same reason pause() refuses it.
+     *
+     * @throws CheckoutException if $subscriptionReference is not a sub_ id, if $effectiveFrom
+     *         is NextBillingPeriod, if Stripe refuses, or if the resume invoice cannot be paid.
+     */
+    public function resume(
+        string $subscriptionReference,
+        SubscriptionEffectiveFrom $effectiveFrom,
+        ResumeBilling $onResume = ResumeBilling::StartNewBillingPeriod,
+        int $timeoutSeconds = 30,
+    ): SubscriptionSnapshot {
+        $this->assertSubscriptionReference($subscriptionReference);
+
+        if ($effectiveFrom === SubscriptionEffectiveFrom::NextBillingPeriod) {
+            throw new CheckoutException(
+                'A Stripe subscription resumes immediately — there is no resume that waits for the next billing '
+                . 'period. Pass SubscriptionEffectiveFrom::Immediately.'
+            );
+        }
+
+        $path = '/subscriptions/' . rawurlencode($subscriptionReference);
+        $resumed = $this->send('POST', $path . '/resume', [
+            'billing_cycle_anchor' => [
+                'type' => $onResume === ResumeBilling::StartNewBillingPeriod ? 'now' : 'unchanged',
+            ],
+            'expand' => ['latest_invoice'],
+        ], $timeoutSeconds);
+
+        $invoiceId = $this->openInvoiceOf($resumed, $timeoutSeconds);
+
+        if ($invoiceId === null) {
+            return $this->snapshotFrom($resumed);
+        }
+
+        try {
+            $this->send('POST', '/invoices/' . rawurlencode($invoiceId) . '/pay', [], $timeoutSeconds);
+        } catch (CheckoutException $e) {
+            throw new CheckoutException(sprintf(
+                'Subscription %1$s is still paused: resuming raised invoice %2$s, and Stripe could not '
+                . 'collect it, so the card was not charged and the resume did not take effect. The invoice '
+                . 'stays open. Retry resume() once the customer\'s payment method is fixed, or resume with '
+                . 'ResumeBilling::ContinueExistingBillingPeriod, which raises no invoice. Stripe said: %3$s',
+                $subscriptionReference,
+                $invoiceId,
+                $e->getMessage()
+            ), previous: $e);
+        }
+
+        return $this->snapshotFrom($this->send('GET', $path, [], $timeoutSeconds));
+    }
+
+    /**
      * Refund all or part of a payment. Stripe refunds act on a PaymentIntent, so the reference
      * is resolved to one: a `pi_` is used as is, an `in_` is read for the PaymentIntent that
      * paid it, and a `cs_` is read through its invoice. A refund that cannot exist — a trial
@@ -735,6 +866,30 @@ final class StripeSubscription extends Checkout
         }
 
         return ($session['status'] ?? null) === 'expired' ? TransactionStatus::Cancelled : TransactionStatus::Pending;
+    }
+
+    /**
+     * The id of the invoice a resume raised, when it is `open` and so waiting to be paid; null
+     * when there is none or it is in any other state. The resume call expands `latest_invoice`,
+     * so its status is normally in hand; a bare id means the expansion did not happen and the
+     * invoice is read to learn what it is. Nothing is cast: an id that is not a string reads as
+     * no invoice.
+     *
+     * @param array<string, mixed> $resumed
+     */
+    private function openInvoiceOf(array $resumed, int $timeoutSeconds): ?string
+    {
+        $invoice = $resumed['latest_invoice'] ?? null;
+
+        if (is_string($invoice) && $invoice !== '') {
+            $invoice = $this->send('GET', '/invoices/' . rawurlencode($invoice), [], $timeoutSeconds);
+        }
+
+        if (!is_array($invoice) || ($invoice['status'] ?? null) !== 'open') {
+            return null;
+        }
+
+        return $this->requireString($invoice, 'id');
     }
 
     /**
