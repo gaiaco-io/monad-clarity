@@ -6,6 +6,96 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Fixed
+- **A transaction amount the adapter cannot read is a `CheckoutException`, never a PHP error or
+  a wrong figure.** This is the shared `amountOf()` in `SpeaksStripe` and `SpeaksPaddle`, which
+  reads the amount from a gateway's API response. It backs `createCheckout()` and
+  `retrieveStatus()` on all four Checkout adapters. It cast the amount with a bare `(int)`:
+  - **A numeric string past `PHP_INT_MAX`** was silently pinned to `PHP_INT_MAX` and reported as
+    the transaction's real amount. Paddle sends its amounts as strings.
+  - **A JSON number past `PHP_INT_MAX`** raised a warning, which `Mediator::register()` turns
+    into an `ErrorException`.
+  - **A negative amount or a malformed currency** let `Money`'s `InvalidArgumentException`
+    escape.
+
+  All of these are now a `CheckoutException`: "Stripe session carried an amount_total too large
+  to represent as an amount." (Paddle names `details.totals.grand_total`), or "… this adapter
+  cannot read: " followed by `Money`'s reason.
+
+  **An unreadable amount is refused even when the request's own amount could stand in.** That
+  fallback covers an amount that is absent; one that is present and unreadable is a broken
+  response, and the fallback must not hide it.
+
+  `fitsInAnInt()`, which 1.11.1 added to `PaddleSubscription`, now lives in `SpeaksPaddle`, with
+  a twin in `SpeaksStripe`, so no class copy can silently override a trait's.
+- **The Paddle webhook parsers no longer leak `ErrorException` on a signed but malformed
+  payload.** This is the defect 1.11.1 fixed for `StripeCheckout::parseCallback()`, still present
+  on both Paddle adapters.
+  - **`parseCallback()`** in `SpeaksPaddle`, shared by both Paddle adapters, cast `event_id`,
+    `event_type` and `data.id`.
+  - **`PaddleSubscription::parseSubscriptionCallback()`** cast the same three, plus
+    `scheduled_change.action` and the billing cycle's `interval` and `frequency`.
+  - **Both adapters' `mapTransactionStatus()`** cast `status`.
+
+  Now:
+  - a non-string `event_id`, `event_type`, id or scheduled-change action is refused as a
+    `CheckoutException`;
+  - a non-string status reads as absent, so it maps to `Pending`;
+  - a billing cycle with an unreadable interval or a frequency past `PHP_INT_MAX` reads as no
+    cycle, as `StripeSubscription` reads one. A non-numeric frequency used to become a frequency
+    of 1 and now also reads as no cycle.
+- **The remaining bare casts on gateway API responses are gone, each read the way that is safe
+  for where it sits.**
+  - **Refund results, on all four adapters** (amount, currency, status). The refund has already
+    happened when these are read, and Paddle takes no idempotency key, so a throw would invite a
+    retry that refunds twice. So **an unreadable figure reads as absent**, with the fallback an
+    absent one always had: the requested amount, else 0; the requested currency, else `USD`; the
+    status `unknown`. Stripe's or Paddle's own answer stays in `RefundResult::$raw`. This is
+    deliberately the opposite of `amountOf()`, which runs before or without any money moving.
+    Before, an array amount became 1 silently, a huge one raised a warning, and a negative amount
+    or a malformed currency let `Money`'s `InvalidArgumentException` escape.
+  - **Paddle's partial-refund allocation**, which reads the transaction's line items and the
+    earlier refunds before anything is posted. A line item, or an earlier refund's item, whose id
+    or amount cannot be read is now refused as a `CheckoutException`, and nothing is posted. It
+    used to be cast, so an array amount counted as 1. An earlier adjustment whose `action` or
+    `status` is not a string is compared strictly: it is not a refund, and not a rejection.
+  - **Stripe's session `url`** on both Stripe adapters, and **Paddle's pagination cursor**: a
+    non-string reads as absent.
+
+  What still casts is guarded, or is Clarity's own value: the signature timestamps (checked with
+  `ctype_digit` first), the scheduled-change error text (`is_scalar`), and the amounts Clarity
+  itself sends.
+
+### Changed
+- **A Stripe 409 for a key still in use now says to retry with the same key.** When another
+  request under the same idempotency key is still in flight, Stripe refuses the newcomer with
+  HTTP 409. Its own text says "Please try again later" but never says to keep the key, and a
+  new key would be a second request: for a refund, a second refund. The message now says that
+  the earlier request is still being processed, this one was not carried out, and the retry
+  should use the same key, which will receive the earlier request's outcome.
+
+  It is still a plain `CheckoutException`, as `ReleaseNotes_1.12.0.md` §2.7 decided, so no
+  catch changes. The same applies to every keyed call:
+  - `createCheckout()` and `refund()` on both Stripe adapters;
+  - `StripeSubscription::changePlan()`, where a product's derived key reports the caller's key.
+
+  This supersedes 1.12.0 §1.3's statement that every other Stripe failure keeps the 1.11.0
+  summary. The frozen notes are not edited. Any other 409, such as `lock_timeout`, keeps that
+  summary.
+
+### Tests
+- **The 409 case added in 1.12.0 used a body Stripe does not send.** It assumed `error.type`
+  `idempotency_error`. Measured live, a key in use is HTTP 409 with `type`
+  `invalid_request_error` and `code` `idempotency_key_in_use`. That shape held at both pinned API
+  versions, for checkout sessions and for refunds, and in every case only one object was
+  created. The probe runs, in Stripe test mode:
+  - sessions: `probe409-1794917517` (`2026-09-30.endive`) and `probe409-1794917545`
+    (`2024-06-20`);
+  - refunds: `probe409r-1794917538` and `probe409r-1794917542`, at the same two versions.
+
+  Recognition reads the `code`, and the tests now use the real body. 1.12.0's behaviour, a plain
+  `CheckoutException`, was right; only its test's fixture was invented.
+
 ### Documentation
 - **`ReleaseNotes_1.12.0.md` §5.3 now records the 1.12.0 checklist as complete.** The release
   commit could tick only what was done in this repository before the tag. This post-tag record

@@ -236,6 +236,65 @@ final class StripeSubscriptionTest extends TestCase
         self::assertStringContainsString('expand%5B0%5D=invoice.payments', (string) $fake->lastRequest()->getUri());
     }
 
+    /**
+     * The shared amountOf(), reached through this adapter. StripeCheckoutTest explains the cases.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableSessionAmounts(): array
+    {
+        $tooLarge = 'Stripe session carried an amount_total too large to represent as an amount.';
+        $unreadable = 'Stripe session carried an amount_total/currency this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'usd', $tooLarge],
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'usd', $tooLarge],
+            'negative' => [-100, 'usd', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => [2500, 'us', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableSessionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $session = ['amount_total' => $amount, 'currency' => $currency] + self::completedSession();
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($session));
+
+        $this->assertWarningsBecomeExceptions(function () use ($fake, $message): void {
+            try {
+                $this->adapter($fake)->retrieveStatus('cs_test_123');
+                self::fail('Expected the amount to be refused.');
+            } catch (CheckoutException $e) {
+                self::assertStringStartsWith($message, $e->getMessage());
+            }
+        });
+    }
+
+    /**
+     * The shared refund-result reading and this adapter's own session url, through this adapter.
+     * StripeCheckoutTest covers every case; these prove StripeSubscription reaches the same code.
+     */
+    public function testUnreadableRefundFieldsAndUrlReadAsAbsentWithoutAWarning(): void
+    {
+        $refund = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 're_test_1',
+            'amount' => 1e30,
+            'currency' => ['not' => 'a string'],
+            'status' => ['not' => 'a string'],
+        ]));
+        $session = ['url' => ['not' => 'a string']] + self::completedSession();
+        $checkout = new FakeHttpClient(static fn (): Response => self::jsonResponse($session));
+
+        $this->assertWarningsBecomeExceptions(function () use ($refund, $checkout): void {
+            $result = $this->adapter($refund)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::assertSame(0, $result->amount->minorUnits);
+            self::assertSame('USD', $result->amount->currency);
+            self::assertSame('unknown', $result->status);
+
+            self::assertNull($this->adapter($checkout)->createCheckout($this->checkoutRequest())->redirectUrl);
+        });
+    }
+
     public function testRetrieveStatusOfATrialSessionPaidAtZeroIsSuccess(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::completedSession([
@@ -2437,6 +2496,64 @@ final class StripeSubscriptionTest extends TestCase
             self::assertSame('refund:pi_test_456:full', $e->idempotencyKey);
             self::assertStringContainsString('could refund the customer twice', $e->getMessage());
         }
+    }
+
+    /**
+     * Every keyed path explains a key still in use, and stays a plain CheckoutException. A key
+     * changePlan() derived for a product reports the caller's key, as the reused-key refusal does.
+     */
+    public function testEveryKeyedCallExplainsAKeyStillInUse(): void
+    {
+        $inUse = self::keyInUseResponse();
+        $calls = [
+            'createCheckout' => [
+                new FakeHttpClient(static fn (): Response => $inUse),
+                fn (StripeSubscription $a) => $a->createCheckout($this->checkoutRequest()),
+                'ORDER-1001',
+            ],
+            'refund' => [
+                new FakeHttpClient(static fn (): Response => $inUse),
+                fn (StripeSubscription $a) => $a->refund(new RefundRequest(reference: 'pi_test_456')),
+                'refund:pi_test_456:full',
+            ],
+            'changePlan, the update' => [
+                $this->changePlanFake(update: $inUse),
+                fn (StripeSubscription $a) => $a->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::ProratedImmediately, idempotencyKey: 'change-42'),
+                'change-42',
+            ],
+            'changePlan, a product it creates' => [
+                new FakeHttpClient(static fn (RequestInterface $request): Response => $request->getMethod() === 'GET'
+                    ? self::jsonResponse(self::subscription())
+                    : $inUse),
+                fn (StripeSubscription $a) => $a->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::ProratedImmediately, idempotencyKey: 'change-42'),
+                'change-42',
+            ],
+        ];
+
+        foreach ($calls as $name => [$fake, $call, $key]) {
+            try {
+                $call($this->adapter($fake));
+                self::fail("{$name}: a key in use must throw.");
+            } catch (CheckoutException $e) {
+                self::assertSame(CheckoutException::class, $e::class, $name);
+                self::assertStringStartsWith(
+                    "Stripe is still processing an earlier request made under idempotency key \"{$key}\"",
+                    $e->getMessage(),
+                    $name
+                );
+            }
+        }
+    }
+
+    private static function keyInUseResponse(): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'idempotency_key_in_use',
+            'message' => 'There is currently another in-progress request using this Idempotent Key (that probably '
+                . 'means you submitted twice, and the other request is still going through): change-42. Please '
+                . 'try again later.',
+        ]], 409);
     }
 
     private static function reusedKeyResponse(): Response

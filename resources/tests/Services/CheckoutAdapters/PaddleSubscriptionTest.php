@@ -398,6 +398,162 @@ final class PaddleSubscriptionTest extends TestCase
         );
     }
 
+    /**
+     * The shared amountOf(), reached through this adapter. PaddleCheckoutTest explains the cases.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableTransactionAmounts(): array
+    {
+        $tooLarge = 'Paddle transaction carried a details.totals.grand_total too large to represent as an amount.';
+        $unreadable = 'Paddle transaction carried a grand_total/currency_code this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'USD', $tooLarge],
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'USD', $tooLarge],
+            'negative' => ['-100', 'USD', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => ['2500', 'US', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableTransactionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse([
+            'currency_code' => $currency,
+            'details' => ['totals' => ['grand_total' => $amount]],
+        ]));
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $this->adapter($fake)->retrieveStatus('txn_test_123');
+            self::fail('Expected the amount to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringStartsWith($message, $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * Signed does not mean well-formed. Casting an array raises a warning, which
+     * Mediator::register() turns into an ErrorException, so each field below is refused as a
+     * CheckoutException or read as absent. `true` means refused; `false` means it parses.
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>, bool}>
+     */
+    public static function malformedSubscriptionEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array event id is refused' => [static fn (array $e): array => ['event_id' => $arr] + $e, true],
+            'array event type is refused' => [static fn (array $e): array => ['event_type' => $arr] + $e, true],
+            'array subscription id is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['id'] = $arr;
+
+                return $e;
+            }, true],
+            'array scheduled change action is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['scheduled_change'] = ['action' => $arr, 'effective_at' => '2026-09-30T00:00:00Z'];
+
+                return $e;
+            }, true],
+            'array billing interval reads as no cycle' => [static function (array $e) use ($arr): array {
+                $e['data']['billing_cycle'] = ['interval' => $arr, 'frequency' => 1];
+
+                return $e;
+            }, false],
+            'a billing frequency past PHP_INT_MAX reads as no cycle' => [static function (array $e): array {
+                $e['data']['billing_cycle'] = ['interval' => 'month', 'frequency' => 1e30];
+
+                return $e;
+            }, false],
+            'array occurred_at is refused' => [static fn (array $e): array => ['occurred_at' => $arr] + $e, true],
+        ];
+    }
+
+    /**
+     * The fields a subscription event carries only to describe it. Each was already read through
+     * a type-checking helper; these pin that a malformed one reads as absent, never as a warning.
+     */
+    public function testParseSubscriptionCallbackReadsMalformedDescriptiveFieldsAsAbsent(): void
+    {
+        $arr = ['not' => 'a string'];
+        $payload = self::eventPayload('evt_bad', 'subscription.updated', [
+            'status' => 'active',
+            'custom_data' => ['reference' => $arr],
+            'transaction_id' => $arr,
+            'customer_id' => $arr,
+            'next_billed_at' => $arr,
+            'current_billing_period' => ['starts_at' => $arr, 'ends_at' => $arr],
+        ]);
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $subscription = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload))->subscription;
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertNull($subscription->reference);
+        self::assertNull($subscription->transactionReference);
+        self::assertNull($subscription->customerReference);
+        self::assertNull($subscription->nextBilledAt);
+        self::assertNull($subscription->currentPeriodStartsAt);
+        self::assertNull($subscription->currentPeriodEndsAt);
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedSubscriptionEvents')]
+    public function testParseSubscriptionCallbackRefusesOrToleratesAMalformedPayloadWithoutLeakingAWarning(
+        callable $malform,
+        bool $refused
+    ): void {
+        $event = json_decode(self::eventPayload('evt_bad', 'subscription.updated'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $parsed = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+        } catch (CheckoutException $e) {
+            self::assertTrue($refused, sprintf('Expected the payload to parse, but it was refused: %s', $e->getMessage()));
+
+            return;
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertFalse($refused, 'Expected the payload to be refused, but it parsed.');
+        self::assertNull($parsed->subscription->billingCycle);
+    }
+
+    public function testRetrieveStatusReadsAnUnreadableTransactionStatusAsPending(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse(['status' => ['not' => 'a string']]));
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            self::assertSame(TransactionStatus::Pending, $this->adapter($fake)->retrieveStatus('txn_test_123')->status);
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     #[DataProvider('transactionStates')]
     public function testRetrieveStatusMapsTheRemainingTransactionStates(string $paddle, TransactionStatus $expected): void
     {

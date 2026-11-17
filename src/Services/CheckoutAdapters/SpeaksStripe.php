@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Monad\Clarity\Services\CheckoutAdapters;
 
+use InvalidArgumentException;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
@@ -212,7 +213,57 @@ trait SpeaksStripe
             );
         }
 
-        return new Money((int) $amount, $currency);
+        // The fallback covers an absent amount, never an unreadable one. `(int)` pins a numeric
+        // string past PHP_INT_MAX to PHP_INT_MAX and refuses such a float with a warning, so that
+        // is refused before the cast; and Money's own refusals become this adapter's exception.
+        if (!self::fitsInAnInt($amount)) {
+            throw new CheckoutException('Stripe session carried an amount_total too large to represent as an amount.');
+        }
+
+        try {
+            return new Money((int) $amount, $currency);
+        } catch (InvalidArgumentException $e) {
+            throw new CheckoutException(
+                'Stripe session carried an amount_total/currency this adapter cannot read: ' . $e->getMessage(),
+                previous: $e
+            );
+        }
+    }
+
+    /**
+     * Whether a numeric value lies strictly inside the int range, so `(int)` converts it exactly
+     * instead of saturating it or raising a warning. Compared as floats because a value outside
+     * the range has no int form to compare.
+     */
+    private static function fitsInAnInt(int|float|string $value): bool
+    {
+        return abs((float) $value) < (float) PHP_INT_MAX;
+    }
+
+    /**
+     * A numeric value as an int, or null when it is not numeric or would not convert exactly.
+     */
+    private static function intOrNull(mixed $value): ?int
+    {
+        return is_numeric($value) && self::fitsInAnInt($value) ? (int) $value : null;
+    }
+
+    /**
+     * The money a refund moved, read off Stripe's answer. That answer arrives after the refund is
+     * made, so this never throws: an exception would invite a retry of a refund that happened. A
+     * figure that is absent or unreadable reads as what was asked for, as an absent one always
+     * has; the gateway's own answer stays in `raw`.
+     */
+    private static function refundedMoney(mixed $amount, mixed $currency, RefundRequest $request): Money
+    {
+        $minorUnits = self::intOrNull($amount) ?? $request->amount?->minorUnits ?? 0;
+        $currency = is_string($currency) && $currency !== '' ? $currency : ($request->amount?->currency ?? 'USD');
+
+        try {
+            return new Money($minorUnits, $currency);
+        } catch (InvalidArgumentException) {
+            return $request->amount ?? new Money(0, 'USD');
+        }
     }
 
     /**
@@ -266,6 +317,10 @@ trait SpeaksStripe
         string $whenReused,
     ): array {
         $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $idempotencyKey);
+
+        if ($this->isKeyInUse($response)) {
+            throw $this->keyInUseFailure($idempotencyKey);
+        }
 
         if ($this->isIdempotencyRefusal($response)) {
             throw new IdempotencyKeyReusedException(
@@ -339,6 +394,40 @@ trait SpeaksStripe
             && is_array($body['error'] ?? null)
             && is_string($body['error']['type'] ?? null)
             && $body['error']['type'] === 'idempotency_error';
+    }
+
+    /**
+     * Whether Stripe refused a request because another request under the same key was still in
+     * flight: HTTP 409 and an `error.code` of `idempotency_key_in_use`. Measured live: the type is
+     * `invalid_request_error`, not `idempotency_error`, so the code is what identifies it.
+     */
+    private function isKeyInUse(ResponseInterface $response): bool
+    {
+        if ($response->getStatusCode() !== 409) {
+            return false;
+        }
+
+        $body = json_decode((string) $response->getBody(), associative: true);
+
+        return is_array($body)
+            && is_array($body['error'] ?? null)
+            && ($body['error']['code'] ?? null) === 'idempotency_key_in_use';
+    }
+
+    /**
+     * A plain CheckoutException (ReleaseNotes_1.12.0.md §2.7), in the adapter's words. Stripe's
+     * own text says to try again later but never says to keep the key, and a new key here is a
+     * second request. The earlier request's outcome is not known yet, so none is claimed.
+     */
+    private function keyInUseFailure(string $idempotencyKey): CheckoutException
+    {
+        return new CheckoutException(sprintf(
+            'Stripe is still processing an earlier request made under idempotency key "%s", so this one was '
+            . 'not carried out. Retry with the same key once that request has finished: Stripe will then '
+            . 'answer with the earlier request\'s outcome. Do not switch to a new key, which would make a '
+            . 'second, separate request.',
+            $idempotencyKey
+        ));
     }
 
     /**

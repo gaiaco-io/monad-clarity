@@ -172,6 +172,151 @@ final class StripeCheckoutTest extends TestCase
         );
     }
 
+    /**
+     * `(int)` pins a numeric string past PHP_INT_MAX to PHP_INT_MAX and refuses such a float with a
+     * warning, and Money refuses a negative amount or a malformed currency with an
+     * InvalidArgumentException. None of those may escape an adapter; each is a CheckoutException.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableSessionAmounts(): array
+    {
+        $tooLarge = 'Stripe session carried an amount_total too large to represent as an amount.';
+        $unreadable = 'Stripe session carried an amount_total/currency this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'usd', $tooLarge],
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'usd', $tooLarge],
+            'negative' => [-100, 'usd', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => [2500, 'us', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableSessionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'status' => 'complete',
+            'payment_status' => 'paid',
+            'amount_total' => $amount,
+            'currency' => $currency,
+        ]));
+
+        self::assertRefusedWithoutAWarning($message, fn () => $this->adapter($fake)->retrieveStatus('cs_test_123'));
+    }
+
+    /**
+     * The fallback is for an amount that is absent. One that is present and unreadable is a broken
+     * response, and the request's own amount must not paper over it.
+     */
+    public function testCreateCheckoutRefusesAnUnrepresentableAmountEvenWithAFallback(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'url' => 'https://checkout.stripe.com/c/pay/cs_test_123',
+            'status' => 'open',
+            'payment_status' => 'unpaid',
+            'amount_total' => '99999999999999999999',
+            'currency' => 'usd',
+        ]));
+
+        self::assertRefusedWithoutAWarning(
+            'Stripe session carried an amount_total too large to represent as an amount.',
+            fn () => $this->adapter($fake)->createCheckout($this->checkoutRequest())
+        );
+    }
+
+    /**
+     * A refund result is read after Stripe has moved the money, so a throw here would invite a
+     * retry. A figure that is unreadable reads as absent, falling back exactly as an absent one
+     * always has, and never leaks a warning or Money's InvalidArgumentException.
+     *
+     * @return array<string, array{array<string, mixed>, int, string, string}>
+     */
+    public static function unreadableRefundFields(): array
+    {
+        $arr = ['not' => 'a scalar'];
+
+        return [
+            'an amount past PHP_INT_MAX' => [['amount' => 1e30], 0, 'USD', 'succeeded'],
+            'an array amount' => [['amount' => $arr], 0, 'USD', 'succeeded'],
+            'a negative amount' => [['amount' => -5], 0, 'USD', 'succeeded'],
+            'an array currency' => [['currency' => $arr], 2500, 'USD', 'succeeded'],
+            'a currency that is not ISO 4217' => [['currency' => 'us'], 0, 'USD', 'succeeded'],
+            'an array status' => [['status' => $arr], 2500, 'USD', 'unknown'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    #[DataProvider('unreadableRefundFields')]
+    public function testRefundReadsAnUnreadableResultFieldAsAbsentAndNeverThrows(
+        array $overrides,
+        int $minorUnits,
+        string $currency,
+        string $status
+    ): void {
+        $refund = array_merge(['id' => 're_test_1', 'amount' => 2500, 'currency' => 'usd', 'status' => 'succeeded'], $overrides);
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($refund));
+
+        $result = self::withoutAWarning(fn () => $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456')));
+
+        self::assertSame($minorUnits, $result->amount->minorUnits);
+        self::assertSame($currency, $result->amount->currency);
+        self::assertSame($status, $result->status);
+    }
+
+    public function testCreateCheckoutReadsAnUnreadableUrlAsNone(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'url' => ['not' => 'a string'],
+            'status' => 'open',
+            'payment_status' => 'unpaid',
+            'amount_total' => 2500,
+            'currency' => 'usd',
+        ]));
+
+        $session = self::withoutAWarning(fn () => $this->adapter($fake)->createCheckout($this->checkoutRequest()));
+
+        self::assertNull($session->redirectUrl);
+    }
+
+    private static function withoutAWarning(callable $call): mixed
+    {
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            return $call();
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * Runs $call under the framework's own behaviour (Mediator::register turns every warning into
+     * an ErrorException) and requires a CheckoutException whose message starts with $message.
+     */
+    private static function assertRefusedWithoutAWarning(string $message, callable $call): void
+    {
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $call();
+            self::fail('Expected the amount to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringStartsWith($message, $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     public function testRetrieveStatusExpandsThePaymentIntentSoFailuresAreVisible(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::openSessionResponse());
@@ -656,9 +801,11 @@ final class StripeCheckoutTest extends TestCase
                 'type' => 'invalid_request_error',
                 'message' => 'No such price: price_nope',
             ]], 400)],
-            'a 409 for a request in flight' => [self::jsonResponse(['error' => [
-                'type' => 'idempotency_error',
-                'message' => 'There is currently another in-progress request using this Idempotent Key.',
+            'a 409 for a request in flight' => [self::keyInUseResponse('ORDER-1001')],
+            'a 409 with another code' => [self::jsonResponse(['error' => [
+                'type' => 'invalid_request_error',
+                'code' => 'lock_timeout',
+                'message' => 'This object cannot be accessed right now because another API request is using it.',
             ]], 409)],
             'a 400 that is not JSON' => [new Response(400, [], '<html>Bad Request</html>')],
         ];
@@ -675,6 +822,76 @@ final class StripeCheckoutTest extends TestCase
         } catch (CheckoutException $e) {
             self::assertSame(CheckoutException::class, $e::class);
         }
+    }
+
+    /**
+     * A key still held by a request in flight is a 409, `invalid_request_error`, code
+     * `idempotency_key_in_use` — measured live, not the `idempotency_error` the 1.12.0 test
+     * assumed. It stays a plain CheckoutException (ReleaseNotes_1.12.0.md §2.7), with advice of
+     * its own: Stripe's text never says to keep the same key.
+     */
+    public function testCreateCheckoutExplainsAKeyStillInUse(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::keyInUseResponse('ORDER-1001'));
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A key in use must throw.');
+        } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
+            self::assertSame(
+                'Stripe is still processing an earlier request made under idempotency key "ORDER-1001", so '
+                . 'this one was not carried out. Retry with the same key once that request has finished: Stripe '
+                . 'will then answer with the earlier request\'s outcome. Do not switch to a new key, which would '
+                . 'make a second, separate request.',
+                $e->getMessage()
+            );
+        }
+    }
+
+    public function testRefundExplainsAKeyStillInUse(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::keyInUseResponse('refund:pi_test_456:full'));
+
+        try {
+            $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::fail('A key in use must throw.');
+        } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
+            self::assertStringContainsString('idempotency key "refund:pi_test_456:full"', $e->getMessage());
+            self::assertStringContainsString('Do not switch to a new key', $e->getMessage());
+        }
+    }
+
+    public function testA409WithAnotherCodeKeepsTheGenericSummary(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'lock_timeout',
+            'message' => 'This object cannot be accessed right now because another API request is using it.',
+        ]], 409));
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A refused request must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('request failed with HTTP 409', $e->getMessage());
+            self::assertStringNotContainsString('still processing', $e->getMessage());
+        }
+    }
+
+    /**
+     * The body Stripe returned live, at both pinned API versions; the run ids are in the CHANGELOG.
+     */
+    private static function keyInUseResponse(string $key): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'idempotency_key_in_use',
+            'message' => 'There is currently another in-progress request using this Idempotent Key (that probably '
+                . "means you submitted twice, and the other request is still going through): {$key}. Please try "
+                . 'again later.',
+        ]], 409);
     }
 
     private static function reusedKeyResponse(string $key): Response

@@ -307,11 +307,14 @@ final class PaddleSubscription extends Checkout
         /** @var array<string, mixed> $event */
         $event = json_decode($rawBody, associative: true) ?: [];
 
-        if (!isset($event['event_id'], $event['event_type'])) {
+        // Signed does not mean well-formed: a field of the wrong type is refused or read as absent
+        // rather than cast, because casting an array raises a warning, which the framework's error
+        // handler turns into an ErrorException that escapes this method's CheckoutException contract.
+        if (!is_string($event['event_id'] ?? null) || !is_string($event['event_type'] ?? null)) {
             throw new CheckoutException('Paddle webhook payload verified but carried no event_id or event_type.');
         }
 
-        $type = (string) $event['event_type'];
+        $type = $event['event_type'];
         $data = $event['data'] ?? [];
 
         if (!is_array($data)) {
@@ -334,7 +337,7 @@ final class PaddleSubscription extends Checkout
 
         return new SubscriptionEvent(
             gateway: self::GATEWAY,
-            eventId: (string) $event['event_id'],
+            eventId: $event['event_id'],
             eventType: $type,
             occurredAt: $this->occurredAt($event, $type),
             subscription: $this->snapshotFrom($data),
@@ -540,7 +543,7 @@ final class PaddleSubscription extends Checkout
      */
     protected function mapTransactionStatus(array $transaction): TransactionStatus
     {
-        return match (isset($transaction['status']) ? (string) $transaction['status'] : null) {
+        return match ($transaction['status'] ?? null) {
             'completed', 'paid' => TransactionStatus::Success,
             'canceled' => TransactionStatus::Cancelled,
             default => TransactionStatus::Pending,
@@ -741,7 +744,7 @@ final class PaddleSubscription extends Checkout
      */
     private function requireSubscriptionId(array $data): string
     {
-        $reference = isset($data['id']) ? (string) $data['id'] : '';
+        $reference = is_string($data['id'] ?? null) ? $data['id'] : '';
 
         if (!str_starts_with($reference, 'sub_')) {
             throw new CheckoutException(sprintf(
@@ -764,7 +767,7 @@ final class PaddleSubscription extends Checkout
             return null;
         }
 
-        $action = ScheduledChangeAction::tryFrom((string) $change['action']);
+        $action = is_string($change['action']) ? ScheduledChangeAction::tryFrom($change['action']) : null;
         $effectiveAt = self::dateOrNull($change['effective_at'] ?? null);
 
         if ($action === null || $effectiveAt === null) {
@@ -855,16 +858,6 @@ final class PaddleSubscription extends Checkout
         return $total;
     }
 
-    /**
-     * Whether a numeric value lies strictly inside the int range, so `(int)` converts it exactly
-     * instead of saturating it or raising a warning. Compared as floats because a value outside
-     * the range has no int form to compare.
-     */
-    private static function fitsInAnInt(int|float|string $value): bool
-    {
-        return abs((float) $value) < (float) PHP_INT_MAX;
-    }
-
     private function tooLargeToRepresent(string $id): CheckoutException
     {
         return new CheckoutException(sprintf(
@@ -906,11 +899,16 @@ final class PaddleSubscription extends Checkout
             return null;
         }
 
-        $interval = BillingInterval::tryFrom((string) $cycle['interval']);
+        // Descriptive, not load-bearing, so a cycle this adapter cannot name reads as absent rather
+        // than failing the subscription, as StripeSubscription reads one; it is never cast.
+        $interval = is_string($cycle['interval']) ? BillingInterval::tryFrom($cycle['interval']) : null;
+        $frequency = $cycle['frequency'] ?? 1;
 
-        return $interval === null
-            ? null
-            : new BillingCycle($interval, max(1, (int) ($cycle['frequency'] ?? 1)));
+        if ($interval === null || !is_numeric($frequency) || !self::fitsInAnInt($frequency)) {
+            return null;
+        }
+
+        return new BillingCycle($interval, max(1, (int) $frequency));
     }
 
     private static function stringOrNull(mixed $value): ?string
