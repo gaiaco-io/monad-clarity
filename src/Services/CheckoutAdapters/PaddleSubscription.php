@@ -804,6 +804,7 @@ final class PaddleSubscription extends Checkout
     {
         $items = is_array($data['items'] ?? null) ? $data['items'] : [];
         $currency = self::stringOrNull($data['currency_code'] ?? null);
+        $id = self::stringOrNull($data['id'] ?? null) ?? 'payload';
         $total = null;
 
         try {
@@ -817,10 +818,28 @@ final class PaddleSubscription extends Checkout
                     continue;
                 }
 
-                $line = new Money(
-                    (int) $amount * max(1, (int) ($item['quantity'] ?? 1)),
-                    $itemCurrency ?? $currency ?? 'USD'
-                );
+                $quantity = is_numeric($item['quantity'] ?? null) ? $item['quantity'] : 1;
+
+                // `(int)` pins a numeric string past PHP_INT_MAX to PHP_INT_MAX without complaint and
+                // refuses a float past it with a warning, and Money does its arithmetic in plain ints,
+                // so an overflowing product or sum becomes a float its typed constructor answers with
+                // a TypeError. A figure that large is not a price: refuse it before any of that.
+                if (!self::fitsInAnInt($amount) || !self::fitsInAnInt($quantity)) {
+                    throw $this->tooLargeToRepresent($id);
+                }
+
+                $unitAmount = (int) $amount;
+                $quantity = max(1, (int) $quantity);
+
+                if (abs($unitAmount) > intdiv(PHP_INT_MAX, $quantity)) {
+                    throw $this->tooLargeToRepresent($id);
+                }
+
+                $line = new Money($unitAmount * $quantity, $itemCurrency ?? $currency ?? 'USD');
+
+                if ($total !== null && $line->minorUnits > PHP_INT_MAX - $total->minorUnits) {
+                    throw $this->tooLargeToRepresent($id);
+                }
 
                 $total = $total === null ? $line : $total->plus($line);
             }
@@ -828,12 +847,30 @@ final class PaddleSubscription extends Checkout
             throw new CheckoutException(sprintf(
                 'Paddle subscription %s carried item amounts this adapter could not read as a recurring '
                 . 'charge: %s',
-                isset($data['id']) ? (string) $data['id'] : 'payload',
+                $id,
                 $e->getMessage()
             ), previous: $e);
         }
 
         return $total;
+    }
+
+    /**
+     * Whether a numeric value lies strictly inside the int range, so `(int)` converts it exactly
+     * instead of saturating it or raising a warning. Compared as floats because a value outside
+     * the range has no int form to compare.
+     */
+    private static function fitsInAnInt(int|float|string $value): bool
+    {
+        return abs((float) $value) < (float) PHP_INT_MAX;
+    }
+
+    private function tooLargeToRepresent(string $id): CheckoutException
+    {
+        return new CheckoutException(sprintf(
+            'Paddle subscription %s carried prices whose total is too large to represent as an amount.',
+            $id
+        ));
     }
 
     /**

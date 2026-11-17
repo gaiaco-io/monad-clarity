@@ -401,6 +401,87 @@ final class StripeCheckoutTest extends TestCase
         );
     }
 
+    /**
+     * Signed does not mean well-formed. Mediator::register() turns every warning into an
+     * ErrorException, and an array hitting a string cast is a warning, so a field of the wrong
+     * type must be refused as a CheckoutException or read as absent — never leaked as one.
+     *
+     * A null status means the payload is refused.
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>, ?TransactionStatus, ?string}>
+     */
+    public static function malformedEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array event id is refused' => [static fn (array $e): array => ['id' => $arr] + $e, null, null],
+            'array event type is refused' => [static fn (array $e): array => ['type' => $arr] + $e, null, null],
+            'array object type is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['object'] = $arr;
+
+                return $e;
+            }, null, null],
+            'array object id is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['id'] = $arr;
+
+                return $e;
+            }, null, null],
+            'array payment_status reads as unpaid' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['payment_status'] = $arr;
+
+                return $e;
+            }, TransactionStatus::Pending, null],
+            'array session status reads as open' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['status'] = $arr;
+
+                return $e;
+            }, TransactionStatus::Pending, null],
+            'array intent status reads as absent' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['payment_intent'] = ['id' => 'pi_test_456', 'status' => $arr];
+
+                return $e;
+            }, TransactionStatus::Pending, null],
+            'array failure message falls back to the event type' => [static function (array $e) use ($arr): array {
+                $e['type'] = 'checkout.session.async_payment_failed';
+                $e['data']['object']['last_payment_error'] = ['message' => $arr];
+
+                return $e;
+            }, TransactionStatus::Failed, 'checkout.session.async_payment_failed'],
+        ];
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedEvents')]
+    public function testParseCallbackRefusesOrToleratesASignedButMalformedPayloadWithoutLeakingAWarning(
+        callable $malform,
+        ?TransactionStatus $status,
+        ?string $failureReason
+    ): void {
+        $event = json_decode(self::eventPayload('evt_bad', 'checkout.session.completed'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+            throw new \ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        try {
+            $parsed = $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+        } catch (CheckoutException $e) {
+            self::assertNull($status, sprintf('Expected the payload to parse, but it was refused: %s', $e->getMessage()));
+
+            return;
+        } finally {
+            restore_error_handler();
+        }
+
+        self::assertNotNull($status, 'Expected the payload to be refused, but it parsed.');
+        self::assertSame($status, $parsed->status);
+        self::assertSame($failureReason, $parsed->failureReason);
+    }
+
     // ---------------------------------------------------------------------------------
     // refund — §9.6.6
     // ---------------------------------------------------------------------------------
