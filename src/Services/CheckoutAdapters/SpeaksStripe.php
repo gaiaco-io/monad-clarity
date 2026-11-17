@@ -238,8 +238,11 @@ trait SpeaksStripe
         $client = $this->httpClient->withTimeoutSeconds($timeoutSeconds);
         $uri = $this->baseUri . $path;
 
-        if ($method === 'GET') {
-            $response = $client->get($params === [] ? $uri : $uri . '?' . http_build_query($params), $headers);
+        if ($method === 'GET' || $method === 'DELETE') {
+            // A DELETE carries no body and no Content-Type. Stripe reads its parameters, of which
+            // an adapter should send none, from the query string exactly as it does for a GET.
+            $uri = $params === [] ? $uri : $uri . '?' . http_build_query($params);
+            $response = $method === 'GET' ? $client->get($uri, $headers) : $client->delete($uri, $headers);
         } else {
             $headers['Content-Type'] = 'application/x-www-form-urlencoded';
             $response = $client->post($uri, http_build_query($params), $headers);

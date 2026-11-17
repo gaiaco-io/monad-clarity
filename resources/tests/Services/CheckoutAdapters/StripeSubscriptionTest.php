@@ -10,6 +10,7 @@ use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
+use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
 use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\CheckoutAdapters\StripeSubscription;
@@ -1081,6 +1082,79 @@ final class StripeSubscriptionTest extends TestCase
             self::assertStringContainsString('cs_x', $e->getMessage());
             self::assertSame(0, $fake->requestCount());
         }
+    }
+
+    // ---------------------------------------------------------------------------------
+    // cancel / removeScheduledChange
+    // ---------------------------------------------------------------------------------
+
+    public function testCancelForTheNextBillingPeriodSetsCancelAtPeriodEndAndStaysActive(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['cancel_at_period_end' => true, 'cancel_at' => 1702592000])
+        ));
+
+        $snapshot = $this->adapter($fake)->cancel('sub_test_1', SubscriptionEffectiveFrom::NextBillingPeriod);
+
+        $request = $fake->lastRequest();
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1', (string) $request->getUri());
+        self::assertSame(['cancel_at_period_end' => 'true'], $fake->decodedLastRequestForm());
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+        self::assertTrue($snapshot->isCancelling());
+        self::assertSame(1702592000, $snapshot->accessEndsAt()?->getTimestamp());
+    }
+
+    public function testCancelImmediatelyDeletesTheSubscriptionAndSendsNoProration(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['status' => 'canceled'])
+        ));
+
+        $snapshot = $this->adapter($fake)->cancel('sub_test_1', SubscriptionEffectiveFrom::Immediately);
+
+        $request = $fake->lastRequest();
+        self::assertSame('DELETE', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1', (string) $request->getUri());
+        self::assertStringNotContainsString('prorate', (string) $request->getUri());
+        self::assertStringNotContainsString('invoice_now', (string) $request->getUri());
+        self::assertSame('', (string) $request->getBody());
+        self::assertSame('', $request->getHeaderLine('Content-Type'));
+        self::assertSame(SubscriptionStatus::Cancelled, $snapshot->status);
+    }
+
+    public function testRemoveScheduledChangeWithdrawsAPendingCancellation(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['cancel_at_period_end' => false, 'cancel_at' => null])
+        ));
+
+        $snapshot = $this->adapter($fake)->removeScheduledChange('sub_test_1');
+
+        $request = $fake->lastRequest();
+        self::assertSame('POST', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1', (string) $request->getUri());
+        self::assertSame(['cancel_at_period_end' => 'false'], $fake->decodedLastRequestForm());
+        self::assertFalse($snapshot->isCancelling());
+    }
+
+    public function testCancelRefusesAReferenceThatIsNotASubscription(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        foreach ([
+            fn () => $this->adapter($fake)->cancel('cs_x', SubscriptionEffectiveFrom::Immediately),
+            fn () => $this->adapter($fake)->removeScheduledChange('cs_x'),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('A checkout session id must be refused.');
+            } catch (CheckoutException $e) {
+                self::assertStringContainsString('cs_x', $e->getMessage());
+            }
+        }
+
+        self::assertSame(0, $fake->requestCount());
     }
 
     public function testParseSubscriptionCallbackReturnsTheEventWithAUtcOccurredAt(): void

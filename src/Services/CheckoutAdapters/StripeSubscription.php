@@ -19,6 +19,7 @@ use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
 use Monad\Clarity\Services\Checkout\ScheduledChange;
 use Monad\Clarity\Services\Checkout\ScheduledChangeAction;
+use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
 use Monad\Clarity\Services\Checkout\SubscriptionEvent;
 use Monad\Clarity\Services\Checkout\SubscriptionSnapshot;
 use Monad\Clarity\Services\Checkout\SubscriptionStatus;
@@ -445,6 +446,64 @@ final class StripeSubscription extends Checkout
             subscription: $this->snapshotFrom($object),
             raw: $event,
         );
+    }
+
+    /**
+     * Cancel a subscription.
+     *
+     * **Cancelling immediately refunds nothing on Stripe.** Paddle prorates a refund for the
+     * unused part of the period; Stripe does not. A refund is a separate refund() call that you
+     * decide on. This adapter sends no `prorate` and no `invoice_now`, because a prorated credit
+     * lands on the customer's balance, and a balance on a cancelled customer is money nobody
+     * will see.
+     *
+     * **For the next billing period the returned snapshot will still say Active.** The
+     * cancellation is scheduled for the date the paid-for period ends and the subscription stays
+     * active until then, with a ScheduledChange describing what is coming. Withdraw it with
+     * removeScheduledChange().
+     *
+     * $effectiveFrom is required and has no default. Gateways disagree about what their default
+     * should be, which is exactly why an adapter should not pick.
+     *
+     * @throws CheckoutException if $subscriptionReference is not a sub_ id, or Stripe refuses.
+     */
+    public function cancel(
+        string $subscriptionReference,
+        SubscriptionEffectiveFrom $effectiveFrom,
+        int $timeoutSeconds = 30,
+    ): SubscriptionSnapshot {
+        $this->assertSubscriptionReference($subscriptionReference);
+
+        $path = '/subscriptions/' . rawurlencode($subscriptionReference);
+
+        return $this->snapshotFrom(
+            $effectiveFrom === SubscriptionEffectiveFrom::Immediately
+                ? $this->send('DELETE', $path, [], $timeoutSeconds)
+                : $this->send('POST', $path, ['cancel_at_period_end' => 'true'], $timeoutSeconds)
+        );
+    }
+
+    /**
+     * Withdraw a cancellation scheduled for the end of the period, leaving the subscription to
+     * renew as before. It is the inverse of cancel() with NextBillingPeriod and sends exactly
+     * the one field that call set.
+     *
+     * A cancellation scheduled outside this adapter with an explicit `cancel_at` date is
+     * withdrawn by Stripe's own rules for that field, not by anything this method adds. A
+     * subscription that has already ended cannot be revived, and Stripe refuses.
+     *
+     * @throws CheckoutException if $subscriptionReference is not a sub_ id, or Stripe refuses.
+     */
+    public function removeScheduledChange(string $subscriptionReference, int $timeoutSeconds = 30): SubscriptionSnapshot
+    {
+        $this->assertSubscriptionReference($subscriptionReference);
+
+        return $this->snapshotFrom($this->send(
+            'POST',
+            '/subscriptions/' . rawurlencode($subscriptionReference),
+            ['cancel_at_period_end' => 'false'],
+            $timeoutSeconds
+        ));
     }
 
     /**
