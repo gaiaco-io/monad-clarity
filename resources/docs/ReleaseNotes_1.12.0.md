@@ -1,7 +1,7 @@
 # Monad Clarity 1.12.0 Release Notes
 
-**Status:** DRAFT. It becomes FROZEN when `v1.12.0` is tagged. The live verification (§5.1) is
-already done; §5.3, the release checklist, is ticked at tagging.
+**Status:** FROZEN — canonical specification for the 1.12.0 release, tagged 2026-11-17. The
+live verification (§5.1) ran before the tag, and §5.3 records the release checklist.
 
 This document is the source of truth for WHAT ships in 1.12.0. It does not restate 1.0.0 through
 1.11.1; those remain frozen for what they specified.
@@ -229,4 +229,20 @@ keeps a key, which nothing here depends on.
 
 ### 5.3 The release checklist
 
-`ReleasePolicy.md`'s Packagist publication checklist, ticked at tagging.
+`ReleasePolicy.md`'s Packagist publication checklist. The release commit can tick only what is
+done in this repository before the tag. The rest is ticked by a post-tag record, as for 1.11.0.
+
+- [x] 1. `CHANGELOG.md` has its `[1.12.0]` section.
+- [x] 2. `composer.json` reviewed. The PHP floor and dependencies are unchanged, and the branch
+  alias is now `1.12.x-dev`.
+- [x] 3. Full PHPUnit suite green: 1415 tests, and CI green on PHP 8.2 to 8.5.
+- [ ] 4. `mitosis health` against a fresh `create-project` resolving 1.12.0 from Packagist.
+- [x] 5. `.gitattributes` `export-ignore` list current. `/resources`, `/CLAUDE.md`,
+  `.gitattributes` and `.gitignore` are excluded; the new class is under `src/` and ships.
+- [ ] 6. Tag pushed, and Packagist confirmed.
+- [x] 7. Website documentation. `monad-www` #18 documents the type on the Checkout page, and was
+  merged before the tag.
+- [ ] 8. Skeleton mirrors. `RepoMap.md` drifts, because it gained
+  `IdempotencyKeyReusedException.php`, and needs syncing. `CrossRepoContracts.md` is unchanged.
+- [ ] 9. README Status line: this repository's is `1.12.0` (done). The skeleton's "resolves to"
+  line follows the tag.
