@@ -25,7 +25,9 @@ the application skeleton lives in the separate `monad/skeleton` repo.
 - Checkout was DEFERRED through 1.1.0 and was formally scheduled for 1.2.0. `Checkout.php`,
   `Checkout/`, and `CheckoutAdapters/StripeCheckout.php` are now on `main`, joined in 1.3.0 by
   `CheckoutAdapters/PaddleCheckout.php` and in 1.4.0 by `CheckoutAdapters/PaddleSubscription.php`
-  (recurring billing) plus the `SpeaksPaddle` trait the two Paddle adapters share. The eight
+  (recurring billing) plus the `SpeaksPaddle` trait the two Paddle adapters share, and in 1.11.0
+  by `CheckoutAdapters/StripeSubscription.php` plus the `SpeaksStripe` trait the two Stripe
+  adapters share. The eight
   remaining adapters (`StripeConnectExpress`, `Fiuu`, `iPay88`, `BillPlz`, `Adyen`, `Airwallex`,
   `HitPay`, `Xendit`) are still unbuilt: their namespaces are reserved, and an unbuilt adapter
   must be an absent file, never a stub. That list is the roadmap's current state, not a closed
@@ -153,6 +155,18 @@ canonical for every document below — where the skeleton repo carries a mirror,
   - A custom `LLM` subclass written before 1.10.0 **silently ignores `images`**. That is
     documented rather than guarded, because the only guard is an abstract method, which is
     semver-major (§2.10).
+- `ReleaseNotes_1.11.0.md` — WHAT ships in 1.11.0 (`CheckoutAdapters\StripeSubscription`, the
+  `SpeaksStripe` trait extracted from `StripeCheckout`), and the decisions that shaped them. It
+  is DRAFT until its §5.2 live checks are done. Read before touching Stripe recurring billing.
+  The three most load-bearing:
+  - The adapter **pins its own API version `2026-09-30.endive`** while `StripeCheckout` stays on
+    `2024-06-20`, and both parsers read the **pre-basil and basil+ webhook shapes**, because
+    Stripe renders an event in the endpoint's version, not the one the adapter sends (§2.1).
+  - **`resume()` must pay the open resume invoice itself**, because Stripe never collects it and
+    the subscription stays `paused` until someone does (§2.2).
+  - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
+    record because it was never `open()`ed. This is the renewal-recording gap Stripe shares with
+    Paddle, so a webhook handler routes on the reference prefix (§2.7).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

@@ -17,6 +17,9 @@ namespace Monad\Clarity\Services\Checkout;
  * period but resume to immediately, which is precisely why an adapter should not quietly pick
  * for the merchant.
  *
+ * Stripe's pause and resume are immediate only, so StripeSubscription refuses
+ * `NextBillingPeriod` for both by name.
+ *
  * @package Monad\Clarity\Services\Checkout
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */

@@ -6,6 +6,44 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`CheckoutAdapters\StripeSubscription`: recurring billing through Stripe.** It sits beside
+  `StripeCheckout` as `PaddleSubscription` sits beside `PaddleCheckout`, with the same public
+  surface and the same twelve value objects and `SubscriptionLedger` from 1.4.0, none of them
+  changed. Subscriptions start through Checkout in `subscription` mode, so `createCheckout()`
+  returns a `cs_`, and `subscriptionReferenceOf()` reads the `sub_` off the completed session
+  synchronously. An inline plan or a catalogue `price_` (`forCatalogPrice()`) is supported, and
+  `changePlan()` takes a trailing idempotency key, which Paddle's cannot. No new table, no new
+  enum case, no fifth abstract method on `Checkout`, no new Composer dependency. The points that
+  carry weight:
+  - It **pins `2026-09-30.endive`**, per class, while `StripeCheckout` stays on `2024-06-20`.
+    Both parsers read the pre-basil and basil-and-later webhook shapes, because Stripe renders an
+    event in the endpoint's version rather than the adapter's.
+  - **`resume()` pays the open resume invoice itself.** Stripe never collects it, and the
+    subscription stays `paused` until someone does. A declined payment raises
+    `CheckoutException` saying the subscription is still paused.
+  - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
+    record because it was never `open()`ed. A handler that passes every `parseCallback()` result
+    to `recordCallback()` therefore throws on every signup. Route on the reference prefix: `cs_`
+    to the ledger, `in_` to the application. This is the renewal-recording gap Paddle shares.
+  - Pause and resume are immediate only; `FullImmediately` and `FullNextBillingPeriod` are
+    refused by name; `Month` and `Year` trials and trials under two days are refused at
+    construction. Stripe's `incomplete` and `unpaid` map to `PastDue`, and `incomplete_expired`
+    to `Cancelled`.
+  - Every parser refuses a malformed signed payload as `CheckoutException` only.
+
+  Canonical spec: `ReleaseNotes_1.11.0.md`, which stays DRAFT until its §5.2 live checks are
+  done. Only the pre-decision test-mode spike in its §5.1 has been run against live Stripe.
+- **`CheckoutAdapters\SpeaksStripe`: the machinery both Stripe adapters share.** Signature
+  verification, `send()`, `requireString()`, `referenceOf()`, `amountOf()`, the refund-reason
+  rule and the line-item synthesis moved out of `StripeCheckout` into an internal trait, as
+  `SpeaksPaddle` did for Paddle. `StripeCheckoutTest` passes byte-unmodified.
+
+### Changed
+- **`referenceOf()` reads a non-string `id` as absent.** It is shared with `StripeCheckout`,
+  which now treats a malformed nested id as missing instead of casting it and raising a PHP
+  warning. Valid input is unaffected.
+
 ### Documentation
 - **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
   until the live checks listed in its §5.2 are done. It records:

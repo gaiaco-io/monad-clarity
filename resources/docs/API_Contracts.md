@@ -381,6 +381,77 @@ a monotonic guard on the gateway's own timestamp — weaker than the unique-inde
 `CheckoutAdapters\SpeaksPaddle` is an **internal** trait holding what both Paddle adapters
 share. It is not part of the public API surface; adapters are the contract.
 
+### Subscriptions — Stripe (1.11.0)
+
+`Monad\Clarity\Services\CheckoutAdapters\StripeSubscription` — recurring billing through Stripe,
+beside `StripeCheckout` as `PaddleSubscription` sits beside `PaddleCheckout`. Gateway name
+`stripe_subscription`. It implements the same four `Checkout` methods and adds the same
+subscription methods as `PaddleSubscription`, with **no fifth abstract method on the facade**. It
+pins `Stripe-Version: 2026-09-30.endive` while `StripeCheckout` stays on `2024-06-20`, and both of
+its parsers read the pre-basil and basil-and-later webhook shapes. `CheckoutAdapters\SpeaksStripe`
+is an **internal** trait holding what both Stripe adapters share, and is not part of the public API
+surface.
+
+Construction, with one plan per instance as on Paddle:
+
+- `new StripeSubscription(string $apiKey, HttpClient $httpClient, ?BillingCycle $billingCycle, ?BillingCycle $trialPeriod = null, string $webhookSecret = '', string $baseUri = self::DEFAULT_BASE_URI, ?string $catalogPriceId = null)`
+- `StripeSubscription::forCatalogPrice(string $apiKey, HttpClient $httpClient, string $catalogPriceId, ?BillingCycle $trialPeriod = null, string $webhookSecret = '', string $baseUri = self::DEFAULT_BASE_URI): self`
+
+Pass exactly one of `$billingCycle` and `$catalogPriceId`. A trial **is** allowed in catalogue
+mode, unlike Paddle. In catalogue mode `CheckoutRequest::$amount` is inert (1.7.0 §2.3): pass
+`new Money(0, $currency)` and read the real figure off `CheckoutSession::$amount`.
+
+Subscription methods:
+
+- `subscriptionReferenceOf(Checkout\CallbackEvent|Checkout\TransactionSnapshot $transaction): ?string`
+- `retrieveSubscription(string $subscriptionReference, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `parseSubscriptionCallback(string $rawBody, array $headers): Checkout\SubscriptionEvent`
+- `cancel(string $subscriptionReference, Checkout\SubscriptionEffectiveFrom $effectiveFrom, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `removeScheduledChange(string $subscriptionReference, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `pause(string $subscriptionReference, Checkout\SubscriptionEffectiveFrom $effectiveFrom, ?DateTimeInterface $resumeAt = null, ?Checkout\ResumeBilling $onResume = null, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `resume(string $subscriptionReference, Checkout\SubscriptionEffectiveFrom $effectiveFrom, Checkout\ResumeBilling $onResume = StartNewBillingPeriod, int $timeoutSeconds = 30): Checkout\SubscriptionSnapshot`
+- `changePlan(string $subscriptionReference, list<Checkout\SubscriptionItem> $items, Checkout\ProrationBillingMode $prorationBillingMode, Checkout\PaymentFailureBehaviour $onPaymentFailure = PreventChange, int $timeoutSeconds = 30, ?string $idempotencyKey = null): Checkout\SubscriptionSnapshot`
+
+The leading parameters match `PaddleSubscription`'s; `changePlan()` adds one trailing optional
+`$idempotencyKey`, passed on the call that charges (`ProratedImmediately`).
+
+Local refusals, each a `CheckoutException` raised before anything reaches Stripe:
+
+- `pause()` and `resume()` accept only `SubscriptionEffectiveFrom::Immediately`, and `pause()`
+  refuses any `$resumeAt` or `$onResume`: Stripe's `/pause` has no resume date.
+- `changePlan()` refuses `ProrationBillingMode::FullImmediately` and `FullNextBillingPeriod`;
+  the other three map to `always_invoice`, `create_prorations` and `none`.
+- A `Month` or `Year` trial, or a `Day` trial under two days, is refused at construction.
+- A catalogue id that does not start `price_` is refused, in the constructor and on a catalogue
+  `SubscriptionItem` in `changePlan()`.
+- `changePlan()` refuses a subscription whose item list Stripe reports as partial (`has_more`),
+  because an item left out of the replacement set would keep billing.
+
+**`createCheckout()` returns a `cs_`, never a `sub_`.** The `sub_` is born when the customer
+completes the session. Unlike Paddle, the bridge is synchronous: `subscriptionReferenceOf()` reads
+`subscription` off a completed session at once, and returns null only for one that is still open.
+`parseSubscriptionCallback()` is the second route. `SubscriptionSnapshot::$transactionReference` is
+always null on Stripe, so link through `SubscriptionLedger::linkTransaction()`.
+
+**The webhook handler shape.** Every signup's first invoice raises `invoice.paid`, and a renewal is
+an `in_` nobody `open()`ed, so passing every `parseCallback()` result to
+`TransactionLedger::recordCallback()` throws on every signup (`ReleaseNotes_1.11.0.md` §2.7).
+Route on the reference's prefix:
+
+```php
+$event = $adapter->parseCallback($rawBody, $headers);          // checkout.session.* and invoice.*
+
+if (str_starts_with($event->gatewayReference, 'cs_')) {
+    $transactions->recordCallback($event);                      // the checkout you open()ed
+}
+// 'in_': the first invoice and every renewal. The application's to handle.
+```
+
+```php
+$event = $adapter->parseSubscriptionCallback($rawBody, $headers); // customer.subscription.*
+$subscriptions->record($event);                                   // false when already applied
+```
+
 ## Middlewares\Csrf — `Monad\Clarity\Middlewares\Csrf`
 
 Session-token storage (DB-backed via `sessions`), rotation, form token, request-header token,

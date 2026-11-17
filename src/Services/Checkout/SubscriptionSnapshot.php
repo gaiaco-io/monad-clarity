@@ -47,7 +47,8 @@ final readonly class SubscriptionSnapshot
      *        link back to the checkout the application already recorded. **Only ever populated
      *        from a callback**: confirmed live, Paddle publishes it on the
      *        `subscription.created` delivery but not on the subscription entity, so a snapshot
-     *        read by retrieveSubscription() always carries null here.
+     *        read by retrieveSubscription() always carries null here. Always null on Stripe,
+     *        whose subscription never names its session; link through subscriptionReferenceOf().
      * @param Money|null $recurringAmount What the subscription charges each cycle — not a
      *        total, and not what any one transaction took.
      * @param array<string, mixed> $raw The gateway's undigested payload.

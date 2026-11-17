@@ -358,6 +358,54 @@ differences are local refusals:
 
 Those are gateway constraints, and a facade would have to express them as the same refusals.
 
+### 2.13 Decisions taken during the build
+
+Ten further decisions were taken while the adapter was built. They are facts about the shipped
+code that the sections above could not know, and each is recorded with its reason.
+
+1. **Every parser refuses a malformed signed payload as `CheckoutException`, and nothing else.**
+   Untrusted fields are type-checked, never cast, because the framework's `Mediator` turns a PHP
+   warning into `ErrorException`, and an "Array to string conversion" would leak one. A
+   malformed *descriptive* field (customer, `metadata.reference`, `price.recurring`) reads as
+   absent. A malformed load-bearing field is refused. An array-valued invoice `status` reads as
+   an unknown status, which is `Pending`.
+2. **`SpeaksStripe::referenceOf()` reads a non-string `id` as absent** rather than casting it.
+   The method is shared, so `StripeCheckout` now reads a malformed nested id as absent instead
+   of raising a warning. Valid input is unaffected, and `StripeCheckoutTest.php` passes
+   byte-unmodified.
+3. **A recurring amount that would overflow `PHP_INT_MAX` is refused** with `CheckoutException`,
+   so a malformed price cannot leak a `TypeError` from `Money`.
+4. **`recurringAmount` is null when any item's `price.unit_amount` is null.** Tiered and
+   metered pricing has no fixed amount to report, and a partial sum would be a wrong one.
+5. **`resume()` re-reads the subscription only after paying an open resume invoice.** Otherwise
+   it returns the `/resume` response's snapshot, which is Stripe's state at that moment and can
+   still say `Paused` when Stripe raised nothing to pay. A failed `/pay` raises a
+   `CheckoutException` saying the subscription is still paused *as far as this call knows*. It
+   names the invoice and points at `retrieveSubscription()`, and it makes no claim about whether
+   the card was charged, because a 5xx leaves that unknown.
+6. **`changePlan()` refuses a partial item list.** When Stripe's embedded `items` reports
+   `has_more: true`, the change is refused before anything is created, because any item left out
+   of the replacement set would keep billing. A subscription with more items than one page is
+   refused rather than paged through.
+7. **`changePlan()` retries safely with an idempotency key, and the exact semantics are:**
+   - Each product creation carries the derived key `{key}:product:{index}`, so a retry reuses
+     the same product.
+   - Each product is then re-activated with **no** key before the update, and the archive is sent
+     with **no** key. Both are naturally idempotent state-setters, and a keyed replay would
+     return Stripe's cached response without applying the state.
+   - A same-key retry has three outcomes. If the first update never ran, it runs now. If it ran
+     and was declined, Stripe replays the decline. If it ran and changed the items, Stripe
+     refuses the reused key with different parameters, and **that refusal means the change
+     happened**: confirm with `retrieveSubscription()`, and never retry with a fresh key. The
+     last outcome is a release-gate item (§5.2).
+8. **If the update succeeds but archiving a just-created product fails, `changePlan()` returns
+   the successful snapshot and does not throw.** A throw invites a retry that could charge
+   again. The product may remain active in the Stripe catalogue, which costs nothing.
+9. **A catalogue `SubscriptionItem` price id must start with `price_`** in `changePlan()`,
+   refused locally exactly as the constructor refuses one.
+10. **`removeScheduledChange()` sends only `cancel_at_period_end=false`.** Whether `cancel_at=''`
+    is also needed is release-gate item L5 (§5.2).
+
 ## 3. Explicitly NOT in 1.11.0
 
 - **Scheduled pauses or resumes.** They need Stripe Subscription Schedules, which this release
@@ -372,6 +420,11 @@ Those are gateway constraints, and a facade would have to express them as the sa
 - **`Event::` constants for subscription lifecycle.** As in 1.4.0 §3: `payment.completed`
   already fires when a subscription's charge settles, and a stable event identifier nothing
   consumes is scaffolding. Purely additive to introduce later if a real call site appears.
+- **Two defects found while building, left for a later patch.** Both are outside this release's
+  scope under the minimal-change rule. `StripeCheckout::parseCallback()` still casts `id`, `type`
+  and `object`, so a signed malformed payload can leak `ErrorException` there, as it could before
+  1.11.0. `PaddleSubscription::recurringAmountOf()` has the same latent integer overflow that
+  §2.13 item 3 fixes for Stripe.
 
 ## 4. Compatibility
 
@@ -468,6 +521,11 @@ assumed:
   is refused with a `402` and the subscription left on its old plan.
 - **L10.** Whether real `stripe listen` signatures verify in both parsers, and, as a negative
   control, whether the same delivery fails under the wrong secret.
+- **A zero-total resume invoice.** Whether `/resume` can still report `paused` when the invoice
+  it raises totals zero, so that nothing is open for `resume()` to pay (§2.13 item 5).
+- **A reused idempotency key on `changePlan()`.** Whether Stripe refuses the same key with
+  different parameters, which is how a retry after a successful change is recognised (§2.13
+  item 7).
 
 This is a payment integration; mocked coverage is not evidence that it works. This document stays
 DRAFT until the items above are recorded here as done.

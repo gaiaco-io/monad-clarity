@@ -157,7 +157,9 @@ Never modified by application developers.
             │   │   │   ├── PaddleCheckout.php
             │   │   │   ├── PaddleSubscription.php   <!-- recurring billing; 1.4.0 -->
             │   │   │   ├── SpeaksPaddle.php         <!-- trait: what both Paddle adapters share -->
-            │   │   │   └── StripeCheckout.php
+            │   │   │   ├── SpeaksStripe.php         <!-- trait: what both Stripe adapters share; 1.11.0 -->
+            │   │   │   ├── StripeCheckout.php
+            │   │   │   └── StripeSubscription.php   <!-- recurring billing; 1.11.0 -->
             │   │   │   <!-- StripeConnectExpress, Fiuu, iPay88, BillPlz, Adyen, Airwallex,
             │   │   │        HitPay, Xendit: namespaces reserved, files do NOT exist. Each
             │   │   │        ships in its own minor when built end to end — never a stub. -->

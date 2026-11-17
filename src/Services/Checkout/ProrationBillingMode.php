@@ -25,6 +25,9 @@ namespace Monad\Clarity\Services\Checkout;
  * `FullImmediately` charges the whole new-plan price for what is left of a period the
  * customer has already paid for, so it overcharges unless a merchant genuinely means it.
  *
+ * StripeSubscription maps `ProratedImmediately` to `always_invoice`, `ProratedNextBillingPeriod`
+ * to `create_prorations` and `DoNotBill` to `none`, and refuses both `Full*` cases by name.
+ *
  * @package Monad\Clarity\Services\Checkout
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */
