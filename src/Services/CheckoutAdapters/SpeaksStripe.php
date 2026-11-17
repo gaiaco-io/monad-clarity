@@ -42,7 +42,8 @@ trait SpeaksStripe
     private const REUSED_CHECKOUT_KEY = 'no checkout session was created. A checkout\'s key is its order '
         . 'reference unless you pass one, so this usually means the same reference was sent again with a '
         . 'different amount, line items or URLs. If the order changed, give this attempt its own key, a new '
-        . 'reference or an explicit idempotencyKey: creating a session charges nothing, so a new key is safe here.';
+        . 'reference or an explicit idempotencyKey. Creating a session charges nothing, but the earlier session '
+        . 'stays payable until it expires, so make sure the order can be paid only once.';
 
     /** What a reused key on refund() means, and what to do: sendKeyed()'s `$whenReused`. */
     private const REUSED_REFUND_KEY = 'no refund was made. A refund\'s key is derived from its reference and '
@@ -247,8 +248,8 @@ trait SpeaksStripe
 
     /**
      * A request under an idempotency key. Stripe refuses a key it has already seen on a different
-     * request, and its own message advises a fresh key. That is safe for a checkout session and
-     * dangerous for a refund, so the refusal becomes an IdempotencyKeyReusedException whose
+     * request, and its own message advises a fresh key. That charges nothing for a checkout session
+     * and can refund twice for a refund, so the refusal becomes an IdempotencyKeyReusedException whose
      * message carries the advice for this call: `$whenReused`, one of the REUSED_* texts.
      *
      * @param array<string, mixed> $params

@@ -47,7 +47,7 @@ try {
 
 | Call | Key sent | What the refusal means | Safe next step, as the message says |
 |---|---|---|---|
-| `StripeCheckout::createCheckout()` | `CheckoutRequest::idempotencyKey()`, the order reference unless one is passed | the reference was already used for a different session, usually after the cart changed | a new key; creating a session charges nothing |
+| `StripeCheckout::createCheckout()` | `CheckoutRequest::idempotencyKey()`, the order reference unless one is passed | the reference was already used for a different session, usually after the cart changed | a new key, which charges nothing; but the earlier session stays payable until it expires, so the order must accept only one payment |
 | `StripeCheckout::refund()` | `RefundRequest::idempotencyKey()`, `refund:{reference}:{amount or "full"}` unless one is passed | a refund of that amount on that payment was already requested with other details | check the refunds already made first; a new key can refund twice |
 | `StripeSubscription::createCheckout()` | as `StripeCheckout` | as `StripeCheckout` | as `StripeCheckout` |
 | `StripeSubscription::refund()` | as `StripeCheckout` | as `StripeCheckout` | as `StripeCheckout` |
@@ -118,7 +118,11 @@ Stripe's own message says "Try using a key other than '…' if you meant to exec
 request." How safe that advice is depends on the call:
 
 - **`createCheckout()`:** a new key only creates another session, which charges nothing, so the
-  advice holds.
+  advice mostly holds. But the earlier session stays open and payable until it expires, so a
+  customer holding both links could pay twice. The message says a new key is the way forward and
+  says the order must accept only one payment; it does not call the new key safe. The adapter
+  cannot expire the earlier session for the caller: `Services\Checkout` has no such operation,
+  and adding one is not this release's business.
 - **`refund()`:** a new key is a new refund, and it can refund the customer twice. The message
   says to check the refunds already made on that payment first.
 - **`changePlan()`:** a new key can repeat the change and its charge. The message says to read
@@ -187,9 +191,12 @@ Otherwise:
 
 ### 5.1 What the live probe established
 
-Run against Stripe test mode on 2026-11-17 with the Stripe CLI, at API version
-`2026-09-30.endive`, run id `probe112-1794914214`. Only selected fields were printed, never a
-secret.
+Run against Stripe test mode on 2026-11-17 with the Stripe CLI, twice: once at each adapter's
+pinned API version. Only selected fields were printed, never a secret.
+- **`2026-09-30.endive`** (`StripeSubscription`): run id `probe112-1794914214`.
+- **`2024-06-20`** (`StripeCheckout`): run id `probe112-1794914875`.
+
+Both runs gave the same results, below.
 
 | | Request | Result |
 |---|---|---|

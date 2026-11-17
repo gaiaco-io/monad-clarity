@@ -177,9 +177,10 @@ canonical for every document below — where the skeleton repo carries a mirror,
     `sendUnderKey()`), and `send()` takes no key. Beware that PHP silently drops an extra argument,
     so a key handed to `send()` is never sent: a test asserting the `Idempotency-Key` header is
     what catches that (§2.4).
-  - **Each message gives the advice that is safe for its call.** A fresh key is harmless for a
-    checkout session and can refund twice for a refund, so Stripe's own "try another key" is
-    never passed through (§2.5).
+  - **Each message gives the advice that is safe for its call.** A fresh key for a checkout
+    session charges nothing, though the earlier session stays payable until it expires, and a
+    fresh key for a refund can refund twice. So Stripe's own "try another key" is never passed
+    through (§2.5).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

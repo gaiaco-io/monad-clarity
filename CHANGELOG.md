@@ -15,9 +15,13 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   - `createCheckout()` and `refund()` on both `StripeCheckout` and `StripeSubscription`;
   - `StripeSubscription::changePlan()`, which already recognised the refusal in 1.11.0.
 
-  The refused request was not carried out. Each message says what is safe next for its call: a
-  new key is safe for a checkout session and can refund twice for a refund. Verified against
-  live Stripe test mode for a session and a refund (`ReleaseNotes_1.12.0.md` §5.1).
+  The refused request was not carried out. Each message says what is safe next for its call:
+  - a new key for a checkout session charges nothing, though the earlier session stays payable
+    until it expires;
+  - a new key for a refund can refund twice.
+
+  Verified against live Stripe test mode for a session and a refund, at both adapters' pinned
+  API versions (`ReleaseNotes_1.12.0.md` §5.1).
 
 ### Changed
 - **`CheckoutException` is no longer `final`,** so the subclass above can refine it. This is

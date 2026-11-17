@@ -583,7 +583,8 @@ final class StripeCheckoutTest extends TestCase
                 . 'so no checkout session was created. A checkout\'s key is its order reference unless you pass '
                 . 'one, so this usually means the same reference was sent again with a different amount, line '
                 . 'items or URLs. If the order changed, give this attempt its own key, a new reference or an '
-                . 'explicit idempotencyKey: creating a session charges nothing, so a new key is safe here.',
+                . 'explicit idempotencyKey. Creating a session charges nothing, but the earlier session stays '
+                . 'payable until it expires, so make sure the order can be paid only once.',
                 $e->getMessage()
             );
         }

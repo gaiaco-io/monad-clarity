@@ -11,10 +11,10 @@ use Throwable;
  * different request: other parameters, or another endpoint. The refused request was not
  * carried out. Nothing was created, charged or refunded by it.
  *
- * What to do next depends on the call, and the message says which. A new key is safe for a
- * checkout session, which charges nothing. For a refund or a plan change, a new key is a new
- * request and can refund or charge a second time, so find out what the earlier request did
- * first.
+ * What to do next depends on the call, and the message says which. A new key for a checkout
+ * session charges nothing, though the earlier session stays payable until it expires. For a
+ * refund or a plan change, a new key is a new request and can refund or charge a second time,
+ * so find out what the earlier request did first.
  *
  * A `CheckoutException`, so a `catch (CheckoutException)` written before 1.12.0 still catches
  * it. Only the Stripe adapters throw it; Paddle accepts no idempotency keys.
