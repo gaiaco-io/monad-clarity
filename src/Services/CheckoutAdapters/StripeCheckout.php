@@ -130,11 +130,14 @@ final class StripeCheckout extends Checkout
         /** @var array<string, mixed> $event */
         $event = json_decode($rawBody, associative: true) ?: [];
 
-        if (!isset($event['id'], $event['type'])) {
+        // Signed does not mean well-formed: a field of the wrong type is refused or read as absent
+        // rather than cast, because casting an array raises a warning, which the framework's error
+        // handler turns into an ErrorException that escapes this method's CheckoutException contract.
+        if (!is_string($event['id'] ?? null) || !is_string($event['type'] ?? null)) {
             throw new CheckoutException('Stripe webhook payload verified but carried no event id or type.');
         }
 
-        $type = (string) $event['type'];
+        $type = $event['type'];
         $object = $event['data']['object'] ?? [];
 
         if (!is_array($object)) {
@@ -147,7 +150,7 @@ final class StripeCheckout extends Checkout
         // "successfully" into a CallbackEvent whose gatewayReference is a product or charge
         // id, which is not a checkout reference at all. Stripe stamps every object with its
         // own type, so the discriminator is already in the payload.
-        $objectType = isset($object['object']) ? (string) $object['object'] : 'unknown';
+        $objectType = is_string($object['object'] ?? null) ? $object['object'] : 'unknown';
 
         if ($objectType !== 'checkout.session') {
             throw new CheckoutException(sprintf(
@@ -168,7 +171,7 @@ final class StripeCheckout extends Checkout
 
         return new CallbackEvent(
             gateway: self::GATEWAY,
-            eventId: (string) $event['id'],
+            eventId: $event['id'],
             eventType: $type,
             gatewayReference: $this->requireString($object, 'id'),
             status: $status,
@@ -243,7 +246,8 @@ final class StripeCheckout extends Checkout
      */
     private function mapSessionStatus(array $session): TransactionStatus
     {
-        $paymentStatus = isset($session['payment_status']) ? (string) $session['payment_status'] : null;
+        // Compared strictly rather than cast: a status that is not a string matches nothing.
+        $paymentStatus = $session['payment_status'] ?? null;
 
         if ($paymentStatus === 'paid' || $paymentStatus === 'no_payment_required') {
             return TransactionStatus::Success;
@@ -255,7 +259,7 @@ final class StripeCheckout extends Checkout
         $intent = $session['payment_intent'] ?? null;
 
         if (is_array($intent)) {
-            if ((string) ($intent['status'] ?? '') === 'canceled') {
+            if (($intent['status'] ?? null) === 'canceled') {
                 return TransactionStatus::Cancelled;
             }
 
@@ -264,7 +268,7 @@ final class StripeCheckout extends Checkout
             }
         }
 
-        return match (isset($session['status']) ? (string) $session['status'] : null) {
+        return match ($session['status'] ?? null) {
             'expired' => TransactionStatus::Cancelled,
             default => TransactionStatus::Pending,
         };
@@ -280,8 +284,8 @@ final class StripeCheckout extends Checkout
         foreach ([$object, is_array($intent) ? $intent : []] as $candidate) {
             $error = $candidate['last_payment_error'] ?? null;
 
-            if (is_array($error) && isset($error['message'])) {
-                return (string) $error['message'];
+            if (is_array($error) && is_string($error['message'] ?? null)) {
+                return $error['message'];
             }
         }
 

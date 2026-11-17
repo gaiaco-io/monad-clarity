@@ -909,6 +909,57 @@ final class PaddleSubscriptionTest extends TestCase
         ];
     }
 
+    /**
+     * `(int)` pins a numeric string past PHP_INT_MAX to PHP_INT_MAX without complaint — a wrong
+     * amount reported as a right one — and a float past it raises a warning the framework turns
+     * into an ErrorException. An overflowing product or sum becomes a float that Money's typed
+     * constructor answers with a TypeError. Each must be refused as a CheckoutException instead.
+     */
+    #[DataProvider('unrepresentableItemAmounts')]
+    public function testParseSubscriptionCallbackRefusesAnAmountTooLargeToRepresent(array $items): void
+    {
+        $payload = self::eventPayload('evt_1', 'subscription.updated', ['items' => $items]);
+
+        set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+            throw new \ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        try {
+            $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+            self::fail('Expected an amount too large to represent to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertSame(
+                'Paddle subscription ' . self::SUBSCRIPTION_ID . ' carried prices whose total is too large to '
+                . 'represent as an amount.',
+                $e->getMessage()
+            );
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * @return array<string, array{list<array<string, mixed>>}>
+     */
+    public static function unrepresentableItemAmounts(): array
+    {
+        // Fits in an int on its own, so the last two cases reach the product and sum guards rather
+        // than being refused at the range check before them.
+        $large = '5000000000000000000';
+        $item = static fn (mixed $amount, mixed $quantity): array => [
+            'quantity' => $quantity,
+            'price' => ['unit_price' => ['amount' => $amount, 'currency_code' => 'USD']],
+        ];
+
+        return [
+            'a unit price past PHP_INT_MAX as a numeric string' => [[$item('99999999999999999999', 1)]],
+            'a unit price past PHP_INT_MAX as a JSON number' => [[$item(1e30, 1)]],
+            'a quantity past PHP_INT_MAX' => [[$item('100', 1e30)]],
+            'a unit price times its quantity' => [[$item($large, 2)]],
+            'the sum of two items' => [[$item($large, 1), $item($large, 1)]],
+        ];
+    }
+
     // -------------------------------------- the renewal recovery, end to end through the ledger
 
     /**

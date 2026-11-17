@@ -6,6 +6,30 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Fixed
+- **`StripeCheckout::parseCallback()` no longer leaks `ErrorException` on a signed but malformed
+  payload.** It cast `id`, `type`, `object`, `status`, `payment_status`, the expanded intent's
+  `status` and `last_payment_error.message` to strings. Casting an array raises a warning, and
+  `Mediator::register()` turns every warning into an `ErrorException`, which escaped the
+  parser's `CheckoutException` contract. A non-string `id`, `type` or `object` is now refused as
+  a `CheckoutException`. A non-string status reads as absent, so the session stays `Pending`, and
+  a non-string failure message falls back to the event type, as a missing one already did. The
+  same reading applies to `retrieveStatus()`, which shares the status mapping. This was the first
+  of the two defects `ReleaseNotes_1.11.0.md` §3 left for a later patch, and the parser now
+  matches the one `StripeSubscription` shipped with.
+- **`PaddleSubscription` refuses a recurring amount too large to represent instead of
+  misreporting it or leaking a PHP error.** This is the second §3 defect. It was wider than the
+  integer overflow §2.13 item 3 fixed for Stripe, because Paddle sends amounts as numeric strings:
+  - a unit price past `PHP_INT_MAX` sent as a string was silently pinned to `PHP_INT_MAX` and
+    reported as the subscription's real recurring amount;
+  - one sent as a JSON number, or such a quantity, raised a warning that became `ErrorException`;
+  - an overflowing price × quantity, or sum of items, became a float, which `Money` rejected with
+    a `TypeError`.
+
+  All of these are now a `CheckoutException`: `Paddle subscription sub_… carried prices whose
+  total is too large to represent as an amount.` Both `parseSubscriptionCallback()` and
+  `retrieveSubscription()` read amounts through this path.
+
 ### Documentation
 - **`ReleaseNotes_1.11.0.md` §5.4 now records the 1.11.0 checklist as complete.** The release
   commit could tick only what was done in this repository before the tag. This post-tag record
