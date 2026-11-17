@@ -9,10 +9,14 @@ use Monad\Clarity\Services\Checkout\BillingCycle;
 use Monad\Clarity\Services\Checkout\BillingInterval;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
+use Monad\Clarity\Services\Checkout\LineItem;
 use Monad\Clarity\Services\Checkout\Money;
+use Monad\Clarity\Services\Checkout\PaymentFailureBehaviour;
+use Monad\Clarity\Services\Checkout\ProrationBillingMode;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\ResumeBilling;
 use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
+use Monad\Clarity\Services\Checkout\SubscriptionItem;
 use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\CheckoutAdapters\StripeSubscription;
@@ -1698,8 +1702,469 @@ final class StripeSubscriptionTest extends TestCase
     }
 
     // ---------------------------------------------------------------------------------
+    // changePlan
+    // ---------------------------------------------------------------------------------
+
+    public function testChangePlanReplacesTheWholeItemSet(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [SubscriptionItem::catalogPrice('price_pro', 3)],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        self::assertSame(['GET /v1/subscriptions/sub_test_1', 'POST /v1/subscriptions/sub_test_1'], self::requestLines($fake));
+
+        $form = self::formOf($fake->requests()[1]);
+        self::assertSame(
+            [
+                ['id' => 'si_1900', 'deleted' => 'true'],
+                ['id' => 'si_500', 'deleted' => 'true'],
+                ['price' => 'price_pro', 'quantity' => '3'],
+            ],
+            $form['items']
+        );
+    }
+
+    public function testChangePlanCreatesAProductForAnInlineItemThenPricesAgainstIt(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [SubscriptionItem::inline(
+                new LineItem('Pro plan', new Money(4900, 'USD'), 2),
+                new BillingCycle(BillingInterval::Year, 1)
+            )],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/subscriptions/sub_test_1',
+                'POST /v1/products/prod_new',
+            ],
+            self::requestLines($fake)
+        );
+
+        $requests = $fake->requests();
+        self::assertSame(['name' => 'Pro plan'], self::formOf($requests[1]));
+
+        $items = self::formOf($requests[2])['items'];
+        self::assertSame(['id' => 'si_1900', 'deleted' => 'true'], $items[0]);
+        self::assertSame(['id' => 'si_500', 'deleted' => 'true'], $items[1]);
+        self::assertSame(
+            [
+                'price_data' => [
+                    'currency' => 'usd',
+                    'unit_amount' => '4900',
+                    'product' => 'prod_new',
+                    'recurring' => ['interval' => 'year', 'interval_count' => '1'],
+                ],
+                'quantity' => '2',
+            ],
+            $items[2]
+        );
+        self::assertSame(['active' => 'false'], self::formOf($requests[3]));
+    }
+
+    public function testChangePlanArchivesTheProductItCreatedEvenWhenTheChangeIsRefused(): void
+    {
+        $fake = $this->changePlanFake(update: self::jsonResponse(['error' => [
+            'type' => 'card_error',
+            'code' => 'card_declined',
+            'message' => 'Your card was declined.',
+        ]], 402));
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem()],
+                ProrationBillingMode::ProratedImmediately
+            );
+            self::fail('A refused change must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('402', $e->getMessage());
+            self::assertStringContainsString('Your card was declined.', $e->getMessage());
+        }
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/subscriptions/sub_test_1',
+                'POST /v1/products/prod_new',
+            ],
+            self::requestLines($fake)
+        );
+        self::assertSame(['active' => 'false'], self::formOf($fake->requests()[3]));
+    }
+
+    public function testChangePlanThrowsTheUpdatesErrorWhenArchivingFailsToo(): void
+    {
+        $fake = $this->changePlanFake(
+            update: self::jsonResponse(['error' => ['message' => 'Your card was declined.']], 402),
+            archive: self::jsonResponse(['error' => ['message' => 'archive broke']], 500)
+        );
+
+        try {
+            $this->adapter($fake)->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::DoNotBill);
+            self::fail('A refused change must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('Your card was declined.', $e->getMessage());
+            self::assertStringNotContainsString('archive broke', $e->getMessage());
+        }
+    }
+
+    public function testChangePlanReturnsTheChangeEvenWhenArchivingFails(): void
+    {
+        $fake = $this->changePlanFake(
+            update: self::jsonResponse(self::subscription(['status' => 'active'])),
+            archive: self::jsonResponse(['error' => ['message' => 'archive broke']], 500)
+        );
+
+        $snapshot = $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [self::inlineItem()],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        self::assertSame('sub_test_1', $snapshot->gatewayReference);
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+        self::assertSame(4, $fake->requestCount());
+    }
+
+    public function testChangePlanArchivesProductsAlreadyCreatedWhenALaterOneFails(): void
+    {
+        $products = 0;
+        $fake = new FakeHttpClient(static function (RequestInterface $request) use (&$products): Response {
+            $line = $request->getMethod() . ' ' . $request->getUri()->getPath();
+
+            if ($line === 'POST /v1/products') {
+                return ++$products === 1
+                    ? self::jsonResponse(['id' => 'prod_first'])
+                    : self::jsonResponse(['error' => ['message' => 'no more products']], 400);
+            }
+
+            return str_starts_with($line, 'GET ')
+                ? self::jsonResponse(self::subscription())
+                : self::jsonResponse(['id' => 'prod_first', 'active' => false]);
+        });
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [self::inlineItem(), self::inlineItem('Add-on')],
+                ProrationBillingMode::DoNotBill
+            );
+            self::fail('A failed product must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('no more products', $e->getMessage());
+        }
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/products',
+                'POST /v1/products/prod_first',
+            ],
+            self::requestLines($fake)
+        );
+    }
+
+    /**
+     * @return array<string, array{ProrationBillingMode, string}>
+     */
+    public static function allowedProrationModes(): array
+    {
+        return [
+            'prorated immediately' => [ProrationBillingMode::ProratedImmediately, 'always_invoice'],
+            'prorated next period' => [ProrationBillingMode::ProratedNextBillingPeriod, 'create_prorations'],
+            'do not bill' => [ProrationBillingMode::DoNotBill, 'none'],
+        ];
+    }
+
+    #[DataProvider('allowedProrationModes')]
+    public function testChangePlanMapsProrationModes(ProrationBillingMode $mode, string $proration): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan('sub_test_1', [SubscriptionItem::catalogPrice('price_pro')], $mode);
+
+        self::assertSame($proration, self::formOf($fake->requests()[1])['proration_behavior']);
+    }
+
+    /**
+     * @return array<string, array{ProrationBillingMode}>
+     */
+    public static function fullProrationModes(): array
+    {
+        return [
+            'full immediately' => [ProrationBillingMode::FullImmediately],
+            'full next period' => [ProrationBillingMode::FullNextBillingPeriod],
+        ];
+    }
+
+    #[DataProvider('fullProrationModes')]
+    public function testChangePlanRefusesTheFullProrationModesBeforeSendingAnything(ProrationBillingMode $mode): void
+    {
+        $fake = $this->changePlanFake();
+
+        try {
+            $this->adapter($fake)->changePlan('sub_test_1', [SubscriptionItem::catalogPrice('price_pro')], $mode);
+            self::fail('A Full* mode has no Stripe equivalent and must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString($mode->name, $e->getMessage());
+            self::assertStringContainsString('billing anchor', $e->getMessage());
+            self::assertStringContainsString('ProratedImmediately', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    /**
+     * @return array<string, array{PaymentFailureBehaviour, string}>
+     */
+    public static function paymentFailureBehaviours(): array
+    {
+        return [
+            'prevent change' => [PaymentFailureBehaviour::PreventChange, 'error_if_incomplete'],
+            'apply change' => [PaymentFailureBehaviour::ApplyChange, 'allow_incomplete'],
+        ];
+    }
+
+    #[DataProvider('paymentFailureBehaviours')]
+    public function testChangePlanMapsPaymentFailureBehaviour(PaymentFailureBehaviour $behaviour, string $payment): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [SubscriptionItem::catalogPrice('price_pro')],
+            ProrationBillingMode::ProratedImmediately,
+            $behaviour
+        );
+
+        self::assertSame($payment, self::formOf($fake->requests()[1])['payment_behavior']);
+    }
+
+    public function testChangePlanDefaultsToPreventingTheChangeOnPaymentFailure(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [SubscriptionItem::catalogPrice('price_pro')],
+            ProrationBillingMode::ProratedImmediately
+        );
+
+        self::assertSame('error_if_incomplete', self::formOf($fake->requests()[1])['payment_behavior']);
+    }
+
+    public function testChangePlanSendsTheIdempotencyKeyAndDerivesOnePerProduct(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [SubscriptionItem::catalogPrice('price_a'), self::inlineItem()],
+            ProrationBillingMode::ProratedImmediately,
+            idempotencyKey: 'chg-9'
+        );
+
+        $keys = array_map(
+            static fn (RequestInterface $r): string => $r->getMethod() . ' ' . $r->getUri()->getPath()
+                . ' ' . $r->getHeaderLine('Idempotency-Key'),
+            $fake->requests()
+        );
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1 ',
+                'POST /v1/products chg-9:product:1',
+                'POST /v1/subscriptions/sub_test_1 chg-9',
+                'POST /v1/products/prod_new chg-9:archive:1',
+            ],
+            $keys
+        );
+    }
+
+    public function testChangePlanSendsNoIdempotencyKeyUnlessGivenOne(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::DoNotBill);
+
+        foreach ($fake->requests() as $request) {
+            self::assertFalse($request->hasHeader('Idempotency-Key'));
+        }
+    }
+
+    public function testChangePlanRefusesAnEmptyOrMixedIntervalItemSet(): void
+    {
+        $fake = $this->changePlanFake();
+        $monthly = SubscriptionItem::inline(
+            new LineItem('Plan', new Money(1000, 'USD')),
+            new BillingCycle(BillingInterval::Month)
+        );
+        $yearly = SubscriptionItem::inline(
+            new LineItem('Add-on', new Money(500, 'USD')),
+            new BillingCycle(BillingInterval::Year)
+        );
+
+        foreach ([[], [$monthly, $yearly]] as $items) {
+            try {
+                $this->adapter($fake)->changePlan('sub_test_1', $items, ProrationBillingMode::DoNotBill);
+                self::fail('An empty or mixed-interval item set must be refused.');
+            } catch (CheckoutException $e) {
+                self::assertNotSame('', $e->getMessage());
+            }
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testChangePlanRefusesAnElementThatIsNotASubscriptionItem(): void
+    {
+        $fake = $this->changePlanFake();
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [SubscriptionItem::catalogPrice('price_a'), 'price_b'],
+                ProrationBillingMode::DoNotBill
+            );
+            self::fail('A bare string is not a SubscriptionItem.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('[1]', $e->getMessage());
+            self::assertStringContainsString('SubscriptionItem', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testChangePlanRefusesACatalogueItemThatIsNotAPrice(): void
+    {
+        $fake = $this->changePlanFake();
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [SubscriptionItem::catalogPrice('prod_x')],
+                ProrationBillingMode::DoNotBill
+            );
+            self::fail('A product id is not a price id.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('prod_x', $e->getMessage());
+            self::assertStringContainsString('product id', $e->getMessage());
+        }
+
+        self::assertSame(0, $fake->requestCount());
+    }
+
+    public function testChangePlanRefusesASubscriptionReferenceThatIsNotASubscription(): void
+    {
+        $fake = $this->changePlanFake();
+
+        try {
+            $this->adapter($fake)->changePlan('cs_x', [self::inlineItem()], ProrationBillingMode::DoNotBill);
+            self::fail('A checkout session id is not a subscription id.');
+        } catch (CheckoutException) {
+            self::assertSame(0, $fake->requestCount());
+        }
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>}>
+     */
+    public static function malformedItemLists(): array
+    {
+        return [
+            'items is not a list' => [['items' => 'nope']],
+            'data is not a list' => [['items' => ['data' => 'nope']]],
+            'id is not a string' => [['items' => ['data' => [['id' => ['si_x']]]]]],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $subscription
+     */
+    #[DataProvider('malformedItemLists')]
+    public function testChangePlanRefusesAMalformedExistingItemList(array $subscription): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            array_merge(self::subscription(), $subscription)
+        ));
+
+        try {
+            $this->adapter($fake)->changePlan(
+                'sub_test_1',
+                [SubscriptionItem::catalogPrice('price_pro')],
+                ProrationBillingMode::DoNotBill
+            );
+            self::fail('A malformed item list must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('items', $e->getMessage());
+        }
+
+        self::assertSame(1, $fake->requestCount());
+    }
+
+    // ---------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------
+
+    private static function inlineItem(string $description = 'Pro plan'): SubscriptionItem
+    {
+        return SubscriptionItem::inline(
+            new LineItem($description, new Money(4900, 'USD')),
+            new BillingCycle(BillingInterval::Month)
+        );
+    }
+
+    /**
+     * Answers the GET with a subscription holding `si_1900` and `si_500`, product creation with
+     * `prod_new`, the update with a subscription, and an archive with an inactive product.
+     */
+    private function changePlanFake(?Response $update = null, ?Response $archive = null): FakeHttpClient
+    {
+        return new FakeHttpClient(static function (RequestInterface $request) use ($update, $archive): Response {
+            $path = $request->getUri()->getPath();
+
+            return match (true) {
+                $request->getMethod() === 'GET' => self::jsonResponse(self::subscription()),
+                $path === '/v1/products' => self::jsonResponse(['id' => 'prod_new', 'active' => true]),
+                str_starts_with($path, '/v1/products/') => $archive ?? self::jsonResponse(['id' => 'prod_new', 'active' => false]),
+                default => $update ?? self::jsonResponse(self::subscription()),
+            };
+        });
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function requestLines(FakeHttpClient $fake): array
+    {
+        return array_map(
+            static fn (RequestInterface $r): string => $r->getMethod() . ' ' . $r->getUri()->getPath(),
+            $fake->requests()
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function formOf(RequestInterface $request): array
+    {
+        parse_str((string) $request->getBody(), $form);
+
+        return $form;
+    }
 
     private function adapter(?FakeHttpClient $fake = null, ?BillingCycle $trial = null): StripeSubscription
     {

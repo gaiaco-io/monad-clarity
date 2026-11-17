@@ -16,6 +16,8 @@ use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\CheckoutSession;
 use Monad\Clarity\Services\Checkout\Money;
+use Monad\Clarity\Services\Checkout\PaymentFailureBehaviour;
+use Monad\Clarity\Services\Checkout\ProrationBillingMode;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
 use Monad\Clarity\Services\Checkout\ResumeBilling;
@@ -23,11 +25,13 @@ use Monad\Clarity\Services\Checkout\ScheduledChange;
 use Monad\Clarity\Services\Checkout\ScheduledChangeAction;
 use Monad\Clarity\Services\Checkout\SubscriptionEffectiveFrom;
 use Monad\Clarity\Services\Checkout\SubscriptionEvent;
+use Monad\Clarity\Services\Checkout\SubscriptionItem;
 use Monad\Clarity\Services\Checkout\SubscriptionSnapshot;
 use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionSnapshot;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\HttpClient;
+use Throwable;
 
 /**
  * Stripe adapter for **recurring** payments — subscriptions started through Checkout Sessions
@@ -643,6 +647,119 @@ final class StripeSubscription extends Checkout
     }
 
     /**
+     * Move a subscription onto a different set of items — a new plan, a new term, a new quantity.
+     *
+     * **This replaces the subscription's whole item set; it never adds.** Every item the
+     * subscription bills for now is removed and `$items` becomes the complete list, so an add-on
+     * left out of `$items` is gone. An empty list is refused, because it would strip every item
+     * off the subscription, which is a cancellation by another name.
+     *
+     * **With ProratedImmediately this call charges the customer's card.** Stripe invoices the
+     * proration at once, so a timeout or a dropped connection leaves you not knowing whether the
+     * charge happened. Always pass `$idempotencyKey` on such a call, and reuse the same key to
+     * retry it: Stripe then returns the first outcome instead of charging twice. Without a key a
+     * blind retry can charge twice, so read the subscription with retrieveSubscription() first.
+     * The key also derives one for each product this call creates and archives.
+     *
+     * Proration maps onto Stripe's `proration_behavior`: ProratedImmediately is `always_invoice`,
+     * ProratedNextBillingPeriod is `create_prorations` and DoNotBill is `none`. The two Full*
+     * modes are refused before any request is made: Stripe has no equivalent that does not also
+     * reset the billing anchor, which moves the renewal date as a side effect nobody asked for.
+     * PreventChange sends `payment_behavior=error_if_incomplete`, so a declined proration leaves
+     * the subscription unchanged and throws; ApplyChange sends `allow_incomplete`, so the change
+     * stands and the invoice is left for Stripe's retries.
+     *
+     * An inline item cannot name its product inline on an update, so a product is created for it
+     * first, named for its line description, and **archived once the change has been made**,
+     * whether the change succeeded or was refused. That leaves one inactive product in your
+     * Stripe catalogue for each inline plan, exactly what Checkout itself leaves. If archiving a
+     * product fails after the change succeeded, the change is still returned rather than thrown —
+     * a throw would invite a retry that could charge again — and that product may remain active
+     * in your catalogue until you archive it.
+     *
+     * @param list<SubscriptionItem> $items the complete list the subscription should bill for.
+     * @throws CheckoutException if $subscriptionReference is not a sub_ id, if $items is empty,
+     *         is not made of SubscriptionItems, mixes billing cycles or holds a catalogue id
+     *         that is not a price, if the proration mode is FullImmediately or
+     *         FullNextBillingPeriod, or if Stripe refuses.
+     */
+    public function changePlan(
+        string $subscriptionReference,
+        array $items,
+        ProrationBillingMode $prorationBillingMode,
+        PaymentFailureBehaviour $onPaymentFailure = PaymentFailureBehaviour::PreventChange,
+        int $timeoutSeconds = 30,
+        ?string $idempotencyKey = null,
+    ): SubscriptionSnapshot {
+        $this->assertSubscriptionReference($subscriptionReference);
+        $this->assertChangeableItems($items);
+
+        $proration = match ($prorationBillingMode) {
+            ProrationBillingMode::ProratedImmediately => 'always_invoice',
+            ProrationBillingMode::ProratedNextBillingPeriod => 'create_prorations',
+            ProrationBillingMode::DoNotBill => 'none',
+            ProrationBillingMode::FullImmediately,
+            ProrationBillingMode::FullNextBillingPeriod => throw new CheckoutException(sprintf(
+                'Stripe has no equivalent of ProrationBillingMode::%s that does not also reset the billing '
+                . 'anchor, which would move the renewal date as a side effect. Use ProratedImmediately, '
+                . 'ProratedNextBillingPeriod, or DoNotBill.',
+                $prorationBillingMode->name
+            )),
+        };
+
+        $path = '/subscriptions/' . rawurlencode($subscriptionReference);
+        $existing = $this->itemIdsOf($this->send('GET', $path, [], $timeoutSeconds));
+
+        $params = [
+            'items' => array_map(
+                static fn (string $id): array => ['id' => $id, 'deleted' => 'true'],
+                $existing
+            ),
+            'proration_behavior' => $proration,
+            'payment_behavior' => $onPaymentFailure === PaymentFailureBehaviour::PreventChange
+                ? 'error_if_incomplete'
+                : 'allow_incomplete',
+        ];
+
+        $products = [];
+
+        try {
+            foreach ($items as $index => $item) {
+                if ($item->isCatalogPrice()) {
+                    $params['items'][] = ['price' => $item->priceId, 'quantity' => $item->quantity];
+
+                    continue;
+                }
+
+                $products[$index] = $this->requireString($this->send(
+                    'POST',
+                    '/products',
+                    ['name' => $item->lineItem->description],
+                    $timeoutSeconds,
+                    $idempotencyKey === null ? null : "{$idempotencyKey}:product:{$index}"
+                ), 'id');
+
+                $params['items'][] = [
+                    'price_data' => [
+                        'currency' => strtolower($item->lineItem->unitPrice->currency),
+                        'unit_amount' => $item->lineItem->unitPrice->minorUnits,
+                        'product' => $products[$index],
+                        'recurring' => [
+                            'interval' => $item->billingCycle->interval->value,
+                            'interval_count' => $item->billingCycle->frequency,
+                        ],
+                    ],
+                    'quantity' => $item->quantity,
+                ];
+            }
+
+            return $this->snapshotFrom($this->send('POST', $path, $params, $timeoutSeconds, $idempotencyKey));
+        } finally {
+            $this->archiveProducts($products, $timeoutSeconds, $idempotencyKey);
+        }
+    }
+
+    /**
      * Refund all or part of a payment. Stripe refunds act on a PaymentIntent, so the reference
      * is resolved to one: a `pi_` is used as is, an `in_` is read for the PaymentIntent that
      * paid it, and a `cs_` is read through its invoice. A refund that cannot exist — a trial
@@ -895,6 +1012,107 @@ final class StripeSubscription extends Checkout
         }
 
         return $this->requireString($invoice, 'id');
+    }
+
+    /**
+     * @param array<mixed> $items
+     * @throws CheckoutException if the list is empty, holds a non-item, mixes cycles, or names a
+     *         catalogue entry that is not a price.
+     */
+    private function assertChangeableItems(array $items): void
+    {
+        if ($items === []) {
+            throw new CheckoutException(
+                'A plan change replaces a subscription\'s whole item set rather than adding to it, so an empty '
+                . 'list would strip every item off it — a cancellation by another name. Call cancel() if that '
+                . 'is what you mean.'
+            );
+        }
+
+        $cycle = null;
+
+        foreach ($items as $index => $item) {
+            if (!$item instanceof SubscriptionItem) {
+                throw new CheckoutException(sprintf(
+                    'Item [%s] is %s, not a SubscriptionItem. Build each with SubscriptionItem::catalogPrice() '
+                    . 'or SubscriptionItem::inline().',
+                    $index,
+                    get_debug_type($item)
+                ));
+            }
+
+            if ($item->isCatalogPrice() && !str_starts_with($item->priceId, 'price_')) {
+                throw new CheckoutException(str_starts_with($item->priceId, 'prod_')
+                    ? sprintf(
+                        '"%s" is a Stripe product id, not a price id. A product is the thing being sold and a '
+                        . 'price is what it costs on one billing cycle, so a plan change needs the price — the '
+                        . 'price_... shown beneath the product in Stripe > Product catalogue.',
+                        $item->priceId
+                    )
+                    : sprintf('A catalogue item needs a Stripe price id (price_...), got "%s".', $item->priceId));
+            }
+
+            if ($item->billingCycle === null) {
+                continue;
+            }
+
+            if ($cycle !== null && !$cycle->equals($item->billingCycle)) {
+                throw new CheckoutException(sprintf(
+                    'Every item on one subscription must bill on the same cycle, but this change mixes %s with '
+                    . '%s. Move the add-ons onto the new term alongside the plan.',
+                    $cycle->describe(),
+                    $item->billingCycle->describe()
+                ));
+            }
+
+            $cycle = $item->billingCycle;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $subscription
+     * @return list<string>
+     * @throws CheckoutException if the subscription's items are not a list of objects with ids.
+     */
+    private function itemIdsOf(array $subscription): array
+    {
+        $data = $subscription['items']['data'] ?? null;
+
+        if (!is_array($subscription['items'] ?? null) || !is_array($data) || !array_is_list($data)) {
+            throw new CheckoutException('Stripe response was missing the subscription\'s items list.');
+        }
+
+        return array_map(function (mixed $item): string {
+            if (!is_array($item) || !is_string($item['id'] ?? null) || $item['id'] === '') {
+                throw new CheckoutException('Stripe response held an entry in the subscription\'s items without an id.');
+            }
+
+            return $item['id'];
+        }, $data);
+    }
+
+    /**
+     * Archive the products a plan change created. This runs whatever became of the change, so it
+     * must never throw: an archive failure may not hide the change's own error, and a change that
+     * succeeded is not undone, or retried into a second charge, by housekeeping.
+     *
+     * @param array<int, string> $products product id by item index
+     */
+    private function archiveProducts(array $products, int $timeoutSeconds, ?string $idempotencyKey): void
+    {
+        foreach ($products as $index => $productId) {
+            try {
+                $this->send(
+                    'POST',
+                    '/products/' . rawurlencode($productId),
+                    ['active' => 'false'],
+                    $timeoutSeconds,
+                    $idempotencyKey === null ? null : "{$idempotencyKey}:archive:{$index}"
+                );
+            } catch (Throwable) {
+                continue;
+            }
+        }
     }
 
     /**
