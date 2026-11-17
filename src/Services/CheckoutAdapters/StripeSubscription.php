@@ -524,6 +524,10 @@ final class StripeSubscription extends Checkout
      * settles it, and this adapter sends nothing to change that: the default is the documented
      * behaviour.
      *
+     * **A paused subscription's period ends at the moment of the pause.** Stripe moves
+     * current_period_end there, so the snapshot's currentPeriodEndsAt and accessEndsAt() are that
+     * moment and nextBilledAt is null.
+     *
      * **A subscription that is still trialing cannot be paused.** Stripe refuses it ("Can't
      * pause a subscription that is trialing…") and this adapter lets that message surface
      * rather than guess at a rule Stripe may relax.
@@ -624,10 +628,11 @@ final class StripeSubscription extends Checkout
             $this->send('POST', '/invoices/' . rawurlencode($invoiceId) . '/pay', [], $timeoutSeconds);
         } catch (CheckoutException $e) {
             throw new CheckoutException(sprintf(
-                'Subscription %1$s is still paused: resuming raised invoice %2$s, and Stripe could not '
-                . 'collect it, so the card was not charged and the resume did not take effect. The invoice '
-                . 'stays open. Retry resume() once the customer\'s payment method is fixed, or resume with '
-                . 'ResumeBilling::ContinueExistingBillingPeriod, which raises no invoice. Stripe said: %3$s',
+                'Subscription %1$s is still paused as far as this call knows: resuming raised invoice %2$s, '
+                . 'and paying it failed, so the resume has not been seen to take effect. Confirm where things '
+                . 'stand with retrieveSubscription(), then retry resume() once the customer\'s payment method '
+                . 'is fixed, or resume with ResumeBilling::ContinueExistingBillingPeriod, which raises no '
+                . 'invoice. Stripe said: %3$s',
                 $subscriptionReference,
                 $invoiceId,
                 $e->getMessage()

@@ -1394,12 +1394,15 @@ final class StripeSubscriptionTest extends TestCase
         } catch (CheckoutException $e) {
             self::assertStringContainsString('still paused', $e->getMessage());
             self::assertStringContainsString('in_r', $e->getMessage());
+            self::assertStringContainsString('retrieveSubscription()', $e->getMessage());
+            self::assertStringNotContainsString('not charged', $e->getMessage());
             self::assertStringContainsString('sub_test_1', $e->getMessage());
             self::assertInstanceOf(CheckoutException::class, $e->getPrevious());
             self::assertStringContainsString('card_declined', $e->getPrevious()->getMessage());
         }
 
         self::assertSame(2, $fake->requestCount());
+        self::assertSame('POST', $fake->lastRequest()->getMethod());
     }
 
     public function testPauseAndResumeSendTheAdaptersPinnedApiVersion(): void
