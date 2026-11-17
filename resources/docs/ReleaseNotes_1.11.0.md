@@ -739,10 +739,10 @@ unverified live.
 
 ### 5.4 The release checklist
 
-This follows `ReleasePolicy.md`'s numbering and records what was actually done. Items done in this
-repository before the tag are ticked. Items that can only happen at or after the tag, or in
-another repository, are marked outstanding, and a post-tag commit records them rather than this
-document claiming them in advance.
+This follows `ReleasePolicy.md`'s numbering and records what was actually done. The release commit
+ticked only what was done in this repository before the tag. Items 4 and 6–9 were completed at or
+after the tag on 2026-11-17, and this post-tag record ticks them with their evidence. **All nine
+items are done.**
 
 1. **CHANGELOG** cut to `[1.11.0] - 2026-11-17`, with an empty `[Unreleased]` above it. ✔
 2. **`composer.json` reviewed.** The PHP floor and dependencies are unchanged. The `dev-main`
@@ -750,20 +750,38 @@ document claiming them in advance.
 3. **Full suite green:** 1394 tests, 3087 assertions, locally on PHP 8.5. CI runs PHP 8.2–8.5
    on the release PR. ✔
 4. **`php mitosis health` against a fresh `create-project` resolving the tagged `1.11.0` from
-   Packagist.** Outstanding, because it can only run once the tag exists.
+   Packagist.** ✔
+   - **Resolution.** `composer create-project monad/skeleton` resolved `monad/clarity` to
+     `v1.11.0` at `c516225` from Packagist, not from a path repository.
+   - **Setup, on SQLite.** `setup`, `checkout:install` and `migrate` ran first.
+     `checkout:install` created 4 of 4 tables, including `checkout_subscriptions`.
+   - **Result.** `mitosis health` exited 0, with all five checks green.
 5. **`.gitattributes` export-ignore confirmed** against `git archive` of the release commit. The
    archive holds `src`, `composer.json`, `CHANGELOG.md`, `LICENSE`, `README.md`,
    `phpunit.xml.dist` and `.github/`, with no `resources/` and no `CLAUDE.md`. `.github/`
    (the CI workflow) ships in the archive. It is not on the policy's exclusion list and is
    harmless, so it is left as it is. ✔
-6. **Tag `v1.11.0` pushed, Packagist updated, and a GitHub Release published.**
-   Outstanding at this commit. Note that v1.9.0, v1.9.1 and v1.10.0 were tagged without
-   GitHub Releases, so the website's `/changelog`, which keys on published Releases, likely
-   skips them.
-7. **Website documentation (`monad-www`).** This release is user-facing: a new adapter, and
-   changed exception text for every Checkout adapter. So a `monad-www` change is required
-   before the tag. Outstanding.
-8. **Skeleton mirrors.** `RepoMap.md` changed in this release, so the skeleton's mirror needs
-   syncing. `CrossRepoContracts.md` did not change. Outstanding.
-9. **README Status line** bumped to `1.11.0` in this repository ✔. The skeleton's README is
-   outstanding.
+6. **Tag, Packagist and GitHub Release.** ✔
+   - **Tag.** `v1.11.0` is an annotated tag on `c516225`, following the earlier tags' style.
+   - **Packagist.** It listed `v1.11.0` at the first check after the push.
+   - **GitHub Release.** `1.11.0` is published and marked Latest.
+   - **Backfilled Releases.** v1.9.0, v1.9.1 and v1.10.0 had been tagged without GitHub
+     Releases, so the website's `/changelog`, which keys on published Releases, skipped them.
+     Releases were published for all three from their CHANGELOG sections, none marked Latest.
+7. **Website documentation (`monad-www`).** ✔ This release is user-facing: a new adapter, and
+   changed exception text for every Checkout adapter. `monad-www` #17 was merged **before the
+   tag**, as the policy requires. It adds:
+   - a Stripe subscriptions section to the Checkout page;
+   - the exception-message note.
+
+   An accuracy review against this release's code found eight inaccuracies before the merge,
+   all fixed. The most serious was a webhook sample that routed two endpoints through one
+   adapter: each Stripe endpoint has its own signing secret, so one route would fail
+   verification.
+8. **Skeleton mirrors.** ✔ `monad-skeleton` #23 was merged after the tag.
+   - Its `RepoMap.md` mirror is now byte-identical to this repository's. The only drift was
+     `SpeaksStripe.php` and `StripeSubscription.php`.
+   - `CrossRepoContracts.md` had not drifted.
+9. **README Status line.** ✔ Bumped to `1.11.0` in this repository. In the skeleton, through
+   `monad-skeleton` #23, it now says `monad/clarity ^1.0` resolves to `1.11.0`. The skeleton's
+   own version is unchanged.

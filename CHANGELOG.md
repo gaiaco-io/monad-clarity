@@ -6,6 +6,16 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Documentation
+- **`ReleaseNotes_1.11.0.md` §5.4 now records the 1.11.0 checklist as complete.** The release
+  commit could tick only what was done in this repository before the tag. This post-tag record
+  ticks the remaining items, with their evidence:
+  - the `mitosis health` run against 1.11.0 resolved from Packagist;
+  - the tag, Packagist and GitHub Release, plus the Releases backfilled for v1.9.0, v1.9.1 and
+    v1.10.0;
+  - the `monad-www` docs, merged before the tag;
+  - the skeleton mirror and README sync.
+
 ## [1.11.0] - 2026-11-17
 
 Recurring billing through Stripe: `StripeSubscription`, beside `StripeCheckout`. Also a security
