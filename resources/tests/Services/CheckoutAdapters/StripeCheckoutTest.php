@@ -6,6 +6,7 @@ namespace Monad\Clarity\Tests\Services\CheckoutAdapters;
 
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
+use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
 use Monad\Clarity\Services\Checkout\LineItem;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
@@ -563,6 +564,113 @@ final class StripeCheckoutTest extends TestCase
     // ---------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------
+
+    // ---------------------------------------------------------------------------------
+    // a reused idempotency key — ReleaseNotes_1.12.0.md
+    // ---------------------------------------------------------------------------------
+
+    public function testCreateCheckoutReportsAReusedKeyAsItsOwnException(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::reusedKeyResponse('ORDER-1001'));
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A reused key must throw.');
+        } catch (IdempotencyKeyReusedException $e) {
+            self::assertSame('ORDER-1001', $e->idempotencyKey, 'The default key is the order reference.');
+            self::assertSame(
+                'Stripe refused idempotency key "ORDER-1001": a different request was already made under it, '
+                . 'so no checkout session was created. A checkout\'s key is its order reference unless you pass '
+                . 'one, so this usually means the same reference was sent again with a different amount, line '
+                . 'items or URLs. If the order changed, give this attempt its own key, a new reference or an '
+                . 'explicit idempotencyKey: creating a session charges nothing, so a new key is safe here.',
+                $e->getMessage()
+            );
+        }
+    }
+
+    public function testCreateCheckoutReportsAnExplicitKeyItWasGiven(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::reusedKeyResponse('attempt-2'));
+        $request = new CheckoutRequest(
+            reference: 'ORDER-1001',
+            amount: new Money(2500, 'USD'),
+            successUrl: 'https://shop.test/success',
+            cancelUrl: 'https://shop.test/cancel',
+            idempotencyKey: 'attempt-2',
+        );
+
+        try {
+            $this->adapter($fake)->createCheckout($request);
+            self::fail('A reused key must throw.');
+        } catch (IdempotencyKeyReusedException $e) {
+            self::assertSame('attempt-2', $e->idempotencyKey);
+            self::assertSame('attempt-2', $fake->lastRequest()?->getHeaderLine('Idempotency-Key'));
+        }
+    }
+
+    public function testRefundReportsAReusedKeyAndWarnsAgainstAFreshOne(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::reusedKeyResponse('refund:pi_test_456:full'));
+
+        try {
+            $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::fail('A reused key must throw.');
+        } catch (IdempotencyKeyReusedException $e) {
+            self::assertSame('refund:pi_test_456:full', $e->idempotencyKey);
+            self::assertSame(
+                'Stripe refused idempotency key "refund:pi_test_456:full": a different request was already made '
+                . 'under it, so no refund was made. A refund\'s key is derived from its reference and amount '
+                . 'unless you pass one, so this usually means a refund of that amount on that payment was already '
+                . 'requested with other details. Check the refunds already made on that payment before trying '
+                . 'again: a new key is a new refund, and could refund the customer twice.',
+                $e->getMessage()
+            );
+        }
+    }
+
+    /**
+     * Only Stripe's own refusal of a reused key is that exception. A 409 is a request still in
+     * flight under the key, which is a different situation with different advice.
+     *
+     * @return array<string, array{Response}>
+     */
+    public static function failuresThatAreNotAReusedKey(): array
+    {
+        return [
+            'an ordinary 400' => [self::jsonResponse(['error' => [
+                'type' => 'invalid_request_error',
+                'message' => 'No such price: price_nope',
+            ]], 400)],
+            'a 409 for a request in flight' => [self::jsonResponse(['error' => [
+                'type' => 'idempotency_error',
+                'message' => 'There is currently another in-progress request using this Idempotent Key.',
+            ]], 409)],
+            'a 400 that is not JSON' => [new Response(400, [], '<html>Bad Request</html>')],
+        ];
+    }
+
+    #[DataProvider('failuresThatAreNotAReusedKey')]
+    public function testOtherFailuresUnderAKeyStayAPlainCheckoutException(Response $response): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => $response);
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A refused request must throw.');
+        } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
+        }
+    }
+
+    private static function reusedKeyResponse(string $key): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'idempotency_error',
+            'message' => "Keys for idempotent requests can only be used with the same parameters they were first "
+                . "used with. Try using a key other than '{$key}' if you meant to execute a different request.",
+        ]], 400);
+    }
 
     private function adapter(?FakeHttpClient $fake = null): StripeCheckout
     {

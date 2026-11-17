@@ -15,6 +15,7 @@ use Monad\Clarity\Services\Checkout\CallbackEvent;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\CheckoutSession;
+use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\PaymentFailureBehaviour;
 use Monad\Clarity\Services\Checkout\ProrationBillingMode;
@@ -170,6 +171,9 @@ final class StripeSubscription extends Checkout
      * `Money(0, $currency)` and read the real figure back off CheckoutSession::$amount. With a
      * trial, that figure is what the checkout charges today, which is zero — not the plan's
      * price; read that off the subscription's recurringAmount once it exists.
+     *
+     * @throws IdempotencyKeyReusedException if Stripe refuses the request's key as already used.
+     * @throws CheckoutException on any other failure.
      */
     public function createCheckout(CheckoutRequest $request): CheckoutSession
     {
@@ -204,12 +208,13 @@ final class StripeSubscription extends Checkout
             $params['subscription_data']['trial_period_days'] = self::trialDays($this->trialPeriod);
         }
 
-        $session = $this->send(
+        $session = $this->sendKeyed(
             'POST',
             '/checkout/sessions',
             $params,
             $request->timeoutSeconds,
-            $request->idempotencyKey()
+            $request->idempotencyKey(),
+            self::REUSED_CHECKOUT_KEY
         );
 
         return new CheckoutSession(
@@ -700,8 +705,8 @@ final class StripeSubscription extends Checkout
      *   now arrives with different parameters (the subscription's items are no longer the ones
      *   the first attempt replaced). That refusal means the change already happened. The adapter
      *   recognises it (HTTP 400 and an `error.type` of `idempotency_error`, never the message) and
-     *   throws a CheckoutException that says so, in place of Stripe's own text, which advises a
-     *   fresh key. Confirm with retrieveSubscription(), and never retry with a fresh key: a new
+     *   throws an IdempotencyKeyReusedException that says so, in place of Stripe's own text, which
+     *   advises a fresh key. Confirm with retrieveSubscription(), and never retry with a fresh key: a new
      *   key is a new request, and it could charge a second time.
      * - The first attempt met a server error (a 5xx): Stripe saves that answer against the key
      *   too, and replays it to the retry, so the retry tells you nothing new.
@@ -739,6 +744,7 @@ final class StripeSubscription extends Checkout
      *         is not made of SubscriptionItems, mixes billing cycles or holds a catalogue id
      *         that is not a price, if the proration mode is FullImmediately or
      *         FullNextBillingPeriod, or if Stripe refuses.
+     * @throws IdempotencyKeyReusedException if Stripe refuses `$idempotencyKey` as already used.
      */
     public function changePlan(
         string $subscriptionReference,
@@ -837,16 +843,20 @@ final class StripeSubscription extends Checkout
      * first payment still processing; one paid without a PaymentIntent, such as a zero-total
      * trial; a session the customer never completed — is refused in plain words and never
      * posted to Stripe.
+     *
+     * @throws IdempotencyKeyReusedException if Stripe refuses the request's key as already used.
+     * @throws CheckoutException on any other failure.
      */
     public function refund(RefundRequest $request): RefundResult
     {
         $paymentIntent = $this->resolvePaymentIntent($request);
-        $refund = $this->send(
+        $refund = $this->sendKeyed(
             'POST',
             '/refunds',
             $this->refundParams($request, $paymentIntent),
             $request->timeoutSeconds,
-            $request->idempotencyKey()
+            $request->idempotencyKey(),
+            self::REUSED_REFUND_KEY
         );
 
         return new RefundResult(
@@ -1323,9 +1333,13 @@ final class StripeSubscription extends Checkout
      * here would make the change, and any charge, a second time. So that refusal is recognised
      * and explained instead of being reported as the ordinary failure it resembles.
      *
+     * Not sendKeyed(): the key may be absent, and a key derived for a product is reported as the
+     * caller's own, the one they can act on.
+     *
      * @param array<string, mixed> $params
      * @return array<string, mixed>
-     * @throws CheckoutException
+     * @throws IdempotencyKeyReusedException if Stripe refuses the key as reused.
+     * @throws CheckoutException on any other failure.
      */
     private function sendUnderKey(
         string $method,
@@ -1338,7 +1352,7 @@ final class StripeSubscription extends Checkout
         $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $sentKey);
 
         if ($callersKey !== null && $this->isIdempotencyRefusal($response)) {
-            throw new CheckoutException(sprintf(
+            throw new IdempotencyKeyReusedException(sprintf(
                 'Stripe refused idempotency key "%s" because an earlier request with it was made with '
                 . 'different parameters. For changePlan() that means an earlier attempt with this key '
                 . 'already went through: either this same change, retried after it succeeded, or a '
@@ -1347,7 +1361,7 @@ final class StripeSubscription extends Checkout
                 . 'unless the subscription shows the change was not made: a new key would make the '
                 . 'change, and any charge, again.',
                 $callersKey
-            ));
+            ), $callersKey);
         }
 
         $this->assertSuccessful($response);
