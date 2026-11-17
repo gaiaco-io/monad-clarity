@@ -6,6 +6,14 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-17
+
+Fixes the two Checkout defects `ReleaseNotes_1.11.0.md` §3 left for a later patch. No signature
+changes. The only difference callers see is that a signed but malformed webhook to
+`StripeCheckout`, or an oversized `PaddleSubscription` amount, now produces a
+`CheckoutException` instead of a PHP error. One Paddle case also changes outcome: an oversized
+string amount that used to be silently misreported is now refused.
+
 ### Fixed
 - **`StripeCheckout::parseCallback()` no longer leaks `ErrorException` on a signed but malformed
   payload.** It cast `id`, `type`, `object`, `status`, `payment_status`, the expanded intent's
