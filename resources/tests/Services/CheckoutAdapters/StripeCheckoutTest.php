@@ -172,6 +172,81 @@ final class StripeCheckoutTest extends TestCase
         );
     }
 
+    /**
+     * `(int)` pins a numeric string past PHP_INT_MAX to PHP_INT_MAX and refuses such a float with a
+     * warning, and Money refuses a negative amount or a malformed currency with an
+     * InvalidArgumentException. None of those may escape an adapter; each is a CheckoutException.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableSessionAmounts(): array
+    {
+        $tooLarge = 'Stripe session carried an amount_total too large to represent as an amount.';
+        $unreadable = 'Stripe session carried an amount_total/currency this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'usd', $tooLarge],
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'usd', $tooLarge],
+            'negative' => [-100, 'usd', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => [2500, 'us', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableSessionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'status' => 'complete',
+            'payment_status' => 'paid',
+            'amount_total' => $amount,
+            'currency' => $currency,
+        ]));
+
+        self::assertRefusedWithoutAWarning($message, fn () => $this->adapter($fake)->retrieveStatus('cs_test_123'));
+    }
+
+    /**
+     * The fallback is for an amount that is absent. One that is present and unreadable is a broken
+     * response, and the request's own amount must not paper over it.
+     */
+    public function testCreateCheckoutRefusesAnUnrepresentableAmountEvenWithAFallback(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse([
+            'id' => 'cs_test_123',
+            'url' => 'https://checkout.stripe.com/c/pay/cs_test_123',
+            'status' => 'open',
+            'payment_status' => 'unpaid',
+            'amount_total' => '99999999999999999999',
+            'currency' => 'usd',
+        ]));
+
+        self::assertRefusedWithoutAWarning(
+            'Stripe session carried an amount_total too large to represent as an amount.',
+            fn () => $this->adapter($fake)->createCheckout($this->checkoutRequest())
+        );
+    }
+
+    /**
+     * Runs $call under the framework's own behaviour (Mediator::register turns every warning into
+     * an ErrorException) and requires a CheckoutException whose message starts with $message.
+     */
+    private static function assertRefusedWithoutAWarning(string $message, callable $call): void
+    {
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $call();
+            self::fail('Expected the amount to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringStartsWith($message, $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     public function testRetrieveStatusExpandsThePaymentIntentSoFailuresAreVisible(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::openSessionResponse());

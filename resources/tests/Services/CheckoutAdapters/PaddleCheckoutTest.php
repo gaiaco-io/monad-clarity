@@ -332,6 +332,48 @@ final class PaddleCheckoutTest extends TestCase
         self::assertSame('https://api.paddle.com/transactions/txn_test_123', (string) $request->getUri());
     }
 
+    /**
+     * Paddle sends amounts as numeric strings. `(int)` pins one past PHP_INT_MAX to PHP_INT_MAX
+     * and refuses such a float with a warning, and Money refuses a negative amount or a malformed
+     * currency with an InvalidArgumentException. Each must be a CheckoutException instead.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableTransactionAmounts(): array
+    {
+        $tooLarge = 'Paddle transaction carried a details.totals.grand_total too large to represent as an amount.';
+        $unreadable = 'Paddle transaction carried a grand_total/currency_code this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'USD', $tooLarge],
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'USD', $tooLarge],
+            'negative' => ['-100', 'USD', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => ['2500', 'US', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableTransactionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse([
+            'currency_code' => $currency,
+            'details' => ['totals' => ['grand_total' => $amount, 'currency_code' => $currency]],
+        ]));
+
+        set_error_handler(static function (int $severity, string $text, string $file, int $line): bool {
+            throw new \ErrorException($text, 0, $severity, $file, $line);
+        });
+
+        try {
+            $this->adapter($fake)->retrieveStatus('txn_test_123');
+            self::fail('Expected the amount to be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringStartsWith($message, $e->getMessage());
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     public function testRetrieveStatusReportsTheErrorCodeOfTheLastFailedPayment(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::transactionResponse([

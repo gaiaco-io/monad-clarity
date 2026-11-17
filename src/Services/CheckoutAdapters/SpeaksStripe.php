@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Monad\Clarity\Services\CheckoutAdapters;
 
+use InvalidArgumentException;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
@@ -212,7 +213,31 @@ trait SpeaksStripe
             );
         }
 
-        return new Money((int) $amount, $currency);
+        // The fallback covers an absent amount, never an unreadable one. `(int)` pins a numeric
+        // string past PHP_INT_MAX to PHP_INT_MAX and refuses such a float with a warning, so that
+        // is refused before the cast; and Money's own refusals become this adapter's exception.
+        if (!self::fitsInAnInt($amount)) {
+            throw new CheckoutException('Stripe session carried an amount_total too large to represent as an amount.');
+        }
+
+        try {
+            return new Money((int) $amount, $currency);
+        } catch (InvalidArgumentException $e) {
+            throw new CheckoutException(
+                'Stripe session carried an amount_total/currency this adapter cannot read: ' . $e->getMessage(),
+                previous: $e
+            );
+        }
+    }
+
+    /**
+     * Whether a numeric value lies strictly inside the int range, so `(int)` converts it exactly
+     * instead of saturating it or raising a warning. Compared as floats because a value outside
+     * the range has no int form to compare.
+     */
+    private static function fitsInAnInt(int|float|string $value): bool
+    {
+        return abs((float) $value) < (float) PHP_INT_MAX;
     }
 
     /**

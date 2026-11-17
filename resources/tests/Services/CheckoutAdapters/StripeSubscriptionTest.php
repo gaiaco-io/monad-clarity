@@ -236,6 +236,40 @@ final class StripeSubscriptionTest extends TestCase
         self::assertStringContainsString('expand%5B0%5D=invoice.payments', (string) $fake->lastRequest()->getUri());
     }
 
+    /**
+     * The shared amountOf(), reached through this adapter. StripeCheckoutTest explains the cases.
+     *
+     * @return array<string, array{mixed, string, string}>
+     */
+    public static function unreadableSessionAmounts(): array
+    {
+        $tooLarge = 'Stripe session carried an amount_total too large to represent as an amount.';
+        $unreadable = 'Stripe session carried an amount_total/currency this adapter cannot read: ';
+
+        return [
+            'past PHP_INT_MAX as a JSON number' => [1e30, 'usd', $tooLarge],
+            'past PHP_INT_MAX as a numeric string' => ['99999999999999999999', 'usd', $tooLarge],
+            'negative' => [-100, 'usd', $unreadable . 'A Money amount cannot be negative'],
+            'a currency that is not ISO 4217' => [2500, 'us', $unreadable . 'Currency must be'],
+        ];
+    }
+
+    #[DataProvider('unreadableSessionAmounts')]
+    public function testRetrieveStatusRefusesAnAmountItCannotReadAsACheckoutException(mixed $amount, string $currency, string $message): void
+    {
+        $session = ['amount_total' => $amount, 'currency' => $currency] + self::completedSession();
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($session));
+
+        $this->assertWarningsBecomeExceptions(function () use ($fake, $message): void {
+            try {
+                $this->adapter($fake)->retrieveStatus('cs_test_123');
+                self::fail('Expected the amount to be refused.');
+            } catch (CheckoutException $e) {
+                self::assertStringStartsWith($message, $e->getMessage());
+            }
+        });
+    }
+
     public function testRetrieveStatusOfATrialSessionPaidAtZeroIsSuccess(): void
     {
         $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::completedSession([

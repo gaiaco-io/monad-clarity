@@ -855,16 +855,6 @@ final class PaddleSubscription extends Checkout
         return $total;
     }
 
-    /**
-     * Whether a numeric value lies strictly inside the int range, so `(int)` converts it exactly
-     * instead of saturating it or raising a warning. Compared as floats because a value outside
-     * the range has no int form to compare.
-     */
-    private static function fitsInAnInt(int|float|string $value): bool
-    {
-        return abs((float) $value) < (float) PHP_INT_MAX;
-    }
-
     private function tooLargeToRepresent(string $id): CheckoutException
     {
         return new CheckoutException(sprintf(

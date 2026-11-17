@@ -6,6 +6,34 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Fixed
+- **A transaction amount the adapter cannot read is a `CheckoutException`, never a PHP error or
+  a wrong figure.** This is the shared `amountOf()` in `SpeaksStripe` and `SpeaksPaddle`, which
+  reads the amount from a gateway's API response. It backs `createCheckout()` and
+  `retrieveStatus()` on all four Checkout adapters. It cast the amount with a bare `(int)`:
+  - **A numeric string past `PHP_INT_MAX`** was silently pinned to `PHP_INT_MAX` and reported as
+    the transaction's real amount. Paddle sends its amounts as strings.
+  - **A JSON number past `PHP_INT_MAX`** raised a warning, which `Mediator::register()` turns
+    into an `ErrorException`.
+  - **A negative amount or a malformed currency** let `Money`'s `InvalidArgumentException`
+    escape.
+
+  All of these are now a `CheckoutException`: "Stripe session carried an amount_total too large
+  to represent as an amount." (Paddle names `details.totals.grand_total`), or "… this adapter
+  cannot read: " followed by `Money`'s reason.
+
+  **An unreadable amount is refused even when the request's own amount could stand in.** That
+  fallback covers an amount that is absent; one that is present and unreadable is a broken
+  response, and the fallback must not hide it.
+
+  `fitsInAnInt()`, which 1.11.1 added to `PaddleSubscription`, now lives in `SpeaksPaddle`, with
+  a twin in `SpeaksStripe`, so no class copy can silently override a trait's.
+
+  Other bare casts on gateway API responses are unchanged:
+  - the refund result's amount, currency and status, on both gateways;
+  - Stripe's session `url`;
+  - Paddle's adjustment and line-item totals.
+
 ### Changed
 - **A Stripe 409 for a key still in use now says to retry with the same key.** When another
   request under the same idempotency key is still in flight, Stripe refuses the newcomer with
