@@ -171,8 +171,10 @@ trait SpeaksStripe
             return $value;
         }
 
-        if (is_array($value) && isset($value['id'])) {
-            return (string) $value['id'];
+        // An id that is not a string is malformed, not an id: casting an array raises a warning
+        // the framework turns into an ErrorException, so it reads as absent instead.
+        if (is_array($value) && is_string($value['id'] ?? null) && $value['id'] !== '') {
+            return $value['id'];
         }
 
         return null;

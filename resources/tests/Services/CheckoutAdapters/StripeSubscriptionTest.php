@@ -616,6 +616,120 @@ final class StripeSubscriptionTest extends TestCase
         $this->adapter()->parseCallback($payload, self::signedHeaders($payload, secret: 'whsec_someone_elses_secret'));
     }
 
+    /**
+     * Signed does not mean well-formed. Mediator::register() turns every warning into an
+     * ErrorException, and an array hitting a string cast is a warning, so each of these must
+     * be refused as a CheckoutException instead of leaking one.
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>}>
+     */
+    public static function malformedEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array event id' => [static fn (array $e): array => ['id' => $arr] + $e],
+            'array event type' => [static fn (array $e): array => ['type' => $arr] + $e],
+            'array object type' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['object'] = $arr;
+
+                return $e;
+            }],
+            'array object id' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['id'] = $arr;
+
+                return $e;
+            }],
+            'array invoice status' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['status'] = $arr;
+
+                return $e;
+            }],
+            'array subscription id' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['parent']['subscription_details']['subscription'] = ['id' => $arr];
+
+                return $e;
+            }],
+            'array payment intent id' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['payment_intent'] = ['id' => $arr];
+
+                return $e;
+            }],
+        ];
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedEvents')]
+    public function testParseCallbackRefusesASignedButMalformedInvoicePayloadAsACheckoutException(callable $malform): void
+    {
+        $event = json_decode(self::invoiceEvent('evt_bad', 'invoice.paid'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        $this->assertWarningsBecomeExceptions(function () use ($payload): void {
+            try {
+                $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+                // Reaching here is acceptable: the field was harmlessly ignored. Leaking is not.
+                self::addToAssertionCount(1);
+            } catch (CheckoutException) {
+                self::addToAssertionCount(1);
+            }
+        });
+    }
+
+    /**
+     * @return array<string, array{string, mixed}>
+     */
+    public static function malformedSessionFields(): array
+    {
+        return [
+            'array payment_status' => ['payment_status', ['x' => 1]],
+            'array last_payment_error message' => ['last_payment_error', ['message' => ['x' => 1]]],
+        ];
+    }
+
+    #[DataProvider('malformedSessionFields')]
+    public function testParseCallbackRefusesASignedButMalformedSessionPayloadAsACheckoutException(string $field, mixed $value): void
+    {
+        $payload = self::sessionEvent('evt_bad', 'checkout.session.async_payment_failed', [$field => $value]);
+
+        $this->assertWarningsBecomeExceptions(function () use ($payload): void {
+            try {
+                $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+                self::addToAssertionCount(1);
+            } catch (CheckoutException) {
+                self::addToAssertionCount(1);
+            }
+        });
+    }
+
+    public function testAnArrayValuedInvoiceStatusIsRefusedOrReadAsPendingNeverLeaked(): void
+    {
+        $payload = self::invoiceEvent('evt_bad', 'invoice.paid', ['status' => ['x' => 1]]);
+
+        $this->assertWarningsBecomeExceptions(function () use ($payload): void {
+            $event = $this->adapter()->parseCallback($payload, self::signedHeaders($payload));
+            self::assertSame(TransactionStatus::Pending, $event->status);
+        });
+    }
+
+    /**
+     * Installs the framework's own behaviour (Mediator::register) for the duration of $body.
+     */
+    private function assertWarningsBecomeExceptions(callable $body): void
+    {
+        set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+            throw new \ErrorException($message, 0, $severity, $file, $line);
+        });
+
+        try {
+            $body();
+        } finally {
+            restore_error_handler();
+        }
+    }
+
     // ---------------------------------------------------------------------------------
     // refund
     // ---------------------------------------------------------------------------------

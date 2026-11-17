@@ -282,11 +282,14 @@ final class StripeSubscription extends Checkout
         /** @var array<string, mixed> $event */
         $event = json_decode($rawBody, associative: true) ?: [];
 
-        if (!isset($event['id'], $event['type'])) {
+        // Signed does not mean well-formed: a field of the wrong type is refused here rather than
+        // cast, because casting an array raises a warning, which the framework's error handler
+        // turns into an ErrorException that escapes this method's CheckoutException contract.
+        if (!is_string($event['id'] ?? null) || !is_string($event['type'] ?? null)) {
             throw new CheckoutException('Stripe webhook payload verified but carried no event id or type.');
         }
 
-        $type = (string) $event['type'];
+        $type = $event['type'];
         $object = $event['data']['object'] ?? [];
 
         if (!is_array($object)) {
@@ -296,7 +299,7 @@ final class StripeSubscription extends Checkout
         // An endpoint receives every event type enabled on it, so product, charge and
         // customer.subscription events arrive beside the ones this method reads. Stripe stamps
         // every object with its own type, so the discriminator is already in the payload.
-        $objectType = isset($object['object']) ? (string) $object['object'] : 'unknown';
+        $objectType = is_string($object['object'] ?? null) ? $object['object'] : 'unknown';
 
         if ($objectType === 'invoice') {
             return $this->invoiceEvent($event, $type, $object);
@@ -324,7 +327,7 @@ final class StripeSubscription extends Checkout
 
         return new CallbackEvent(
             gateway: self::GATEWAY,
-            eventId: (string) $event['id'],
+            eventId: $event['id'],
             eventType: $type,
             gatewayReference: $this->requireString($object, 'id'),
             status: $status,
@@ -494,7 +497,7 @@ final class StripeSubscription extends Checkout
 
         return new CallbackEvent(
             gateway: self::GATEWAY,
-            eventId: (string) $event['id'],
+            eventId: $event['id'],
             eventType: $type,
             gatewayReference: $this->requireString($invoice, 'id'),
             status: $status,
@@ -564,7 +567,7 @@ final class StripeSubscription extends Checkout
      */
     private function mapInvoiceStatus(array $invoice): TransactionStatus
     {
-        return match (isset($invoice['status']) ? (string) $invoice['status'] : null) {
+        return match (is_string($invoice['status'] ?? null) ? $invoice['status'] : null) {
             'paid' => TransactionStatus::Success,
             'uncollectible' => TransactionStatus::Failed,
             'void' => TransactionStatus::Cancelled,
@@ -581,7 +584,7 @@ final class StripeSubscription extends Checkout
      */
     private function mapSessionStatus(array $session): TransactionStatus
     {
-        $paymentStatus = isset($session['payment_status']) ? (string) $session['payment_status'] : null;
+        $paymentStatus = is_string($session['payment_status'] ?? null) ? $session['payment_status'] : null;
 
         if ($paymentStatus === 'paid' || $paymentStatus === 'no_payment_required') {
             return TransactionStatus::Success;
@@ -600,7 +603,7 @@ final class StripeSubscription extends Checkout
     {
         $error = $object['last_payment_error'] ?? null;
 
-        return is_array($error) && isset($error['message']) ? (string) $error['message'] : $eventType;
+        return is_array($error) && is_string($error['message'] ?? null) ? $error['message'] : $eventType;
     }
 
     private function resolvePaymentIntent(RefundRequest $request): string
