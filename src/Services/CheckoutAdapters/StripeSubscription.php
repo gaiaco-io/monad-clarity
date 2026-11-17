@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Monad\Clarity\Services\CheckoutAdapters;
 
+use DateTimeImmutable;
+use DateTimeZone;
+use InvalidArgumentException;
 use Monad\Clarity\Services\Checkout;
 use Monad\Clarity\Services\Checkout\BillingCycle;
 use Monad\Clarity\Services\Checkout\BillingInterval;
@@ -14,6 +17,11 @@ use Monad\Clarity\Services\Checkout\CheckoutSession;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
+use Monad\Clarity\Services\Checkout\ScheduledChange;
+use Monad\Clarity\Services\Checkout\ScheduledChangeAction;
+use Monad\Clarity\Services\Checkout\SubscriptionEvent;
+use Monad\Clarity\Services\Checkout\SubscriptionSnapshot;
+use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionSnapshot;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\HttpClient;
@@ -363,6 +371,83 @@ final class StripeSubscription extends Checkout
     }
 
     /**
+     * Read a subscription's current state straight from Stripe — the way to learn what became of
+     * one whose callback never arrived. Pass the `sub_` that subscriptionReferenceOf() or
+     * parseSubscriptionCallback() gave you; the `cs_` createCheckout() returned is refused
+     * before any request is made.
+     *
+     * @throws CheckoutException if $subscriptionReference is not a subscription id, or Stripe's
+     *         answer cannot be read as a subscription.
+     */
+    public function retrieveSubscription(string $subscriptionReference, int $timeoutSeconds = 30): SubscriptionSnapshot
+    {
+        $this->assertSubscriptionReference($subscriptionReference);
+
+        return $this->snapshotFrom(
+            $this->send('GET', '/subscriptions/' . rawurlencode($subscriptionReference), [], $timeoutSeconds)
+        );
+    }
+
+    /**
+     * Verify a `customer.subscription.*` callback and normalise it.
+     *
+     * The transaction parser and this one are separate doors, because a subscription event is
+     * not a payment event and neither can be read as the other. An application routes on the
+     * event type's prefix and calls the matching one.
+     *
+     * @param array<string, string> $headers
+     * @throws CheckoutException if the signature is absent, malformed, stale, or does not
+     *         verify; or if the payload is not a subscription event this adapter understands —
+     *         including one that is signed but malformed. Nothing else escapes.
+     */
+    public function parseSubscriptionCallback(string $rawBody, array $headers): SubscriptionEvent
+    {
+        // Verification comes first, before the body is decoded, inspected or branched on.
+        $this->verifySignature($rawBody, $headers);
+
+        $event = json_decode($rawBody, associative: true);
+        $event = is_array($event) ? $event : [];
+
+        // Signed does not mean well-formed: every field is checked for its type before it is
+        // used, because a cast of an array raises a warning the framework turns into an
+        // ErrorException that would escape this method's CheckoutException contract.
+        if (!is_string($event['id'] ?? null) || !is_string($event['type'] ?? null)) {
+            throw new CheckoutException('Stripe webhook payload verified but carried no event id or type.');
+        }
+
+        $type = $event['type'];
+        $object = $event['data']['object'] ?? null;
+
+        if (!is_array($object)) {
+            throw new CheckoutException(sprintf('Stripe webhook "%s" carried no event object.', $type));
+        }
+
+        // An endpoint receives every event type enabled on it, so invoice.* and checkout.session.*
+        // arrive beside the customer.subscription.* ones. Without this guard they would parse
+        // "successfully" into a SubscriptionEvent whose reference is an invoice or a session.
+        $objectType = is_string($object['object'] ?? null) ? $object['object'] : 'unknown';
+
+        if ($objectType !== 'subscription' || !str_starts_with($type, 'customer.subscription.')) {
+            throw new CheckoutException(sprintf(
+                'Stripe webhook "%s" carries a "%s" object, not a customer.subscription event — '
+                . 'parseSubscriptionCallback() cannot interpret it. Endpoints receive every enabled event '
+                . 'type; route invoice.* and checkout.session.* events to parseCallback() instead.',
+                $type,
+                $objectType
+            ));
+        }
+
+        return new SubscriptionEvent(
+            gateway: self::GATEWAY,
+            eventId: $event['id'],
+            eventType: $type,
+            occurredAt: $this->occurredAt($event, $type),
+            subscription: $this->snapshotFrom($object),
+            raw: $event,
+        );
+    }
+
+    /**
      * Refund all or part of a payment. Stripe refunds act on a PaymentIntent, so the reference
      * is resolved to one: a `pi_` is used as is, an `in_` is read for the PaymentIntent that
      * paid it, and a `cs_` is read through its invoice. A refund that cannot exist — a trial
@@ -591,6 +676,261 @@ final class StripeSubscription extends Checkout
         }
 
         return ($session['status'] ?? null) === 'expired' ? TransactionStatus::Cancelled : TransactionStatus::Pending;
+    }
+
+    /**
+     * @throws CheckoutException if $reference is not a Stripe subscription id.
+     */
+    private function assertSubscriptionReference(string $reference): void
+    {
+        if (str_starts_with($reference, 'sub_')) {
+            return;
+        }
+
+        throw new CheckoutException(str_starts_with($reference, 'cs_')
+            ? sprintf(
+                '"%s" is a checkout session id, not a subscription id. A Stripe subscription is born when the '
+                . 'customer completes the session and gets its own sub_ identifier then — read it with '
+                . 'subscriptionReferenceOf() once the session has completed, or off the '
+                . 'customer.subscription.created callback.',
+                $reference
+            )
+            : sprintf(
+                'A subscription operation needs a Stripe subscription id (sub_...), got "%s".',
+                $reference === '' ? 'an empty string' : $reference
+            ));
+    }
+
+    /**
+     * Stripe stamps every event with `created`, in unix seconds. It is the only clock a callback
+     * carries, and an application orders deliveries by it, so a missing or non-integer value is
+     * refused rather than replaced with the time of arrival.
+     *
+     * @param array<string, mixed> $event
+     */
+    private function occurredAt(array $event, string $type): DateTimeImmutable
+    {
+        $created = $event['created'] ?? null;
+
+        if (!is_int($created)) {
+            throw new CheckoutException(sprintf(
+                'Stripe webhook "%s" verified but carried no integer `created` timestamp to date the event by.',
+                $type
+            ));
+        }
+
+        return $this->utc($created);
+    }
+
+    private function utc(int $unixSeconds): DateTimeImmutable
+    {
+        return (new DateTimeImmutable('now', new DateTimeZone('UTC')))->setTimestamp($unixSeconds);
+    }
+
+    /**
+     * A Stripe subscription, normalised. Everything Stripe reports that this object cannot
+     * represent is refused as a CheckoutException; nothing malformed is cast.
+     *
+     * @param array<string, mixed> $subscription
+     * @throws CheckoutException
+     */
+    private function snapshotFrom(array $subscription): SubscriptionSnapshot
+    {
+        $id = $this->requireString($subscription, 'id');
+        $status = $this->mapSubscriptionStatus($subscription);
+        $item = $this->firstItemOf($subscription);
+
+        // Stripe moved the billing period from the subscription onto its items in the 2025-03-31
+        // (basil) API version. The pinned version carries only the items'; an endpoint pinned to
+        // an older one still delivers the subscription's, so both are read, items first.
+        $periodStart = $this->unixOf($item['current_period_start'] ?? null)
+            ?? $this->unixOf($subscription['current_period_start'] ?? null);
+        $periodEnd = $this->unixOf($item['current_period_end'] ?? null)
+            ?? $this->unixOf($subscription['current_period_end'] ?? null);
+        $scheduledChange = $this->scheduledCancellationOf($subscription, $id, $status, $periodEnd);
+        $metadata = $subscription['metadata'] ?? null;
+        $reference = is_array($metadata) && is_string($metadata['reference'] ?? null) && $metadata['reference'] !== ''
+            ? $metadata['reference']
+            : null;
+
+        return new SubscriptionSnapshot(
+            gateway: self::GATEWAY,
+            gatewayReference: $id,
+            status: $status,
+            scheduledChange: $scheduledChange,
+            reference: $reference,
+            transactionReference: null,
+            customerReference: $this->referenceOf($subscription['customer'] ?? null),
+            recurringAmount: $this->recurringAmountOf($subscription, $id),
+            billingCycle: $this->billingCycleOf($item),
+            nextBilledAt: ($status === SubscriptionStatus::Active || $status === SubscriptionStatus::Trialing)
+                && $scheduledChange === null ? $periodEnd : null,
+            currentPeriodStartsAt: $periodStart,
+            currentPeriodEndsAt: $periodEnd,
+            raw: $subscription,
+        );
+    }
+
+    /**
+     * Stripe's eight statuses folded into five. `incomplete` and `unpaid` are PastDue because
+     * both are a subscription whose money has not arrived and may still, and `Cancelled` is
+     * terminal. An unrecognised status is refused by name rather than guessed at
+     * (`ReleaseNotes_1.4.0.md` §2.7): silently mapping a new state to Active would keep serving
+     * a customer Stripe no longer considers one.
+     *
+     * @param array<string, mixed> $subscription
+     */
+    private function mapSubscriptionStatus(array $subscription): SubscriptionStatus
+    {
+        $status = $subscription['status'] ?? null;
+
+        return match ($status) {
+            'active' => SubscriptionStatus::Active,
+            'trialing' => SubscriptionStatus::Trialing,
+            'past_due', 'incomplete', 'unpaid' => SubscriptionStatus::PastDue,
+            'paused' => SubscriptionStatus::Paused,
+            'canceled', 'incomplete_expired' => SubscriptionStatus::Cancelled,
+            default => throw new CheckoutException(sprintf(
+                'Stripe subscription %s is in status "%s", which StripeSubscription does not recognise. '
+                . 'Refusing to guess what a state it has never seen means for the customer\'s access.',
+                is_string($subscription['id'] ?? null) ? $subscription['id'] : '(unidentified)',
+                is_string($status) ? $status : 'a non-string value'
+            )),
+        };
+    }
+
+    /**
+     * A cancellation Stripe has scheduled but not yet performed — `cancel_at_period_end`, or a
+     * `cancel_at` date. The subscription stays in its current status until then, which is why
+     * it is a ScheduledChange and not a status. A cancelled subscription schedules nothing.
+     *
+     * @param array<string, mixed> $subscription
+     */
+    private function scheduledCancellationOf(
+        array $subscription,
+        string $id,
+        SubscriptionStatus $status,
+        ?DateTimeImmutable $periodEnd,
+    ): ?ScheduledChange {
+        $cancelAt = $subscription['cancel_at'] ?? null;
+
+        if ($cancelAt !== null && !is_int($cancelAt)) {
+            throw new CheckoutException(sprintf(
+                'Stripe subscription %s carried a `cancel_at` that is not a unix timestamp.',
+                $id
+            ));
+        }
+
+        if ($status === SubscriptionStatus::Cancelled
+            || (($subscription['cancel_at_period_end'] ?? null) !== true && $cancelAt === null)) {
+            return null;
+        }
+
+        $effectiveAt = $cancelAt !== null ? $this->utc($cancelAt) : $periodEnd;
+
+        if ($effectiveAt === null) {
+            throw new CheckoutException(sprintf(
+                'Stripe subscription %s is scheduled to cancel but carries no date for it — neither `cancel_at` '
+                . 'nor a current period end — so the cancellation cannot be represented.',
+                $id
+            ));
+        }
+
+        return new ScheduledChange(ScheduledChangeAction::Cancel, $effectiveAt);
+    }
+
+    /**
+     * The sum of price x quantity over every item, in the one currency they share.
+     *
+     * Null when any item has no fixed unit amount — a tiered or metered price is billed from
+     * usage, so "what does this renew for" has no honest figure, and null says so where a
+     * failure would turn a valid subscription into an unreadable one. Zero items, a negative
+     * amount, a malformed currency, or two currencies are not that: they are refused.
+     *
+     * @param array<string, mixed> $subscription
+     */
+    private function recurringAmountOf(array $subscription, string $id): ?Money
+    {
+        $items = $subscription['items']['data'] ?? null;
+
+        if (!is_array($items) || $items === []) {
+            throw new CheckoutException(sprintf('Stripe subscription %s carried no items to price it from.', $id));
+        }
+
+        $total = null;
+        $fixed = true;
+
+        try {
+            foreach ($items as $item) {
+                $price = is_array($item) ? ($item['price'] ?? null) : null;
+
+                if (!is_array($price)) {
+                    throw new CheckoutException(sprintf('Stripe subscription %s carried an item with no price.', $id));
+                }
+
+                $unitAmount = $price['unit_amount'] ?? null;
+                $quantity = $item['quantity'] ?? 1;
+
+                if ($unitAmount === null) {
+                    $fixed = false;
+
+                    continue;
+                }
+
+                if (!is_int($unitAmount) || !is_int($quantity) || !is_string($price['currency'] ?? null)) {
+                    throw new CheckoutException(sprintf(
+                        'Stripe subscription %s carried an item whose unit_amount, quantity or currency is malformed.',
+                        $id
+                    ));
+                }
+
+                $line = (new Money($unitAmount, $price['currency']))->multipliedBy($quantity);
+                $total = $total?->plus($line) ?? $line;
+            }
+        } catch (InvalidArgumentException $e) {
+            throw new CheckoutException(
+                sprintf('Stripe subscription %s carried an amount that cannot be read: %s', $id, $e->getMessage()),
+                previous: $e
+            );
+        }
+
+        return $fixed ? $total : null;
+    }
+
+    /**
+     * Descriptive, not load-bearing, so a cycle this library cannot name — an unknown interval, a
+     * count that is not a positive integer — reads as absent rather than failing the subscription.
+     *
+     * @param array<string, mixed> $item
+     */
+    private function billingCycleOf(array $item): ?BillingCycle
+    {
+        $recurring = $item['price']['recurring'] ?? null;
+
+        if (!is_array($recurring) || !is_string($recurring['interval'] ?? null)) {
+            return null;
+        }
+
+        $interval = BillingInterval::tryFrom($recurring['interval']);
+        $count = $recurring['interval_count'] ?? 1;
+
+        return $interval !== null && is_int($count) && $count >= 1 ? new BillingCycle($interval, $count) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $subscription
+     * @return array<string, mixed>
+     */
+    private function firstItemOf(array $subscription): array
+    {
+        $first = $subscription['items']['data'][0] ?? null;
+
+        return is_array($first) ? $first : [];
+    }
+
+    private function unixOf(mixed $value): ?DateTimeImmutable
+    {
+        return is_int($value) ? $this->utc($value) : null;
     }
 
     /**

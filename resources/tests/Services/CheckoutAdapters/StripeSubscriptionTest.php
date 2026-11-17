@@ -10,6 +10,7 @@ use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
+use Monad\Clarity\Services\Checkout\SubscriptionStatus;
 use Monad\Clarity\Services\Checkout\TransactionStatus;
 use Monad\Clarity\Services\CheckoutAdapters\StripeSubscription;
 use Monad\Clarity\Utils\HMAC;
@@ -848,6 +849,441 @@ final class StripeSubscriptionTest extends TestCase
     }
 
     // ---------------------------------------------------------------------------------
+    // retrieveSubscription / parseSubscriptionCallback
+    // ---------------------------------------------------------------------------------
+
+    public function testRetrieveSubscriptionNormalisesAnActiveSubscription(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        $request = $fake->lastRequest();
+        self::assertSame('GET', $request->getMethod());
+        self::assertSame('https://api.stripe.com/v1/subscriptions/sub_test_1', (string) $request->getUri());
+        self::assertSame('2026-09-30.endive', $request->getHeaderLine('Stripe-Version'));
+
+        self::assertSame('stripe_subscription', $snapshot->gateway);
+        self::assertSame('sub_test_1', $snapshot->gatewayReference);
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+        self::assertSame('order-1', $snapshot->reference);
+        self::assertSame('cus_test_1', $snapshot->customerReference);
+        self::assertNull($snapshot->transactionReference);
+        self::assertNull($snapshot->scheduledChange);
+        self::assertSame(2900, $snapshot->recurringAmount?->minorUnits);
+        self::assertSame('USD', $snapshot->recurringAmount->currency);
+        self::assertTrue($snapshot->billingCycle?->equals(new BillingCycle(BillingInterval::Month, 1)));
+        self::assertSame(1700000000, $snapshot->currentPeriodStartsAt?->getTimestamp());
+        self::assertSame(1702592000, $snapshot->currentPeriodEndsAt?->getTimestamp());
+        self::assertEquals($snapshot->currentPeriodEndsAt, $snapshot->nextBilledAt);
+        self::assertSame('sub_test_1', $snapshot->raw['id']);
+    }
+
+    /**
+     * @return array<string, array{string, SubscriptionStatus}>
+     */
+    public static function subscriptionStatuses(): array
+    {
+        return [
+            'active' => ['active', SubscriptionStatus::Active],
+            'trialing' => ['trialing', SubscriptionStatus::Trialing],
+            'past_due' => ['past_due', SubscriptionStatus::PastDue],
+            'paused' => ['paused', SubscriptionStatus::Paused],
+            'canceled' => ['canceled', SubscriptionStatus::Cancelled],
+            'incomplete' => ['incomplete', SubscriptionStatus::PastDue],
+            'unpaid' => ['unpaid', SubscriptionStatus::PastDue],
+            'incomplete_expired' => ['incomplete_expired', SubscriptionStatus::Cancelled],
+        ];
+    }
+
+    #[DataProvider('subscriptionStatuses')]
+    public function testSubscriptionStatusesMap(string $stripeStatus, SubscriptionStatus $expected): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription(['status' => $stripeStatus])));
+
+        self::assertSame($expected, $this->adapter($fake)->retrieveSubscription('sub_test_1')->status);
+    }
+
+    public function testAnUnrecognisedStatusIsRefusedByName(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription(['status' => 'hibernating'])));
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/hibernating/');
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testCancelAtPeriodEndIsAScheduledCancellationOnAnActiveSubscription(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['cancel_at_period_end' => true, 'cancel_at' => 1702592000])
+        ));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+        self::assertTrue($snapshot->isCancelling());
+        self::assertSame(1702592000, $snapshot->accessEndsAt()?->getTimestamp());
+        self::assertNull($snapshot->nextBilledAt);
+    }
+
+    public function testCancelAtPeriodEndWithoutACancelAtFallsBackToThePeriodEnd(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['cancel_at_period_end' => true])
+        ));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertTrue($snapshot->isCancelling());
+        self::assertSame(1702592000, $snapshot->accessEndsAt()?->getTimestamp());
+    }
+
+    public function testACancelledSubscriptionSchedulesNothing(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(
+            self::subscription(['status' => 'canceled', 'cancel_at_period_end' => true, 'cancel_at' => 1702592000])
+        ));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertNull($snapshot->scheduledChange);
+        self::assertNull($snapshot->nextBilledAt);
+    }
+
+    public function testAScheduledCancellationWithNoDateAnywhereIsAGatewayError(): void
+    {
+        $subscription = self::subscription(['cancel_at_period_end' => true]);
+        unset($subscription['items']['data'][0]['current_period_end'], $subscription['items']['data'][1]['current_period_end']);
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/sub_test_1/');
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testPeriodsAreReadFromItemsOnBasilAndLaterPayloads(): void
+    {
+        $subscription = self::subscription();
+        $subscription['current_period_start'] = null;
+        $subscription['current_period_end'] = null;
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertSame(1700000000, $snapshot->currentPeriodStartsAt?->getTimestamp());
+        self::assertSame(1702592000, $snapshot->currentPeriodEndsAt?->getTimestamp());
+    }
+
+    public function testPeriodsAreReadFromTheSubscriptionOnLegacyPayloads(): void
+    {
+        $subscription = self::subscription();
+        foreach (array_keys($subscription['items']['data']) as $i) {
+            unset($subscription['items']['data'][$i]['current_period_start'], $subscription['items']['data'][$i]['current_period_end']);
+        }
+        $subscription['current_period_start'] = 1710000000;
+        $subscription['current_period_end'] = 1712592000;
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertSame(1710000000, $snapshot->currentPeriodStartsAt?->getTimestamp());
+        self::assertSame(1712592000, $snapshot->currentPeriodEndsAt?->getTimestamp());
+    }
+
+    public function testATieredPriceHasNoFixedRecurringAmountRatherThanAFailure(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][1]['price']['unit_amount'] = null;
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $snapshot = $this->adapter($fake)->retrieveSubscription('sub_test_1');
+
+        self::assertNull($snapshot->recurringAmount);
+        self::assertSame(SubscriptionStatus::Active, $snapshot->status);
+    }
+
+    public function testAnUnknownRecurringIntervalReadsAsNoBillingCycle(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][0]['price']['recurring'] = ['interval' => 'fortnight', 'interval_count' => 1];
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        self::assertNull($this->adapter($fake)->retrieveSubscription('sub_test_1')->billingCycle);
+    }
+
+    public function testAnIntervalCountOfThreeMonthsIsReadAsAQuarterlyCycle(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][0]['price']['recurring'] = ['interval' => 'month', 'interval_count' => 3];
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $cycle = $this->adapter($fake)->retrieveSubscription('sub_test_1')->billingCycle;
+
+        self::assertTrue($cycle?->equals(new BillingCycle(BillingInterval::Month, 3)));
+    }
+
+    public function testAPayloadWithMixedItemCurrenciesIsAGatewayError(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][1]['price']['currency'] = 'eur';
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $this->expectException(CheckoutException::class);
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testAPayloadWithANegativeUnitAmountIsAGatewayError(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][0]['price']['unit_amount'] = -100;
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $this->expectException(CheckoutException::class);
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testAPayloadWithNoItemsIsAGatewayError(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'] = [];
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $this->expectException(CheckoutException::class);
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testAPayloadWithANonIsoCurrencyIsAGatewayError(): void
+    {
+        $subscription = self::subscription();
+        $subscription['items']['data'][0]['price']['currency'] = 'dollars';
+        $subscription['items']['data'][1]['price']['currency'] = 'dollars';
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse($subscription));
+
+        $this->expectException(CheckoutException::class);
+
+        $this->adapter($fake)->retrieveSubscription('sub_test_1');
+    }
+
+    public function testRetrieveSubscriptionRefusesAReferenceThatIsNotASubscription(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription()));
+
+        try {
+            $this->adapter($fake)->retrieveSubscription('cs_x');
+            self::fail('A checkout session id must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('cs_x', $e->getMessage());
+            self::assertSame(0, $fake->requestCount());
+        }
+    }
+
+    public function testParseSubscriptionCallbackReturnsTheEventWithAUtcOccurredAt(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated', created: 1700000123);
+
+        $event = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+
+        self::assertSame('stripe_subscription', $event->gateway);
+        self::assertSame('evt_s1', $event->eventId);
+        self::assertSame('customer.subscription.updated', $event->eventType);
+        self::assertSame(1700000123, $event->occurredAt->getTimestamp());
+        self::assertSame('UTC', $event->occurredAt->getTimezone()->getName());
+        self::assertSame('sub_test_1', $event->subscription->gatewayReference);
+        self::assertSame('order-1', $event->subscription->reference);
+        self::assertSame('evt_s1', $event->raw['id']);
+    }
+
+    /**
+     * @return array<string, array{string, string, string}>
+     */
+    public static function nonSubscriptionObjects(): array
+    {
+        return [
+            'invoice' => ['invoice.paid', 'invoice', 'in_1'],
+            'checkout session' => ['checkout.session.completed', 'checkout.session', 'cs_1'],
+        ];
+    }
+
+    #[DataProvider('nonSubscriptionObjects')]
+    public function testParseSubscriptionCallbackRefusesInvoiceAndSessionEvents(string $type, string $objectType, string $id): void
+    {
+        $payload = json_encode([
+            'id' => 'evt_x',
+            'type' => $type,
+            'created' => 1700000000,
+            'data' => ['object' => ['id' => $id, 'object' => $objectType]],
+        ], JSON_THROW_ON_ERROR);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/parseCallback\(\)/');
+
+        $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+    }
+
+    public function testParseSubscriptionCallbackRefusesASubscriptionObjectUnderAnotherEventType(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'invoice.paid');
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/invoice\.paid/');
+
+        $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+    }
+
+    public function testParseSubscriptionCallbackVerifiesTheSignatureBeforeTheEventGuard(): void
+    {
+        $payload = json_encode([
+            'id' => 'evt_unrelated',
+            'type' => 'product.created',
+            'data' => ['object' => ['id' => 'prod_1', 'object' => 'product']],
+        ], JSON_THROW_ON_ERROR);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/did not verify/');
+
+        $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload, secret: 'whsec_someone_elses_secret'));
+    }
+
+    public function testParseSubscriptionCallbackRefusesToRunWithoutASigningSecret(): void
+    {
+        $adapter = new StripeSubscription(
+            'sk_test_key',
+            new FakeHttpClient(static fn (): Response => self::openSessionResponse()),
+            new BillingCycle(BillingInterval::Month)
+        );
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.created');
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/signing secret/');
+
+        $adapter->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+    }
+
+    public function testParseSubscriptionCallbackRejectsATamperedPayload(): void
+    {
+        $payload = self::subscriptionEvent('evt_s1', 'customer.subscription.updated');
+        $headers = self::signedHeaders($payload);
+
+        $this->expectException(CheckoutException::class);
+        $this->expectExceptionMessageMatches('/did not verify/');
+
+        $this->adapter()->parseSubscriptionCallback(str_replace('order-1', 'order-2', $payload), $headers);
+    }
+
+    /**
+     * Signed does not mean well-formed. Each of these must come out as a CheckoutException — or,
+     * where the field is optional and a malformed value reasonably reads as absent, as a
+     * successful parse — and never as the ErrorException the framework's handler would raise.
+     * The names say which: "is refused" or "reads as absent".
+     *
+     * @return array<string, array{callable(array<string, mixed>): array<string, mixed>, bool}>
+     */
+    public static function malformedSubscriptionEvents(): array
+    {
+        $arr = ['not' => 'a string'];
+
+        return [
+            'array status is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['status'] = $arr;
+
+                return $e;
+            }, true],
+            'array subscription id is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['id'] = $arr;
+
+                return $e;
+            }, true],
+            'array event type is refused' => [static fn (array $e): array => ['type' => $arr] + $e, true],
+            'array event id is refused' => [static fn (array $e): array => ['id' => $arr] + $e, true],
+            'array object type is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['object'] = $arr;
+
+                return $e;
+            }, true],
+            'array created is refused' => [static fn (array $e): array => ['created' => $arr] + $e, true],
+            'string created is refused' => [static fn (array $e): array => ['created' => '1700000000'] + $e, true],
+            'missing created is refused' => [static function (array $e): array {
+                unset($e['created']);
+
+                return $e;
+            }, true],
+            'array metadata reference reads as absent' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['metadata']['reference'] = $arr;
+
+                return $e;
+            }, false],
+            'array unit_amount is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['items']['data'][0]['price']['unit_amount'] = $arr;
+
+                return $e;
+            }, true],
+            'array quantity is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['items']['data'][0]['quantity'] = $arr;
+
+                return $e;
+            }, true],
+            'array currency is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['items']['data'][0]['price']['currency'] = $arr;
+
+                return $e;
+            }, true],
+            'array cancel_at is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['cancel_at'] = $arr;
+
+                return $e;
+            }, true],
+            'array customer reads as absent' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['customer'] = ['id' => $arr];
+
+                return $e;
+            }, false],
+            'array recurring interval reads as absent' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['items']['data'][0]['price']['recurring'] = ['interval' => $arr, 'interval_count' => $arr];
+
+                return $e;
+            }, false],
+            'array items data is refused' => [static function (array $e) use ($arr): array {
+                $e['data']['object']['items']['data'] = $arr;
+
+                return $e;
+            }, true],
+            'string object is refused' => [static function (array $e): array {
+                $e['data']['object'] = 'sub_test_1';
+
+                return $e;
+            }, true],
+        ];
+    }
+
+    /**
+     * @param callable(array<string, mixed>): array<string, mixed> $malform
+     */
+    #[DataProvider('malformedSubscriptionEvents')]
+    public function testParseSubscriptionCallbackRefusesASignedButMalformedPayloadAsACheckoutException(callable $malform, bool $refused): void
+    {
+        $event = json_decode(self::subscriptionEvent('evt_bad', 'customer.subscription.updated'), true, flags: JSON_THROW_ON_ERROR);
+        $payload = json_encode($malform($event), JSON_THROW_ON_ERROR);
+
+        $this->assertWarningsBecomeExceptions(function () use ($payload, $refused): void {
+            if ($refused) {
+                $this->expectException(CheckoutException::class);
+            }
+
+            $parsed = $this->adapter()->parseSubscriptionCallback($payload, self::signedHeaders($payload));
+
+            if (!$refused) {
+                self::assertSame('sub_test_1', $parsed->subscription->gatewayReference);
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------
 
@@ -967,6 +1403,57 @@ final class StripeSubscriptionTest extends TestCase
             ['id' => $eventId, 'type' => $type, 'data' => ['object' => $session]],
             JSON_THROW_ON_ERROR
         );
+    }
+
+    /**
+     * An endive-shape subscription: periods only on the items, `flexible` billing mode, and the
+     * merchant reference stamped into metadata. Two items — 1900 + 2 x 500 — make 2900.
+     *
+     * @param array<string, mixed> $overrides
+     * @return array<string, mixed>
+     */
+    private static function subscription(array $overrides = []): array
+    {
+        $item = static fn (int $unit, int $quantity): array => [
+            'id' => 'si_' . $unit,
+            'object' => 'subscription_item',
+            'quantity' => $quantity,
+            'current_period_start' => 1700000000,
+            'current_period_end' => 1702592000,
+            'price' => [
+                'id' => 'price_' . $unit,
+                'unit_amount' => $unit,
+                'currency' => 'usd',
+                'recurring' => ['interval' => 'month', 'interval_count' => 1],
+            ],
+        ];
+
+        return array_merge([
+            'id' => 'sub_test_1',
+            'object' => 'subscription',
+            'status' => 'active',
+            'customer' => 'cus_test_1',
+            'metadata' => ['reference' => 'order-1'],
+            'billing_mode' => ['type' => 'flexible'],
+            'cancel_at_period_end' => false,
+            'cancel_at' => null,
+            'current_period_start' => null,
+            'current_period_end' => null,
+            'items' => ['object' => 'list', 'data' => [$item(1900, 1), $item(500, 2)]],
+        ], $overrides);
+    }
+
+    /**
+     * @param array<string, mixed> $overrides
+     */
+    private static function subscriptionEvent(string $eventId, string $type, array $overrides = [], int $created = 1700000123): string
+    {
+        return json_encode([
+            'id' => $eventId,
+            'type' => $type,
+            'created' => $created,
+            'data' => ['object' => self::subscription($overrides)],
+        ], JSON_THROW_ON_ERROR);
     }
 
     /**
