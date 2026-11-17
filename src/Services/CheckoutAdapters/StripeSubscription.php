@@ -980,9 +980,10 @@ final class StripeSubscription extends Checkout
      * The PaymentIntent behind an invoice. Current API versions list every attempt under
      * `payments.data[*]`, and only when `payments` is expanded; each entry carries its own
      * `status`, so a declined attempt and the retry that paid sit side by side. **The paid one
-     * is chosen.** Failing that, the first attempt listed is reported — a payment still
-     * processing is the best answer to "which payment is this" — unless $paidOnly, which a
-     * refund passes so that it is never posted against a payment that did not pay.
+     * is chosen.** Failing that, an attempt still in flight (`open`) is reported — a payment
+     * still processing is the best answer to "which payment is this" — unless $paidOnly, which
+     * a refund passes so that it is never posted against a payment that did not pay. A declined
+     * (`canceled`) attempt is never reported: a caller could hand that pi_ straight to refund().
      *
      * Older API versions carry a top-level `payment_intent` instead, read only when no payments
      * list is present at all. A trial's zero-amount invoice lists none and an unexpanded webhook
@@ -1009,11 +1010,15 @@ final class StripeSubscription extends Checkout
 
             $reference = $this->referenceOf($payment['payment_intent'] ?? null);
 
-            if ($reference !== null && ($entry['status'] ?? null) === 'paid') {
+            $status = $entry['status'] ?? null;
+
+            if ($reference !== null && $status === 'paid') {
                 return $reference;
             }
 
-            $attempt ??= $reference;
+            if ($status === 'open') {
+                $attempt ??= $reference;
+            }
         }
 
         return $paidOnly ? null : $attempt;

@@ -394,6 +394,42 @@ final class StripeSubscriptionTest extends TestCase
     }
 
     /**
+     * A declined attempt is never reported as the payment, even when it is listed first: a caller
+     * could hand that pi_ straight to refund(). With nothing paid and nothing in flight, the
+     * answer is null.
+     */
+    public function testADeclinedAttemptIsNeverReportedAsThePayment(): void
+    {
+        $declined = [
+            'object' => 'invoice_payment',
+            'status' => 'canceled',
+            'payment' => ['type' => 'payment_intent', 'payment_intent' => 'pi_declined'],
+        ];
+        $inFlight = [
+            'object' => 'invoice_payment',
+            'status' => 'open',
+            'payment' => ['type' => 'payment_intent', 'payment_intent' => 'pi_processing'],
+        ];
+
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::invoice([
+            'status' => 'open',
+            'payments' => ['data' => [$declined, $inFlight]],
+        ])));
+        self::assertSame('pi_processing', $this->adapter($fake)->retrieveStatus('in_test_1')->paymentReference);
+
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::invoice([
+            'status' => 'open',
+            'payments' => ['data' => [$declined]],
+        ])));
+        self::assertNull($this->adapter($fake)->retrieveStatus('in_test_1')->paymentReference);
+
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::invoice([
+            'payments' => ['data' => [$declined]],
+        ])));
+        self::assertNull($this->adapter($fake)->retrieveStatus('in_test_1')->paymentReference);
+    }
+
+    /**
      * Current API versions list payments; the top-level `payment_intent` is the pre-basil shape
      * and is read only when no list is present at all.
      */
