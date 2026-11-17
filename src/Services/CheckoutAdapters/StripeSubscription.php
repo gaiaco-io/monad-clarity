@@ -96,7 +96,7 @@ final class StripeSubscription extends Checkout
      *        states its own cycle, and a second answer here could only contradict it. Exactly
      *        one of the two is required; prefer forCatalogPrice() to passing nulls positionally.
      * @param BillingCycle|null $trialPeriod A free period before the first charge. Stripe
-     *        takes whole days, so only `Day` (two or more) and `Week` are accepted; `Month` and
+     *        takes whole days, so only `Day` and `Week` are accepted; `Month` and
      *        `Year` are refused rather than silently turned into 30 or 365 days. Allowed in
      *        catalogue mode too, because a Stripe price carries no trial of its own.
      * @param string $webhookSecret Signing secret for this endpoint (`whsec_...`). Empty
@@ -279,8 +279,9 @@ final class StripeSubscription extends Checkout
      * reference's prefix, sending `cs_` to the ledger and handling `in_` itself.
      *
      * A renewal `invoice.payment_failed` is Pending, not Failed: Stripe is still retrying,
-     * and `Failed` is terminal (`ReleaseNotes_1.4.0.md` §2.6). Subscription lifecycle events
-     * are the other door, parseSubscriptionCallback().
+     * and `Failed` is terminal (`ReleaseNotes_1.4.0.md` §2.6). `invoice.upcoming` is refused by
+     * name: it previews an invoice that does not exist yet, so there is no transaction to
+     * record. Subscription lifecycle events are the other door, parseSubscriptionCallback().
      *
      * @param array<string, string> $headers
      * @throws CheckoutException if the signature is absent, malformed, stale, or does not
@@ -585,21 +586,32 @@ final class StripeSubscription extends Checkout
      * running and Stripe believes is paused, so when the resume raises an open invoice this
      * method pays it, then re-reads the subscription and returns what Stripe reports. That
      * invoice carries the proration credited at pause time. With ContinueExistingBillingPeriod,
-     * a resume inside the original period raised no charge when this adapter was verified; a
-     * pause that outlasts the period may still invoice on resume, and any invoice the resume
-     * leaves open is paid here exactly the same way, whichever anchor was chosen.
+     * a resume inside the original period raised no charge when this adapter was verified, and
+     * neither did a pause that outlasted the period: no invoice was raised at resume, and the
+     * resumed time was billed at the next renewal. Any invoice a resume does leave open is paid
+     * here exactly the same way, whichever anchor was chosen.
      *
      * **This can return normally with the status still `Paused`.** When Stripe raised nothing to
      * pay, the `/resume` response is returned as it stands, and it is Stripe's state at that
      * moment. The returned status is authoritative: check it rather than assuming the resume
      * took effect.
      *
-     * If the payment is refused, or never gets an answer, the exception says so and the
-     * subscription **is still paused as far as this call knows**, with the invoice left open.
-     * Confirm with retrieveSubscription(), then retry. If the payment went through but the
-     * subscription could not be re-read, the exception says the invoice was paid and the resume
-     * has very likely taken effect; confirm with retrieveSubscription() rather than resuming
-     * again.
+     * **If Stripe refuses the payment, the resume has still happened.** Stripe resumes a
+     * subscription on the payment *attempt*, not on its success: it moves to `past_due` with a
+     * new billing period and the invoice stays `open`, never retried by Stripe and not payable
+     * by a second resume(), which Stripe refuses because the subscription is no longer paused.
+     * When the subscription is re-read and Stripe reports `past_due`, the exception says so,
+     * names the invoice and gives its hosted payment page when Stripe supplies one. The resume
+     * completes once that invoice is paid, for example after the customer fixes their payment
+     * method.
+     *
+     * Any other failure of the payment call leaves the outcome unknown: a 5xx may have charged
+     * and a 429 did not. When the re-read does not say `past_due` (or fails), the exception
+     * makes no claim about the charge, names the status Stripe reports if known, and says to
+     * confirm with retrieveSubscription(). The same goes when the call never got an answer, and
+     * then the subscription is still paused as far as this call knows. If the payment went through but the subscription could not be
+     * re-read, the exception says the invoice was paid and the resume has very likely taken
+     * effect; confirm with retrieveSubscription() rather than resuming again.
      *
      * NextBillingPeriod is not a legal choice here: a Stripe resume is immediate, and is refused
      * locally for the same reason pause() refuses it.
@@ -631,21 +643,23 @@ final class StripeSubscription extends Checkout
             'expand' => ['latest_invoice'],
         ], $timeoutSeconds);
 
-        $invoiceId = $this->openInvoiceOf($resumed, $timeoutSeconds);
+        $invoice = $this->openInvoiceOf($resumed, $timeoutSeconds);
 
-        if ($invoiceId === null) {
+        if ($invoice === null) {
             return $this->snapshotFrom($resumed);
         }
 
+        $invoiceId = $this->requireString($invoice, 'id');
+
         try {
             $this->send('POST', '/invoices/' . rawurlencode($invoiceId) . '/pay', [], $timeoutSeconds);
-        } catch (CheckoutException|HttpClientException $e) {
+        } catch (CheckoutException $e) {
+            throw $this->failedResumePayment($subscriptionReference, $invoice, $invoiceId, $e, $timeoutSeconds);
+        } catch (HttpClientException $e) {
             throw new CheckoutException(sprintf(
                 'Subscription %1$s is still paused as far as this call knows: resuming raised invoice %2$s, '
                 . 'and paying it failed, so the resume has not been seen to take effect. Confirm where things '
-                . 'stand with retrieveSubscription(), then retry resume() once the customer\'s payment method '
-                . 'is fixed, or resume with ResumeBilling::ContinueExistingBillingPeriod, which raised no charge '
-                . 'inside the original period when this adapter was verified. Paying failed with: %3$s',
+                . 'stand with retrieveSubscription() before doing anything else. Paying failed with: %3$s',
                 $subscriptionReference,
                 $invoiceId,
                 $e->getMessage()
@@ -684,9 +698,11 @@ final class StripeSubscription extends Checkout
      * - The update ran and was declined: Stripe replays the decline.
      * - The update ran and changed the items: Stripe **refuses** the retry, because the same key
      *   now arrives with different parameters (the subscription's items are no longer the ones
-     *   the first attempt replaced). That refusal means the change already happened. Confirm it
-     *   with retrieveSubscription(), and never retry with a fresh key, whatever Stripe's error
-     *   text suggests: a new key is a new request, and it could charge a second time.
+     *   the first attempt replaced). That refusal means the change already happened. The adapter
+     *   recognises it (HTTP 400 and an `error.type` of `idempotency_error`, never the message) and
+     *   throws a CheckoutException that says so, in place of Stripe's own text, which advises a
+     *   fresh key. Confirm with retrieveSubscription(), and never retry with a fresh key: a new
+     *   key is a new request, and it could charge a second time.
      * - The first attempt met a server error (a 5xx): Stripe saves that answer against the key
      *   too, and replays it to the retry, so the retry tells you nothing new.
      *
@@ -772,11 +788,12 @@ final class StripeSubscription extends Checkout
                     continue;
                 }
 
-                $products[$index] = $this->requireString($this->send(
+                $products[$index] = $this->requireString($this->sendUnderKey(
                     'POST',
                     '/products',
                     ['name' => $item->lineItem->description],
                     $timeoutSeconds,
+                    $idempotencyKey,
                     $idempotencyKey === null ? null : "{$idempotencyKey}:product:{$index}"
                 ), 'id');
 
@@ -805,7 +822,7 @@ final class StripeSubscription extends Checkout
                 ];
             }
 
-            return $this->snapshotFrom($this->send('POST', $path, $params, $timeoutSeconds, $idempotencyKey));
+            return $this->snapshotFrom($this->sendUnderKey('POST', $path, $params, $timeoutSeconds, $idempotencyKey, $idempotencyKey));
         } finally {
             $this->archiveProducts($products, $timeoutSeconds);
         }
@@ -900,11 +917,10 @@ final class StripeSubscription extends Checkout
     /**
      * Stripe's `trial_period_days` is a whole number of days, and nothing else. A day is a
      * day, a week is seven; a month or a year has no fixed length, and converting one would
-     * silently turn "one month" into thirty days, so those are refused. A one-day trial is
-     * refused because Stripe refused one when this adapter was verified, and failing at
-     * construction is kinder than failing at the first checkout. Whether Stripe refuses it in
-     * every setting is a release-gate question (ReleaseNotes_1.11.0.md §5.2); the guard stands
-     * until it is answered.
+     * silently turn "one month" into thirty days, so those are refused. A one-day trial is sent
+     * as it is: Stripe requires two days only for a customer on a test clock, and ran a
+     * 24-hour trial for a real one when this adapter was verified live. BillingCycle already
+     * guarantees a frequency of at least one.
      *
      * @throws CheckoutException
      */
@@ -920,16 +936,7 @@ final class StripeSubscription extends Checkout
             ));
         }
 
-        $days = $trial->interval === BillingInterval::Week ? 7 * $trial->frequency : $trial->frequency;
-
-        if ($days < 2) {
-            throw new CheckoutException(
-                'A trial must be at least 2 days here: Stripe refused a one-day trial when this adapter was '
-                . 'verified, so this adapter will not send one. Pass a longer trial, or none.'
-            );
-        }
-
-        return $days;
+        return $trial->interval === BillingInterval::Week ? 7 * $trial->frequency : $trial->frequency;
     }
 
     /**
@@ -938,6 +945,20 @@ final class StripeSubscription extends Checkout
      */
     private function invoiceEvent(array $event, string $type, array $invoice): CallbackEvent
     {
+        if ($type === 'invoice.upcoming') {
+            throw new CheckoutException(
+                'Stripe webhook "invoice.upcoming" previews an invoice that does not exist yet, so there is no '
+                . 'transaction to record. Handle it in your application (a renewal reminder, say) or ignore it.'
+            );
+        }
+
+        if (!is_string($invoice['id'] ?? null)) {
+            throw new CheckoutException(sprintf(
+                'Stripe webhook "%s" carries an invoice with no id, so it names no transaction to record.',
+                $type
+            ));
+        }
+
         if ($this->invoiceSubscriptionOf($invoice) === null) {
             throw new CheckoutException(sprintf(
                 'Stripe webhook "%s" carries an invoice that belongs to no subscription — a one-off invoice '
@@ -979,27 +1000,25 @@ final class StripeSubscription extends Checkout
     /**
      * The PaymentIntent behind an invoice. Current API versions list every attempt under
      * `payments.data[*]`, and only when `payments` is expanded; each entry carries its own
-     * `status`, so a declined attempt and the retry that paid sit side by side. **The paid one
-     * is chosen.** Failing that, an attempt still in flight (`open`) is reported — a payment
-     * still processing is the best answer to "which payment is this" — unless $paidOnly, which
-     * a refund passes so that it is never posted against a payment that did not pay. A declined
-     * (`canceled`) attempt is never reported: a caller could hand that pi_ straight to refund().
+     * `status`, so a declined attempt and the retry that paid sit side by side. **Only a paid
+     * one is reported.** Stripe lists a declined attempt as `open`, exactly as it lists one
+     * still processing, so `open` cannot tell them apart, and reporting it would hand a caller
+     * a pi_ that never collected anything. Nothing paid is null.
      *
      * Older API versions carry a top-level `payment_intent` instead, read only when no payments
-     * list is present at all. A trial's zero-amount invoice lists none and an unexpanded webhook
-     * carries neither, and null is the honest answer.
+     * list is present at all and the invoice itself is `paid`: on an open invoice it is the
+     * latest attempt, which may be the declined one. A trial's zero-amount invoice lists none
+     * and an unexpanded webhook carries neither, and null is the honest answer.
      *
      * @param array<string, mixed> $invoice
      */
-    private function paymentIntentOfInvoice(array $invoice, bool $paidOnly = false): ?string
+    private function paymentIntentOfInvoice(array $invoice): ?string
     {
         $payments = $invoice['payments']['data'] ?? null;
 
         if (!is_array($payments)) {
-            return $this->referenceOf($invoice['payment_intent'] ?? null);
+            return ($invoice['status'] ?? null) === 'paid' ? $this->referenceOf($invoice['payment_intent'] ?? null) : null;
         }
-
-        $attempt = null;
 
         foreach ($payments as $entry) {
             $payment = is_array($entry) ? ($entry['payment'] ?? null) : null;
@@ -1010,18 +1029,12 @@ final class StripeSubscription extends Checkout
 
             $reference = $this->referenceOf($payment['payment_intent'] ?? null);
 
-            $status = $entry['status'] ?? null;
-
-            if ($reference !== null && $status === 'paid') {
+            if ($reference !== null && ($entry['status'] ?? null) === 'paid') {
                 return $reference;
-            }
-
-            if ($status === 'open') {
-                $attempt ??= $reference;
             }
         }
 
-        return $paidOnly ? null : $attempt;
+        return null;
     }
 
     /**
@@ -1048,7 +1061,7 @@ final class StripeSubscription extends Checkout
             ));
         }
 
-        return $this->paymentIntentOfInvoice($invoice, paidOnly: true) ?? throw new CheckoutException(sprintf(
+        return $this->paymentIntentOfInvoice($invoice) ?? throw new CheckoutException(sprintf(
             '%s was paid without a Stripe PaymentIntent — a zero-total trial, customer credit, or marked paid '
             . 'out of band — so there is no payment here to refund.',
             $subject
@@ -1146,15 +1159,16 @@ final class StripeSubscription extends Checkout
     }
 
     /**
-     * The id of the invoice a resume raised, when it is `open` and so waiting to be paid; null
+     * The invoice a resume raised, when it is `open` and so waiting to be paid; null
      * when there is none or it is in any other state. The resume call expands `latest_invoice`,
      * so its status is normally in hand; a bare id means the expansion did not happen and the
      * invoice is read to learn what it is. Nothing is cast: an id that is not a string reads as
      * no invoice.
      *
      * @param array<string, mixed> $resumed
+     * @return array<string, mixed>|null
      */
-    private function openInvoiceOf(array $resumed, int $timeoutSeconds): ?string
+    private function openInvoiceOf(array $resumed, int $timeoutSeconds): ?array
     {
         $invoice = $resumed['latest_invoice'] ?? null;
 
@@ -1166,7 +1180,56 @@ final class StripeSubscription extends Checkout
             return null;
         }
 
-        return $this->requireString($invoice, 'id');
+        return $invoice;
+    }
+
+    /**
+     * What a failed resume payment means. The failure carries no machine-readable cause (the
+     * status and error type live only in message text), so the subscription is re-read and its
+     * raw status decides. Stripe resumes on the payment *attempt*, so `past_due` proves the
+     * attempt was made and refused, and only then is it called a decline. Any other status, or
+     * no answer to the re-read, leaves the outcome unknown (a 5xx may have charged, a malformed
+     * 2xx body did charge, a 429 or 401 charged nothing), and the message makes no claim about it.
+     *
+     * @param array<string, mixed> $invoice the open invoice the resume raised
+     */
+    private function failedResumePayment(
+        string $subscriptionReference,
+        array $invoice,
+        string $invoiceId,
+        CheckoutException $failure,
+        int $timeoutSeconds,
+    ): CheckoutException {
+        try {
+            $status = $this->send('GET', '/subscriptions/' . rawurlencode($subscriptionReference), [], $timeoutSeconds)['status'] ?? null;
+        } catch (CheckoutException|HttpClientException) {
+            $status = null;
+        }
+
+        if ($status === 'past_due') {
+            $payAt = $invoice['hosted_invoice_url'] ?? null;
+
+            return new CheckoutException(sprintf(
+                'Stripe accepted the resume of subscription %1$s but could not collect invoice %2$s. Stripe now '
+                . 'reports the subscription as past_due. Stripe will not retry this invoice by itself, and calling '
+                . 'resume() again will be refused because the subscription is no longer paused. The resume '
+                . 'completes once invoice %2$s is paid%3$s. Paying failed with: %4$s',
+                $subscriptionReference,
+                $invoiceId,
+                is_string($payAt) && $payAt !== '' ? sprintf(', and the customer can pay it at %s', $payAt) : '',
+                $failure->getMessage()
+            ), previous: $failure);
+        }
+
+        return new CheckoutException(sprintf(
+            'Resuming subscription %1$s raised invoice %2$s, but paying it did not return a usable answer, so '
+            . 'whether it was collected is unknown.%3$s Confirm with retrieveSubscription() before doing '
+            . 'anything else. Paying failed with: %4$s',
+            $subscriptionReference,
+            $invoiceId,
+            is_string($status) && $status !== '' ? sprintf(' Stripe reports the subscription as %s.', $status) : '',
+            $failure->getMessage()
+        ), previous: $failure);
     }
 
     /**
@@ -1252,6 +1315,44 @@ final class StripeSubscription extends Checkout
 
             return $item['id'];
         }, $data);
+    }
+
+    /**
+     * A request of changePlan() that carries the caller's key, or one derived from it. Stripe
+     * refuses a key it has seen with other parameters, and its message advises a fresh key, which
+     * here would make the change, and any charge, a second time. So that refusal is recognised
+     * and explained instead of being reported as the ordinary failure it resembles.
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     * @throws CheckoutException
+     */
+    private function sendUnderKey(
+        string $method,
+        string $path,
+        array $params,
+        int $timeoutSeconds,
+        ?string $callersKey,
+        ?string $sentKey,
+    ): array {
+        $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $sentKey);
+
+        if ($callersKey !== null && $this->isIdempotencyRefusal($response)) {
+            throw new CheckoutException(sprintf(
+                'Stripe refused idempotency key "%s" because an earlier request with it was made with '
+                . 'different parameters. For changePlan() that means an earlier attempt with this key '
+                . 'already went through: either this same change, retried after it succeeded, or a '
+                . 'different change made under the same key. Confirm the subscription\'s current items '
+                . 'with retrieveSubscription() before doing anything else. Do not retry with a new key '
+                . 'unless the subscription shows the change was not made: a new key would make the '
+                . 'change, and any charge, again.',
+                $callersKey
+            ));
+        }
+
+        $this->assertSuccessful($response);
+
+        return $this->decodeJsonBody($response);
     }
 
     /**
@@ -1352,6 +1453,8 @@ final class StripeSubscription extends Checkout
             ? $metadata['reference']
             : null;
 
+        // Read off the raw status: `incomplete` and `unpaid` are PastDue too, but only `past_due` was
+        // seen billed at its period end, so the other two report no next billing date.
         return new SubscriptionSnapshot(
             gateway: self::GATEWAY,
             gatewayReference: $id,
@@ -1362,7 +1465,7 @@ final class StripeSubscription extends Checkout
             customerReference: $this->referenceOf($subscription['customer'] ?? null),
             recurringAmount: $this->recurringAmountOf($subscription, $id),
             billingCycle: $this->billingCycleOf($item),
-            nextBilledAt: ($status === SubscriptionStatus::Active || $status === SubscriptionStatus::Trialing)
+            nextBilledAt: in_array($subscription['status'] ?? null, ['active', 'trialing', 'past_due'], true)
                 && $scheduledChange === null ? $periodEnd : null,
             currentPeriodStartsAt: $periodStart,
             currentPeriodEndsAt: $periodEnd,

@@ -1,7 +1,8 @@
 # Monad Clarity 1.11.0 Release Notes
 
-**Status:** DRAFT — canonical specification for the 1.11.0 release once the outstanding items
-in §5 are done.
+**Status:** DRAFT — canonical specification for the 1.11.0 release. The live release gate is
+complete as of 2026-11-17 (§5.3) and ran against the code at `42316de`, before the five fixes
+it prompted, which are covered by mocked tests only. These notes freeze at tagging.
 This document is the source of truth for WHAT ships in 1.11.0. It does not restate 1.0.0, 1.2.0,
 1.4.0 or 1.7.0; those remain frozen for what they specified, and this release inherits the
 binding parts of `ReleaseNotes_1.4.0.md` (§2.2, §2.3, §2.5, §2.7, §2.8) and
@@ -178,15 +179,32 @@ matches "service stops when billing stops", and the docblock says so.
   - `resume()` calls `/resume`.
   - If the returned subscription's `latest_invoice` is `open`, `resume()` pays it.
   - It then re-reads the subscription and returns that snapshot.
-  - A declined payment raises `CheckoutException`. The message names the invoice and says the
-    subscription is **still paused**, so a caller never mistakes a failed resume for a
-    successful one.
+  - **A declined payment raises `CheckoutException`, and the subscription is no longer paused.**
+    The release-gate run (§5.3) found that Stripe resumes on the payment *attempt*, so after a
+    refusal the subscription is `past_due` with a new period and the invoice stays `open`.
+    Stripe never retries that invoice, and a second `resume()` is refused ("You can only resume
+    a subscription if it is `paused`"). The failure carries no machine-readable cause, so the
+    subscription is re-read and its raw status decides. **Only `past_due`** earns the decline
+    wording: Stripe accepted the resume but could not collect the invoice, will not retry it,
+    and will refuse a second `resume()`; the resume completes once the invoice is paid, and the
+    invoice's `hosted_invoice_url` is named as the place to pay it **when Stripe supplies one**
+    (the field was not observed in the live run, so that clause rests on the documented
+    invoice shape). **Any other status, or a failed re-read,** gets the unknown-outcome wording,
+    which makes no claim about the charge, because a 5xx may have charged, a 2xx with an
+    undecodable body did, and a 429 or 401 did not. It names the status Stripe reports if
+    known and says to confirm with `retrieveSubscription()`. A payment that never got an
+    answer (a transport failure) keeps its own wording: the subscription is still paused *as far
+    as the call knows*.
   - Paddle's `resume()` "may charge the customer immediately", so charging here is parity, not a
     new behaviour.
 - **`ContinueExistingBillingPeriod` (`anchor=unchanged`) resumes at once.** It raised no charge
   inside the original period: Stripe restored the period end the pause had cut short. It also
   voided an open resume invoice left by an earlier `anchor=now` call, so a second resume safely
   supersedes a first that was never paid.
+- **A pause that outlasts the period raises no invoice at resume either** (§5.3). With
+  `ContinueExistingBillingPeriod`, Stripe created a pending proration for the resumed time and
+  billed it, together with the pause credit, at the next renewal. `resume()` had nothing to pay
+  and returned `Active`.
 
 ### 2.3 Stripe's three extra statuses map onto the existing five (build plan D3)
 
@@ -224,15 +242,16 @@ The alternative was to map `FullNextBillingPeriod` to `none` as well. Both would
 next renewal bills the new price", but that collapses two cases the enum keeps apart on
 purpose.
 
-### 2.5 Trials are whole days, with a minimum of two (build plan D5)
+### 2.5 Trials are whole days (build plan D5)
 
 Stripe's Checkout takes `subscription_data[trial_period_days]`, an integer number of days.
 
-- `BillingInterval::Day` maps directly, **with a minimum of 2.** The first live run found that
-  `trial_period_days=1` is refused: "The trial end date must be at least 2 days after the
-  customer's test clock time." So `BillingCycle(Day, 1)` is refused at construction, rather than
-  at the first checkout. That run used a test clock, so the refusal says only that Stripe refused
-  a one-day trial when the adapter was verified; whether it does off a test clock is in §5.2.
+- `BillingInterval::Day` maps directly, from one day (`BillingCycle` already guarantees a
+  frequency of at least 1). The spike found that `trial_period_days=1` is refused: "The trial
+  end date must be at least 2 days after the customer's test clock time." That is a rule for a
+  customer **on a test clock** only: the release-gate run (§5.3) had Stripe accept one for an
+  ordinary customer and run a 24-hour trial. The adapter therefore sends a one-day trial as one
+  day, and a developer driving it on a test clock will meet Stripe's own refusal.
 - `Week` becomes 7 × frequency days.
 - `Month` and `Year` are **refused at construction**. Converting them would silently turn "one
   month" into 30 days.
@@ -317,7 +336,12 @@ would lock a recovered renewal at `failed` — the exact 1.4.0 §2.6 defect.
 
 Session failures keep `StripeCheckout`'s mapping, where `async_payment_failed` is `Failed`. That
 is the first payment, attempted while the customer is present. Whether this holds when Stripe
-retries the first invoice is checked in the release-gate run (§5).
+retries the first invoice could not be checked live (§5.2).
+
+Two further facts from the release-gate run (§5.3). A `past_due` subscription that survives to
+its period end is billed there, so `nextBilledAt` is its period end rather than null, though
+`incomplete` and `unpaid` still report none. And the invoice behind a dunned renewal that
+Stripe finally cancels is left `open`, so it reads `Pending` indefinitely.
 
 ### 2.9 The shared machinery is a `SpeaksStripe` trait (build plan D9)
 
@@ -383,9 +407,10 @@ code that the sections above could not know, and each is recorded with its reaso
 5. **`resume()` re-reads the subscription only after paying an open resume invoice.** Otherwise
    it returns the `/resume` response's snapshot, which is Stripe's state at that moment and can
    still say `Paused` when Stripe raised nothing to pay. A failed `/pay` raises a
-   `CheckoutException` saying the subscription is still paused *as far as this call knows*. It
-   names the invoice and points at `retrieveSubscription()`, and it makes no claim about whether
-   the card was charged, because a 5xx leaves that unknown.
+   `CheckoutException`. Only when the re-read says `past_due` does it say the resume took effect
+   and the invoice is unpaid (§2.2). Otherwise, and when the payment never got an answer, it
+   names the invoice, points at `retrieveSubscription()`, and makes no claim about whether the
+   card was charged, because a 5xx leaves that unknown.
 6. **`changePlan()` refuses a partial item list.** When Stripe's embedded `items` reports
    `has_more: true`, the change is refused before anything is created, because any item left out
    of the replacement set would keep billing. A subscription with more items than one page is
@@ -400,14 +425,25 @@ code that the sections above could not know, and each is recorded with its reaso
      and was declined, Stripe replays the decline. If it ran and changed the items, Stripe
      refuses the reused key with different parameters, and **that refusal means the change
      happened**: confirm with `retrieveSubscription()`, and never retry with a fresh key. The
-     last outcome is a release-gate item (§5.2).
+     last outcome was confirmed live (§5.3).
+   - **The adapter recognises that refusal in code** (Marshal's decision, 2026-11-17). Stripe
+     answers HTTP 400 with `error.type` of `idempotency_error` and a message that advises "try
+     using a key other than …", which is exactly what must not be done. So on every request that
+     carries the caller's key or one derived from it (the product creations and the update),
+     `changePlan()` detects the refusal **structurally, from the status and `error.type`, and
+     never by parsing the message**, and throws a `CheckoutException` that names the key, says an
+     earlier attempt with it already went through, points at `retrieveSubscription()`, and
+     forbids a fresh key unless the subscription shows the change was not made. Stripe's body is
+     not embedded. A 400 of any other type, or a body that is not JSON, is the ordinary failure.
+     An unkeyed call is unaffected, since Stripe cannot raise this without a key. Products
+     created earlier in the call are still archived. Other methods are not covered.
 8. **If the update succeeds but archiving a just-created product fails, `changePlan()` returns
    the successful snapshot and does not throw.** A throw invites a retry that could charge
    again. The product may remain active in the Stripe catalogue, which costs nothing.
 9. **A catalogue `SubscriptionItem` price id must start with `price_`** in `changePlan()`,
    refused locally exactly as the constructor refuses one.
 10. **`removeScheduledChange()` sends only `cancel_at_period_end=false`.** Whether `cancel_at=''`
-    is also needed is release-gate item L5 (§5.2).
+    is also needed was release-gate item L5, answered in §5.3: it is not.
 11. **An invoice's reported amount is its `amount_due`, not its `total`.** `amount_due` is never
     negative, is what the card is actually charged, and is 0 for the credit invoice a downgrade
     through `changePlan()` produces. So `retrieveStatus()` on a credit invoice reports `Success`
@@ -418,8 +454,12 @@ code that the sections above could not know, and each is recorded with its reaso
     `paid`.** An unpaid invoice, including a first payment still processing, is refused before
     anything is posted, and so is a declined or processing attempt, because a refund posted
     against a payment that collected nothing cannot succeed and should not be tried. Snapshot and
-    event `paymentReference` prefers a paid payment, then one still processing, and never reports
-    a canceled one, because a caller could hand that `pi_` straight to `refund()`.
+    event `paymentReference` is **only** a payment whose status is `paid`, and the legacy
+    top-level `payment_intent` counts only on an invoice that is itself `paid`. The first draft
+    also reported an attempt still `open` and never a `canceled` one, but the release-gate run
+    (§5.3, defect 5) found that Stripe lists a declined attempt as `open` too, so `open` cannot
+    tell a decline from a payment still processing. A caller could hand that `pi_` straight to
+    `refund()`; the safe answer is null until a payment has paid.
 
 ## 3. Explicitly NOT in 1.11.0
 
@@ -440,6 +480,11 @@ code that the sections above could not know, and each is recorded with its reaso
   and `object`, so a signed malformed payload can leak `ErrorException` there, as it could before
   1.11.0. `PaddleSubscription::recurringAmountOf()` has the same latent integer overflow that
   §2.13 item 3 fixes for Stripe.
+- **One known gap found by the release-gate run, left for Marshal to decide.** A gateway
+  error's body is embedded in exception messages by the shared `Checkout::assertSuccessful()`.
+  For a declined PaymentIntent that body includes its `client_secret`. It affects every adapter
+  and predates 1.11.0. (The gate's other finding, Stripe's reused-key refusal, is resolved in
+  §2.13 item 7.)
 
 ## 4. Compatibility
 
@@ -460,8 +505,8 @@ Semver **minor**. Every change is additive:
 
 ## 5. Verification
 
-Verification is split in two: what a pre-decision spike has already established against live
-Stripe, and what the release-gate run must still establish before the tag. No automated test
+Verification is split in two: what a pre-decision spike established against live Stripe, and
+what the release-gate run established before the tag. No automated test
 makes a live gateway call, per `TestingStrategy.md` Tier 4; every adapter test uses
 `FakeHttpClient`. The test-count and CI figures are recorded at tagging, not here.
 
@@ -480,6 +525,10 @@ because D1, D2, D5 and D6 rested on its answers. Confirmed:
   comes out `billing_mode.type: flexible`.
 - **A subscription that had a trial pauses normally once the trial is over.** Only a currently
   trialing one is refused. §2.2 stands.
+- **Stripe refused `trial_period_days=1` for a customer on the test clock**, with "The trial end
+  date must be at least 2 days after the customer's test clock time." That is a test-clock rule
+  and not a general one: §5.3 found Stripe accepting a one-day trial for an ordinary customer,
+  and §2.5 was corrected.
 - **A completed subscription-mode session has `payment_intent: null`**, with `invoice` and
   `subscription` both populated synchronously.
 - **A trial session completes with `payment_status: "paid"` at `amount_total: 0`**, not
@@ -518,46 +567,151 @@ And three things it found without being asked:
 > **The newest API version is now `2026-10-28.endive`.** The adapter pins `2026-09-30.endive`
 > (§2.1).
 
-### 5.2 Outstanding before tagging
+### 5.2 The release-gate checklist
 
-The release-gate run (plan Task 12) must still answer, against live Stripe test mode, and none is
-assumed:
+The release-gate run (plan Task 12) answered each of these against live Stripe test mode. Every
+answer is in §5.3.
 
-- **L4 (the remainder).** A declined payment on a resume. §2.2 specifies a `CheckoutException`
-  that names the invoice and says the subscription is still paused; that message has not yet been
-  seen against a real declined card.
-- **L5.** After `cancel_at_period_end=true`, whether `cancel_at` is populated, and which
-  parameter actually withdraws the cancellation: `cancel_at_period_end=false`, or
-  `cancel_at=''`.
-- **L8.** On a test clock, whether a renewal raises `invoice.paid`; whether a declined renewal
-  raises `invoice.payment_failed` with the invoice still `open` and the subscription `past_due`;
-  and what a declined first payment in an async method does to the session (§2.8).
-- **L9.** With `always_invoice` plus `error_if_incomplete` and a declining card, whether the call
-  is refused with a `402` and the subscription left on its old plan.
-- **L10.** Whether real `stripe listen` signatures verify in both parsers, and, as a negative
-  control, whether the same delivery fails under the wrong secret.
-- **A zero-total resume invoice.** Whether `/resume` can still report `paused` when the invoice
-  it raises totals zero, so that nothing is open for `resume()` to pay (§2.13 item 5).
-- **A reused idempotency key on `changePlan()`.** Whether Stripe refuses the same key with
-  different parameters, which is how a retry after a successful change is recognised (§2.13
-  item 7). Record the error's exact shape too (HTTP status, `type`, `code`), and decide from it
-  whether the adapter should recognise an `idempotency_error` in code instead of leaving the
-  caller to read the message.
-- **A quantity-only `changePlan()` on the same price.** Whether replacing an item with the same
-  `price_` at a new quantity is accepted as a whole-set replacement, and what it prorates.
-- **A resume with the anchor unchanged after a pause that outlasts the original period.**
-  Whether `ContinueExistingBillingPeriod` then raises an invoice, and whether `resume()` pays it
-  as it does for `StartNewBillingPeriod`. Inside the period it raised no charge (§2.2).
-- **A one-day trial off a test clock.** Whether Stripe still refuses `trial_period_days=1` on a
-  real customer, which is the only evidence for the two-day minimum the constructor enforces
-  (§2.5).
-- **The nested `expand[]=invoice.payments` on a session `GET`.** Whether Stripe honours the
-  two-level expansion, so that `retrieveStatus()` and `refund()` read a `cs_`'s PaymentIntent
-  off its invoice's payments, and each entry's `status`, which a refund now requires to be
-  `paid`.
-- **`nextBilledAt` for a `past_due` subscription.** The adapter reports null for anything not
-  `Active` or `Trialing`. Whether Stripe still bills a `past_due` subscription at its period end,
-  in which case that date, not null, is the honest answer.
+- **L4, a declined resume payment.** Done, and found a defect (§5.3, defect 1).
+- **L5, `cancel_at` and what withdraws a cancellation.** Done.
+- **L8, renewals on a test clock.** Done for a paid and a declined renewal, and `nextBilledAt`
+  for `past_due` found a defect (§5.3, defect 2). **Outstanding: an asynchronous first-payment
+  failure.** NOT EXERCISABLE on the gate account, which offers only `card` and `link` with the
+  adapter's request shape and has no SEPA or ACH. It needs a test account with an asynchronous
+  method enabled.
+- **L9, `changePlan()` on a declining card.** Done.
+- **L10, real signatures, the negative control, both shapes.** Done, and found a defect (§5.3,
+  defect 4).
+- **A zero-total resume invoice.** Done.
+- **A reused idempotency key on `changePlan()`.** Done; the error's shape and a decision it leaves
+  are in §5.3 and §3.
+- **A quantity-only `changePlan()` on the same price.** Done.
+- **A resume with the anchor unchanged after a pause that outlasts the period.** Done.
+- **A one-day trial off a test clock.** Done, and found a defect (§5.3, defect 3).
+- **The nested `expand[]=invoice.payments` on a session `GET`.** Done.
+- **`nextBilledAt` for a `past_due` subscription.** Done (§5.3, defect 2).
+- **`paymentReference` of a declined attempt**, added by the run itself. Done (§5.3, defect 5).
 
-This is a payment integration; mocked coverage is not evidence that it works. This document stays
-DRAFT until the items above are recorded here as done.
+This is a payment integration; mocked coverage is not evidence that it works. The live gate is
+complete as of 2026-11-17, apart from the one item marked outstanding above.
+
+### 5.3 What the release-gate run established
+
+Run on 2026-11-17 in Stripe test mode, in the same voice and with the same Stripe CLI as §5.1,
+against `StripeSubscription` itself through its own autoloader, with every request pinned to
+`2026-09-30.endive`. Seven test clocks carried every customer and subscription except the
+one-day-trial probe, which needs an off-clock customer, and all seven were deleted afterwards;
+the account listed none. Two `stripe listen` processes captured 950 deliveries, 475 per
+listener: one at the account's default version (`2025-02-24.acacia`) and one at
+`2026-10-28.endive`. Each delivery was parsed on arrival under the real signing secret and under
+a wrong one. The key was asserted to be a test key before any call, and none was written down.
+
+**Confirmed, and now facts rather than assumptions:**
+
+- **L5.** After `cancel(NextBillingPeriod)` Stripe sets `cancel_at_period_end=true` **and**
+  populates `cancel_at` with the period end. `cancel_at_period_end=false` alone withdraws the
+  cancellation and clears `cancel_at`; `cancel_at=''` is never needed, and §2.13 item 10 stands.
+  A `cancel_at` set outside the adapter to an explicit mid-period date was also cleared, and
+  in flexible billing mode setting or clearing a mid-period `cancel_at` creates prorations. The
+  adapter's own `cancel(NextBillingPeriod)` sets it to the period end, so it creates none.
+- **L8, a paid renewal.** It raises `invoice.paid` (with `invoice.created`, `invoice.finalized`,
+  `invoice.payment_succeeded` and `invoice.updated`), and both listeners delivered it.
+- **L8, a declined renewal.** `invoice.payment_failed` arrives for every attempt with the
+  invoice `open` and the subscription `past_due`; both parsers map every one to `Pending`, and
+  `retrieveStatus()` agrees. On this account dunning cancelled the subscription after 14 days
+  (`cancellation_details.reason=payment_failed`) and left the invoice `open` with
+  `auto_advance=false`, so `retrieveStatus()` reports `Pending` for ever. §2.8's mapping is
+  deliberate, but an application's ledger row for such a renewal never leaves `Pending` unless
+  the merchant's revenue-recovery settings mark the invoice uncollectible or void.
+- **L9.** `changePlan(ProratedImmediately, PreventChange)` on a declining card is refused with
+  HTTP 402. The subscription keeps its old item and price, no invoice or pending item is left
+  behind, and the product the call created is archived.
+- **L10.** Real signatures verified in both parsers with **0 failures in 950 deliveries**, and
+  the wrong secret was refused **1,900 of 1,900 times** with the signature message, never a
+  tolerance failure. Every failure of any kind was a `CheckoutException`, and the capture
+  server logged no PHP warning. `customer.subscription.*` (128 deliveries, trialing and deleted
+  included) and `invoice.*` (282) parsed in both shapes: item-level `current_period_end` read in
+  every one, `subscriptionReferenceOf()` found a subscription in every invoice, and
+  `paymentReference` is null in the newer shape because the webhook carries no `payments`.
+  Events outside the two parsers' remit are refused with the routing message, as designed.
+- **A zero-total resume invoice.** Resuming straight after a same-second pause returned `Active`
+  with the invoice `paid` for zero and no `/pay` attempted: nothing was left paused. The
+  docblock's warning that a resume can return with the status still `Paused` is a safe hedge
+  with no live evidence behind it. (That the `/resume` response itself said `active` is
+  inferred from the invoice's state, not separately captured.)
+- **A reused idempotency key on `changePlan()`.** The retry of a change that succeeded is
+  refused with HTTP 400, `error.type=idempotency_error`, **no `error.code`**, and the message
+  "Keys for idempotent requests can only be used with the same parameters they were first used
+  with. Try using a key other than '…' …". The subscription kept its one new item, nothing was
+  charged twice, and the product was archived again. §2.13 item 7 holds. The message's own
+  advice is the one the docblock forbids; the adapter now recognises it in code (§2.13 item 7).
+- **A quantity-only `changePlan()` on the same price** is accepted as a whole-set replacement
+  and prorates exactly: the unused half of the old quantity is credited and the remaining half
+  of the new is charged. The subscription item id changes, so anything keyed on the `si_` sees a
+  new one.
+- **The nested `expand[]=invoice.payments` on a session `GET`.** Stripe honours the two-level
+  expansion, each entry carries `status`, and `retrieveStatus()` and `refund()` of a `cs_` read
+  and refund the PaymentIntent behind its invoice. A partial refund of 500 succeeded.
+- **The happy paths.** An inline and a catalogue `createCheckout()` (amount zero with a trial,
+  the plan's price without), a completed signup (`billing_mode=flexible`, `metadata.reference`
+  set), `retrieveSubscription()`, `cancel(Immediately)` (no refund and no credit, confirming
+  §2.10), `pause()` (with its pending proration credit) and a keyed inline `changePlan()` all
+  behaved as specified. The unkeyed path and the `ProratedNextBillingPeriod` and `DoNotBill`
+  modes were not exercised live. Checkout's `product_data` products are created inactive and are
+  absent from `GET /products`, so a merchant auditing the catalogue through the API will not see
+  them.
+
+**The gate ran before the fixes.** It exercised the code at `42316de`. The five fixes below were
+written afterwards, test-first, and are covered by mocked tests only; they have not been
+re-driven against Stripe. The first of them is the one that most deserves a re-run.
+
+**Found live, which no mock written from the documentation caught, and fixed before tagging:**
+
+1. **A declined resume payment is not "still paused".** Stripe resumes on the payment
+   *attempt*. After the declined `/pay`, the subscription was `past_due` with a new billing
+   period, and the invoice was `open` with `auto_advance=false` and no
+   `next_payment_attempt`. Stripe never retried it, and both retries the old message advised
+   were refused ("You can only resume a subscription if it is `paused`"). Left alone the
+   invoice stays open indefinitely, a renewal invoice raised at the period end went into
+   dunning, and the subscription was cancelled with the resume invoice still `open`. Paying
+   that invoice once the card was fixed recovered the subscription. **Fix:** any failure of
+   the `/pay` re-reads the subscription, and only a raw `past_due` earns a
+   `CheckoutException` (previous chained) saying Stripe accepted the resume but could not collect
+   the invoice, that Stripe will not retry it, that `resume()` will be refused, and where to pay
+   it (`hosted_invoice_url`, when Stripe supplies one; not observed live). Any other status, or
+   a failed re-read, gets a message that makes no claim about the charge, because the failure
+   alone cannot say whether the card was charged. A transport failure keeps its own "confirm
+   with `retrieveSubscription()`" message. §2.2 is corrected.
+2. **A `past_due` subscription is billed at its period end.** The one a failed resume leaves
+   behind had a new `subscription_cycle` invoice raised and attempted at the end of its period.
+   The adapter reported `nextBilledAt` as null. **Fix:** `nextBilledAt` is the period end for a
+   raw status of `active`, `trialing` or `past_due` with nothing scheduled, and stays null for
+   `incomplete` and `unpaid`, which also map to `PastDue` but were not observed. On this
+   account an ordinary failed renewal is cancelled by dunning before it reaches its period end.
+3. **A one-day trial is accepted.** Stripe ran a 24-hour trial for an off-clock customer. The
+   two-day minimum seen in the spike applies only to a customer on a test clock. **Fix:** the
+   constructor guard is gone, and a `Day` trial of any length from one is sent as it is. §2.5
+   is corrected.
+4. **`invoice.upcoming` has no `id`.** Stripe delivers it before every renewal, and its object
+   carries none, so `parseCallback()` raised "Stripe response was missing the expected "id"
+   field" on an event the docblock tells applications to route there. **Fix:** it is refused by
+   name, with a message saying it previews an invoice that does not exist yet, so there is no
+   transaction to record. Any other invoice object without a string `id` is refused with its
+   own malformed-payload message.
+5. **A declined attempt is `open`, not `canceled`.** On every declined invoice Stripe listed the
+   declined PaymentIntent with the invoice payment's status `open`, so "paid, then processing,
+   never canceled" reported a payment that never collected anything. Stripe refused a refund of
+   it and the `in_` route was refused locally, so no money was at risk. **Fix:** `paymentReference`
+   comes only from an invoice payment whose status is `paid`, and the legacy top-level
+   `payment_intent` is read only when the invoice itself is `paid`. §2.13 item 12 is corrected.
+
+**One docblock corrected, not a defect.** A pause that outlasted the period, followed by
+`resume(ContinueExistingBillingPeriod)`, raised **no invoice at resume**. Stripe created a
+pending proration for the resumed time and billed it, with the pause credit, at the next
+renewal, so `resume()` correctly had nothing to pay. §2.2 and the docblock now say exactly that.
+
+**Not exercisable.** An asynchronous first-payment failure could not be produced: the adapter
+sends no `payment_method_types`, and a subscription session built exactly as it builds one offered
+only `card` and `link` on this account, in USD and in EUR. Neither is asynchronous, and SEPA
+Direct Debit and ACH are not enabled. §2.8's `async_payment_failed` mapping therefore stays
+unverified live.

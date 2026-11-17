@@ -10,6 +10,7 @@ use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Utils\ConstantTime;
 use Monad\Clarity\Utils\HMAC;
+use Psr\Http\Message\ResponseInterface;
 
 /**
  * Everything two Stripe adapters do identically: the form-encoded request, the signed-webhook
@@ -226,6 +227,26 @@ trait SpeaksStripe
         int $timeoutSeconds,
         ?string $idempotencyKey = null,
     ): array {
+        $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $idempotencyKey);
+
+        $this->assertSuccessful($response);
+
+        return $this->decodeJsonBody($response);
+    }
+
+    /**
+     * Sends a request and hands back the response whatever its status, for a caller that must
+     * tell one kind of refusal from another before `assertSuccessful()` flattens them all.
+     *
+     * @param array<string, mixed> $params
+     */
+    private function sendUnchecked(
+        string $method,
+        string $path,
+        array $params,
+        int $timeoutSeconds,
+        ?string $idempotencyKey = null,
+    ): ResponseInterface {
         $headers = [
             'Authorization' => 'Bearer ' . $this->apiKey,
             'Stripe-Version' => self::API_VERSION,
@@ -242,15 +263,33 @@ trait SpeaksStripe
             // A DELETE carries no body and no Content-Type. Stripe reads its parameters, of which
             // an adapter should send none, from the query string exactly as it does for a GET.
             $uri = $params === [] ? $uri : $uri . '?' . http_build_query($params);
-            $response = $method === 'GET' ? $client->get($uri, $headers) : $client->delete($uri, $headers);
-        } else {
-            $headers['Content-Type'] = 'application/x-www-form-urlencoded';
-            $response = $client->post($uri, http_build_query($params), $headers);
+
+            return $method === 'GET' ? $client->get($uri, $headers) : $client->delete($uri, $headers);
         }
 
-        $this->assertSuccessful($response);
+        $headers['Content-Type'] = 'application/x-www-form-urlencoded';
 
-        return $this->decodeJsonBody($response);
+        return $client->post($uri, http_build_query($params), $headers);
+    }
+
+    /**
+     * Whether Stripe refused a request because its idempotency key had already been used with
+     * different parameters: HTTP 400 and an `error.type` of `idempotency_error`. Read from the
+     * structure, never the message, which is prose Stripe may reword. A body that is not JSON,
+     * or not shaped so, is simply not this refusal.
+     */
+    private function isIdempotencyRefusal(ResponseInterface $response): bool
+    {
+        if ($response->getStatusCode() !== 400) {
+            return false;
+        }
+
+        $body = json_decode((string) $response->getBody(), associative: true);
+
+        return is_array($body)
+            && is_array($body['error'] ?? null)
+            && is_string($body['error']['type'] ?? null)
+            && $body['error']['type'] === 'idempotency_error';
     }
 
     /**
