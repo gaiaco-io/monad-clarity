@@ -1987,11 +1987,58 @@ final class StripeSubscriptionTest extends TestCase
             [
                 'GET /v1/subscriptions/sub_test_1 ',
                 'POST /v1/products chg-9:product:1',
+                'POST /v1/products/prod_new ',
                 'POST /v1/subscriptions/sub_test_1 chg-9',
-                'POST /v1/products/prod_new chg-9:archive:1',
+                'POST /v1/products/prod_new ',
             ],
             $keys
         );
+    }
+
+    public function testARetryWithTheSameKeyReactivatesTheProductBeforeTheUpdate(): void
+    {
+        $fake = $this->changePlanFake();
+
+        $this->adapter($fake)->changePlan(
+            'sub_test_1',
+            [self::inlineItem()],
+            ProrationBillingMode::ProratedImmediately,
+            idempotencyKey: 'chg-9'
+        );
+
+        $requests = $fake->requests();
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/products/prod_new',
+                'POST /v1/subscriptions/sub_test_1',
+                'POST /v1/products/prod_new',
+            ],
+            self::requestLines($fake)
+        );
+        self::assertSame(['active' => 'true'], self::formOf($requests[2]));
+        self::assertFalse($requests[2]->hasHeader('Idempotency-Key'));
+        self::assertSame('chg-9', $requests[3]->getHeaderLine('Idempotency-Key'));
+        self::assertSame(['active' => 'false'], self::formOf($requests[4]));
+        self::assertFalse($requests[4]->hasHeader('Idempotency-Key'));
+    }
+
+    public function testChangePlanRefusesWhenStripeReturnsOnlyPartOfTheItemList(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(self::subscription([
+            'items' => ['object' => 'list', 'has_more' => true, 'data' => [['id' => 'si_a']]],
+        ])));
+
+        try {
+            $this->adapter($fake)->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::DoNotBill);
+            self::fail('A partial item list must be refused.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('sub_test_1', $e->getMessage());
+            self::assertStringContainsString('more items', $e->getMessage());
+        }
+
+        self::assertSame(1, $fake->requestCount());
     }
 
     public function testChangePlanSendsNoIdempotencyKeyUnlessGivenOne(): void
@@ -2003,6 +2050,16 @@ final class StripeSubscriptionTest extends TestCase
         foreach ($fake->requests() as $request) {
             self::assertFalse($request->hasHeader('Idempotency-Key'));
         }
+
+        self::assertSame(
+            [
+                'GET /v1/subscriptions/sub_test_1',
+                'POST /v1/products',
+                'POST /v1/subscriptions/sub_test_1',
+                'POST /v1/products/prod_new',
+            ],
+            self::requestLines($fake)
+        );
     }
 
     public function testChangePlanRefusesAnEmptyOrMixedIntervalItemSet(): void

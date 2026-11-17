@@ -657,9 +657,12 @@ final class StripeSubscription extends Checkout
      * **With ProratedImmediately this call charges the customer's card.** Stripe invoices the
      * proration at once, so a timeout or a dropped connection leaves you not knowing whether the
      * charge happened. Always pass `$idempotencyKey` on such a call, and reuse the same key to
-     * retry it: Stripe then returns the first outcome instead of charging twice. Without a key a
-     * blind retry can charge twice, so read the subscription with retrieveSubscription() first.
-     * The key also derives one for each product this call creates and archives.
+     * retry it: the retry reuses the same products, re-activates them (an earlier attempt may
+     * have archived them already), and the update either replays its first outcome, if it ran,
+     * or runs now, if it did not — never a second charge. Without a key a blind retry can charge
+     * twice, so read the subscription with retrieveSubscription() first. The key derives one for
+     * each product this call creates; activating and archiving a product carry none, because
+     * each simply sets a state and a replayed answer would not re-apply it.
      *
      * Proration maps onto Stripe's `proration_behavior`: ProratedImmediately is `always_invoice`,
      * ProratedNextBillingPeriod is `create_prorations` and DoNotBill is `none`. The two Full*
@@ -708,7 +711,7 @@ final class StripeSubscription extends Checkout
         };
 
         $path = '/subscriptions/' . rawurlencode($subscriptionReference);
-        $existing = $this->itemIdsOf($this->send('GET', $path, [], $timeoutSeconds));
+        $existing = $this->itemIdsOf($subscriptionReference, $this->send('GET', $path, [], $timeoutSeconds));
 
         $params = [
             'items' => array_map(
@@ -739,6 +742,17 @@ final class StripeSubscription extends Checkout
                     $idempotencyKey === null ? null : "{$idempotencyKey}:product:{$index}"
                 ), 'id');
 
+                if ($idempotencyKey !== null) {
+                    // A retry replays the product's creation, and an earlier attempt may have archived
+                    // it since; Stripe refuses an inactive product on a subscription update.
+                    $this->send(
+                        'POST',
+                        '/products/' . rawurlencode($products[$index]),
+                        ['active' => 'true'],
+                        $timeoutSeconds
+                    );
+                }
+
                 $params['items'][] = [
                     'price_data' => [
                         'currency' => strtolower($item->lineItem->unitPrice->currency),
@@ -755,7 +769,7 @@ final class StripeSubscription extends Checkout
 
             return $this->snapshotFrom($this->send('POST', $path, $params, $timeoutSeconds, $idempotencyKey));
         } finally {
-            $this->archiveProducts($products, $timeoutSeconds, $idempotencyKey);
+            $this->archiveProducts($products, $timeoutSeconds);
         }
     }
 
@@ -1074,8 +1088,16 @@ final class StripeSubscription extends Checkout
      * @return list<string>
      * @throws CheckoutException if the subscription's items are not a list of objects with ids.
      */
-    private function itemIdsOf(array $subscription): array
+    private function itemIdsOf(string $reference, array $subscription): array
     {
+        if (($subscription['items']['has_more'] ?? false) === true) {
+            throw new CheckoutException(sprintf(
+                'Subscription %s has more items than Stripe returned in one page, so replacing them all cannot '
+                . 'be done safely here: any item left out would keep billing.',
+                $reference
+            ));
+        }
+
         $data = $subscription['items']['data'] ?? null;
 
         if (!is_array($subscription['items'] ?? null) || !is_array($data) || !array_is_list($data)) {
@@ -1098,7 +1120,7 @@ final class StripeSubscription extends Checkout
      *
      * @param array<int, string> $products product id by item index
      */
-    private function archiveProducts(array $products, int $timeoutSeconds, ?string $idempotencyKey): void
+    private function archiveProducts(array $products, int $timeoutSeconds): void
     {
         foreach ($products as $index => $productId) {
             try {
@@ -1106,8 +1128,7 @@ final class StripeSubscription extends Checkout
                     'POST',
                     '/products/' . rawurlencode($productId),
                     ['active' => 'false'],
-                    $timeoutSeconds,
-                    $idempotencyKey === null ? null : "{$idempotencyKey}:archive:{$index}"
+                    $timeoutSeconds
                 );
             } catch (Throwable) {
                 continue;
