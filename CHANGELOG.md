@@ -6,6 +6,17 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-11-17
+
+A gateway's malformed or oversized data now produces a `CheckoutException` everywhere in the
+Checkout adapters, never a PHP error and never a wrong figure presented as real. No signature
+or exception-class changes.
+- **Paddle webhooks:** both Paddle parsers stop leaking `ErrorException` on a signed but
+  malformed payload, the defect 1.11.1 fixed for Stripe.
+- **Amounts and refund results:** they are read safely on all four adapters.
+- **Stripe's 409:** for a key still in use, it now says to retry with the same key, verified
+  against live Stripe test mode.
+
 ### Fixed
 - **A transaction amount the adapter cannot read is a `CheckoutException`, never a PHP error or
   a wrong figure.** This is the shared `amountOf()` in `SpeaksStripe` and `SpeaksPaddle`, which
