@@ -96,7 +96,7 @@ final class StripeSubscription extends Checkout
      *        states its own cycle, and a second answer here could only contradict it. Exactly
      *        one of the two is required; prefer forCatalogPrice() to passing nulls positionally.
      * @param BillingCycle|null $trialPeriod A free period before the first charge. Stripe
-     *        takes whole days, so only `Day` (two or more) and `Week` are accepted; `Month` and
+     *        takes whole days, so only `Day` and `Week` are accepted; `Month` and
      *        `Year` are refused rather than silently turned into 30 or 365 days. Allowed in
      *        catalogue mode too, because a Stripe price carries no trial of its own.
      * @param string $webhookSecret Signing secret for this endpoint (`whsec_...`). Empty
@@ -279,8 +279,9 @@ final class StripeSubscription extends Checkout
      * reference's prefix, sending `cs_` to the ledger and handling `in_` itself.
      *
      * A renewal `invoice.payment_failed` is Pending, not Failed: Stripe is still retrying,
-     * and `Failed` is terminal (`ReleaseNotes_1.4.0.md` §2.6). Subscription lifecycle events
-     * are the other door, parseSubscriptionCallback().
+     * and `Failed` is terminal (`ReleaseNotes_1.4.0.md` §2.6). `invoice.upcoming` is refused by
+     * name: it previews an invoice that does not exist yet, so there is no transaction to
+     * record. Subscription lifecycle events are the other door, parseSubscriptionCallback().
      *
      * @param array<string, string> $headers
      * @throws CheckoutException if the signature is absent, malformed, stale, or does not

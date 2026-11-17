@@ -21,25 +21,31 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
     event in the endpoint's version rather than the adapter's.
   - **`resume()` pays the open resume invoice itself.** Stripe never collects it, and the
     subscription stays `paused` until someone does. A declined payment raises
-    `CheckoutException` saying the subscription is still paused.
+    `CheckoutException` saying Stripe accepted the resume but could not collect the invoice:
+    the subscription is `past_due`, Stripe will not retry the invoice, a second `resume()` is
+    refused, and the customer pays the invoice (its hosted page is named when Stripe gives one).
   - **An invoice's amount is its amount due.** `retrieveStatus()` on an `in_` reports
     `amount_due`, what the card is charged, rather than the total, so a downgrade's credit
     invoice reads as zero instead of failing.
   - **A refund is posted only against a paid payment.** The invoice behind an `in_` or a `cs_`
     must be `paid`, so a first payment still processing is refused, and the PaymentIntent
-    chosen is the attempt whose own status is `paid`, never an earlier declined one.
+    chosen is the attempt whose own status is `paid`, never a declined one: Stripe lists a
+    declined attempt as `open`, so `paymentReference` is null until a payment has paid.
   - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
     record because it was never `open()`ed. A handler that passes every `parseCallback()` result
     to `recordCallback()` therefore throws on every signup. Route on the reference prefix: `cs_`
     to the ledger, `in_` to the application. This is the renewal-recording gap Paddle shares.
   - Pause and resume are immediate only; `FullImmediately` and `FullNextBillingPeriod` are
-    refused by name; `Month` and `Year` trials and trials under two days are refused at
-    construction. Stripe's `incomplete` and `unpaid` map to `PastDue`, and `incomplete_expired`
-    to `Cancelled`.
+    refused by name; `Month` and `Year` trials are refused at construction, and a one-day trial
+    is sent as one day. Stripe's `incomplete` and `unpaid` map to `PastDue`, and
+    `incomplete_expired` to `Cancelled`. A `past_due` subscription reports its period end as
+    `nextBilledAt`, because Stripe bills it there; `incomplete` and `unpaid` report none.
+  - `parseCallback()` refuses `invoice.upcoming` by name, a preview of an invoice that does not
+    exist yet, rather than failing on its missing `id`.
   - Every parser refuses a malformed signed payload as `CheckoutException` only.
 
-  Canonical spec: `ReleaseNotes_1.11.0.md`, which stays DRAFT until its §5.2 live checks are
-  done. Only the pre-decision test-mode spike in its §5.1 has been run against live Stripe.
+  Canonical spec: `ReleaseNotes_1.11.0.md`, which stays DRAFT until tagging. Its live release
+  gate ran on 2026-11-17 and is recorded in §5.3.
 - **`CheckoutAdapters\SpeaksStripe`: the machinery both Stripe adapters share.** Signature
   verification, `send()`, `requireString()`, `referenceOf()`, `amountOf()`, the refund-reason
   rule and the line-item synthesis moved out of `StripeCheckout` into an internal trait, as
@@ -51,6 +57,16 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   warning. Valid input is unaffected.
 
 ### Documentation
+- **The live Stripe test-mode release gate ran for `StripeSubscription` on 2026-11-17.** It
+  confirmed every checked behaviour except an asynchronous first-payment failure, which the
+  test account cannot produce, and it found five defects that no mocked test could have: a
+  declined resume payment leaves the subscription `past_due` and not paused, a `past_due`
+  subscription is billed at its period end, a one-day trial is accepted off a test clock,
+  `invoice.upcoming` carries no `id`, and a declined attempt is listed as `open`. All five are
+  fixed before the release, and `ReleaseNotes_1.11.0.md` §5.3 records the evidence. It also
+  records two known gaps for a later decision in §3: gateway error bodies, including a
+  PaymentIntent's `client_secret`, are embedded in exception messages, and Stripe's reused-key
+  refusal contradicts the `changePlan()` docblock's advice.
 - **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
   until the live checks listed in its §5.2 are done. It records:
   - what ships, with the build plan's twelve decisions written up as resolved decisions;
@@ -70,7 +86,7 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
   Marshal approved every recommendation on 2026-11-17. The pre-decision spike then ran in
   Stripe test mode and is recorded in §3.1. It found four things the documentation does not
   say:
-  - a 1-day trial is refused;
+  - a 1-day trial is refused (for a test-clock customer only, as the release gate found);
   - a subscription update refuses an inactive product;
   - `resume()` starting a new period leaves the subscription paused until its invoice is
     explicitly paid;

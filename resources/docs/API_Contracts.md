@@ -419,7 +419,18 @@ key, and send every outcome of that retry other than success to `retrieveSubscri
 deciding anything: a refusal of the reused key means the change already happened, so never retry
 with a fresh key (`ReleaseNotes_1.11.0.md` §2.13 item 7). `resume()` may charge the customer
 immediately: when Stripe leaves the resume invoice open, `resume()` pays it itself, and a declined
-payment throws saying the subscription is still paused (`ReleaseNotes_1.11.0.md` §2.2).
+payment throws saying Stripe accepted the resume but could not collect the invoice: the
+subscription is then `past_due`, Stripe will not retry that invoice, and a second `resume()` is
+refused, so the customer pays the invoice (its hosted page is named when Stripe supplies one). A
+payment that never got an answer throws saying the subscription is still paused as far as the call
+knows (`ReleaseNotes_1.11.0.md` §2.2).
+
+`SubscriptionSnapshot::$nextBilledAt` is the period end for a Stripe status of `active`, `trialing`
+or `past_due` with nothing scheduled, and null for `incomplete` and `unpaid`.
+`TransactionSnapshot::$paymentReference` and `CallbackEvent::$paymentReference` name a PaymentIntent
+only once it has paid, so a declined attempt is never one (`ReleaseNotes_1.11.0.md` §2.13 item 12).
+`parseCallback()` refuses `invoice.upcoming` by name: it previews an invoice that does not exist
+yet, so there is no transaction to record, and the application handles or ignores it.
 
 Local refusals, each a `CheckoutException` raised before anything reaches Stripe:
 
@@ -427,7 +438,8 @@ Local refusals, each a `CheckoutException` raised before anything reaches Stripe
   refuses any `$resumeAt` or `$onResume`: Stripe's `/pause` has no resume date.
 - `changePlan()` refuses `ProrationBillingMode::FullImmediately` and `FullNextBillingPeriod`;
   the other three map to `always_invoice`, `create_prorations` and `none`.
-- A `Month` or `Year` trial, or a `Day` trial under two days, is refused at construction.
+- A `Month` or `Year` trial is refused at construction. A one-day trial is sent as it is; Stripe
+  requires two days only for a customer on a test clock.
 - A catalogue id that does not start `price_` is refused, in the constructor and on a catalogue
   `SubscriptionItem` in `changePlan()`.
 
