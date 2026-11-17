@@ -656,9 +656,11 @@ final class StripeCheckoutTest extends TestCase
                 'type' => 'invalid_request_error',
                 'message' => 'No such price: price_nope',
             ]], 400)],
-            'a 409 for a request in flight' => [self::jsonResponse(['error' => [
-                'type' => 'idempotency_error',
-                'message' => 'There is currently another in-progress request using this Idempotent Key.',
+            'a 409 for a request in flight' => [self::keyInUseResponse('ORDER-1001')],
+            'a 409 with another code' => [self::jsonResponse(['error' => [
+                'type' => 'invalid_request_error',
+                'code' => 'lock_timeout',
+                'message' => 'This object cannot be accessed right now because another API request is using it.',
             ]], 409)],
             'a 400 that is not JSON' => [new Response(400, [], '<html>Bad Request</html>')],
         ];
@@ -675,6 +677,76 @@ final class StripeCheckoutTest extends TestCase
         } catch (CheckoutException $e) {
             self::assertSame(CheckoutException::class, $e::class);
         }
+    }
+
+    /**
+     * A key still held by a request in flight is a 409, `invalid_request_error`, code
+     * `idempotency_key_in_use` — measured live, not the `idempotency_error` the 1.12.0 test
+     * assumed. It stays a plain CheckoutException (ReleaseNotes_1.12.0.md §2.7), with advice of
+     * its own: Stripe's text never says to keep the same key.
+     */
+    public function testCreateCheckoutExplainsAKeyStillInUse(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::keyInUseResponse('ORDER-1001'));
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A key in use must throw.');
+        } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
+            self::assertSame(
+                'Stripe is still processing an earlier request made under idempotency key "ORDER-1001", so '
+                . 'this one was not carried out. Retry with the same key once that request has finished: Stripe '
+                . 'will then answer with the earlier request\'s outcome. Do not switch to a new key, which would '
+                . 'make a second, separate request.',
+                $e->getMessage()
+            );
+        }
+    }
+
+    public function testRefundExplainsAKeyStillInUse(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::keyInUseResponse('refund:pi_test_456:full'));
+
+        try {
+            $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::fail('A key in use must throw.');
+        } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
+            self::assertStringContainsString('idempotency key "refund:pi_test_456:full"', $e->getMessage());
+            self::assertStringContainsString('Do not switch to a new key', $e->getMessage());
+        }
+    }
+
+    public function testA409WithAnotherCodeKeepsTheGenericSummary(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'lock_timeout',
+            'message' => 'This object cannot be accessed right now because another API request is using it.',
+        ]], 409));
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A refused request must throw.');
+        } catch (CheckoutException $e) {
+            self::assertStringContainsString('request failed with HTTP 409', $e->getMessage());
+            self::assertStringNotContainsString('still processing', $e->getMessage());
+        }
+    }
+
+    /**
+     * The body Stripe returned live, at both pinned API versions; the run ids are in the CHANGELOG.
+     */
+    private static function keyInUseResponse(string $key): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'idempotency_key_in_use',
+            'message' => 'There is currently another in-progress request using this Idempotent Key (that probably '
+                . "means you submitted twice, and the other request is still going through): {$key}. Please try "
+                . 'again later.',
+        ]], 409);
     }
 
     private static function reusedKeyResponse(string $key): Response

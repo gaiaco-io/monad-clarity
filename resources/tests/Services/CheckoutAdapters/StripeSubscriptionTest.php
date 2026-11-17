@@ -2439,6 +2439,64 @@ final class StripeSubscriptionTest extends TestCase
         }
     }
 
+    /**
+     * Every keyed path explains a key still in use, and stays a plain CheckoutException. A key
+     * changePlan() derived for a product reports the caller's key, as the reused-key refusal does.
+     */
+    public function testEveryKeyedCallExplainsAKeyStillInUse(): void
+    {
+        $inUse = self::keyInUseResponse();
+        $calls = [
+            'createCheckout' => [
+                new FakeHttpClient(static fn (): Response => $inUse),
+                fn (StripeSubscription $a) => $a->createCheckout($this->checkoutRequest()),
+                'ORDER-1001',
+            ],
+            'refund' => [
+                new FakeHttpClient(static fn (): Response => $inUse),
+                fn (StripeSubscription $a) => $a->refund(new RefundRequest(reference: 'pi_test_456')),
+                'refund:pi_test_456:full',
+            ],
+            'changePlan, the update' => [
+                $this->changePlanFake(update: $inUse),
+                fn (StripeSubscription $a) => $a->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::ProratedImmediately, idempotencyKey: 'change-42'),
+                'change-42',
+            ],
+            'changePlan, a product it creates' => [
+                new FakeHttpClient(static fn (RequestInterface $request): Response => $request->getMethod() === 'GET'
+                    ? self::jsonResponse(self::subscription())
+                    : $inUse),
+                fn (StripeSubscription $a) => $a->changePlan('sub_test_1', [self::inlineItem()], ProrationBillingMode::ProratedImmediately, idempotencyKey: 'change-42'),
+                'change-42',
+            ],
+        ];
+
+        foreach ($calls as $name => [$fake, $call, $key]) {
+            try {
+                $call($this->adapter($fake));
+                self::fail("{$name}: a key in use must throw.");
+            } catch (CheckoutException $e) {
+                self::assertSame(CheckoutException::class, $e::class, $name);
+                self::assertStringStartsWith(
+                    "Stripe is still processing an earlier request made under idempotency key \"{$key}\"",
+                    $e->getMessage(),
+                    $name
+                );
+            }
+        }
+    }
+
+    private static function keyInUseResponse(): Response
+    {
+        return self::jsonResponse(['error' => [
+            'type' => 'invalid_request_error',
+            'code' => 'idempotency_key_in_use',
+            'message' => 'There is currently another in-progress request using this Idempotent Key (that probably '
+                . 'means you submitted twice, and the other request is still going through): change-42. Please '
+                . 'try again later.',
+        ]], 409);
+    }
+
     private static function reusedKeyResponse(): Response
     {
         return self::jsonResponse(['error' => [

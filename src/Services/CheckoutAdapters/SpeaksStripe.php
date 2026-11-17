@@ -267,6 +267,10 @@ trait SpeaksStripe
     ): array {
         $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $idempotencyKey);
 
+        if ($this->isKeyInUse($response)) {
+            throw $this->keyInUseFailure($idempotencyKey);
+        }
+
         if ($this->isIdempotencyRefusal($response)) {
             throw new IdempotencyKeyReusedException(
                 sprintf(
@@ -339,6 +343,40 @@ trait SpeaksStripe
             && is_array($body['error'] ?? null)
             && is_string($body['error']['type'] ?? null)
             && $body['error']['type'] === 'idempotency_error';
+    }
+
+    /**
+     * Whether Stripe refused a request because another request under the same key was still in
+     * flight: HTTP 409 and an `error.code` of `idempotency_key_in_use`. Measured live: the type is
+     * `invalid_request_error`, not `idempotency_error`, so the code is what identifies it.
+     */
+    private function isKeyInUse(ResponseInterface $response): bool
+    {
+        if ($response->getStatusCode() !== 409) {
+            return false;
+        }
+
+        $body = json_decode((string) $response->getBody(), associative: true);
+
+        return is_array($body)
+            && is_array($body['error'] ?? null)
+            && ($body['error']['code'] ?? null) === 'idempotency_key_in_use';
+    }
+
+    /**
+     * A plain CheckoutException (ReleaseNotes_1.12.0.md §2.7), in the adapter's words. Stripe's
+     * own text says to try again later but never says to keep the key, and a new key here is a
+     * second request. The earlier request's outcome is not known yet, so none is claimed.
+     */
+    private function keyInUseFailure(string $idempotencyKey): CheckoutException
+    {
+        return new CheckoutException(sprintf(
+            'Stripe is still processing an earlier request made under idempotency key "%s", so this one was '
+            . 'not carried out. Retry with the same key once that request has finished: Stripe will then '
+            . 'answer with the earlier request\'s outcome. Do not switch to a new key, which would make a '
+            . 'second, separate request.',
+            $idempotencyKey
+        ));
     }
 
     /**

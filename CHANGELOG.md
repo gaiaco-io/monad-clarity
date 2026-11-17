@@ -6,6 +6,36 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Changed
+- **A Stripe 409 for a key still in use now says to retry with the same key.** When another
+  request under the same idempotency key is still in flight, Stripe refuses the newcomer with
+  HTTP 409. Its own text says "Please try again later" but never says to keep the key, and a
+  new key would be a second request: for a refund, a second refund. The message now says that
+  the earlier request is still being processed, this one was not carried out, and the retry
+  should use the same key, which will receive the earlier request's outcome.
+
+  It is still a plain `CheckoutException`, as `ReleaseNotes_1.12.0.md` §2.7 decided, so no
+  catch changes. The same applies to every keyed call:
+  - `createCheckout()` and `refund()` on both Stripe adapters;
+  - `StripeSubscription::changePlan()`, where a product's derived key reports the caller's key.
+
+  This supersedes 1.12.0 §1.3's statement that every other Stripe failure keeps the 1.11.0
+  summary. The frozen notes are not edited. Any other 409, such as `lock_timeout`, keeps that
+  summary.
+
+### Tests
+- **The 409 case added in 1.12.0 used a body Stripe does not send.** It assumed `error.type`
+  `idempotency_error`. Measured live, a key in use is HTTP 409 with `type`
+  `invalid_request_error` and `code` `idempotency_key_in_use`. That shape held at both pinned API
+  versions, for checkout sessions and for refunds, and in every case only one object was
+  created. The probe runs, in Stripe test mode:
+  - sessions: `probe409-1794917517` (`2026-09-30.endive`) and `probe409-1794917545`
+    (`2024-06-20`);
+  - refunds: `probe409r-1794917538` and `probe409r-1794917542`, at the same two versions.
+
+  Recognition reads the `code`, and the tests now use the real body. 1.12.0's behaviour, a plain
+  `CheckoutException`, was right; only its test's fixture was invented.
+
 ### Documentation
 - **`ReleaseNotes_1.12.0.md` §5.3 now records the 1.12.0 checklist as complete.** The release
   commit could tick only what was done in this repository before the tag. This post-tag record

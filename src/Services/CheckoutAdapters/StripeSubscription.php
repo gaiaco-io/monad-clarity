@@ -1351,6 +1351,10 @@ final class StripeSubscription extends Checkout
     ): array {
         $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $sentKey);
 
+        if ($callersKey !== null && $this->isKeyInUse($response)) {
+            throw $this->keyInUseFailure($callersKey);
+        }
+
         if ($callersKey !== null && $this->isIdempotencyRefusal($response)) {
             throw new IdempotencyKeyReusedException(sprintf(
                 'Stripe refused idempotency key "%s" because an earlier request with it was made with '
