@@ -10,6 +10,7 @@ use Monad\Clarity\Services\Checkout\BillingCycle;
 use Monad\Clarity\Services\Checkout\BillingInterval;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
+use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
 use Monad\Clarity\Services\Checkout\LineItem;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\PaymentFailureBehaviour;
@@ -2320,6 +2321,8 @@ final class StripeSubscriptionTest extends TestCase
             );
             self::fail('A reused key must throw.');
         } catch (CheckoutException $e) {
+            self::assertSame(IdempotencyKeyReusedException::class, $e::class);
+            self::assertSame('change-42', $e->idempotencyKey);
             self::assertStringContainsString('"change-42"', $e->getMessage());
             self::assertStringContainsString('already went through', $e->getMessage());
             self::assertStringContainsString('retrieveSubscription()', $e->getMessage());
@@ -2355,6 +2358,8 @@ final class StripeSubscriptionTest extends TestCase
             );
             self::fail('A reused key must throw.');
         } catch (CheckoutException $e) {
+            self::assertSame(IdempotencyKeyReusedException::class, $e::class);
+            self::assertSame('change-42', $e->idempotencyKey, 'The caller\'s key, not the one derived for the product.');
             self::assertStringContainsString('"change-42"', $e->getMessage());
             self::assertStringContainsString('already went through', $e->getMessage());
             self::assertStringNotContainsString('Try using a key other than', $e->getMessage());
@@ -2382,6 +2387,7 @@ final class StripeSubscriptionTest extends TestCase
             );
             self::fail('A refused change must throw.');
         } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
             self::assertStringContainsString('request failed with HTTP 400', $e->getMessage());
             self::assertStringContainsString('No such price: price_nope', $e->getMessage());
             self::assertStringNotContainsString('already went through', $e->getMessage());
@@ -2401,9 +2407,35 @@ final class StripeSubscriptionTest extends TestCase
             );
             self::fail('A refused change must throw.');
         } catch (CheckoutException $e) {
+            self::assertSame(CheckoutException::class, $e::class);
             self::assertStringContainsString('request failed with HTTP 400', $e->getMessage());
             self::assertStringContainsString('<html>Bad Request</html>', $e->getMessage());
             self::assertStringNotContainsString('already went through', $e->getMessage());
+        }
+    }
+
+    /**
+     * The shared machinery, through this adapter's own two keyed calls. StripeCheckoutTest pins
+     * the messages word for word; these prove StripeSubscription reaches the same recognition.
+     */
+    public function testCreateCheckoutAndRefundReportAReusedKeyAsItsOwnException(): void
+    {
+        $fake = new FakeHttpClient(static fn (): Response => self::reusedKeyResponse());
+
+        try {
+            $this->adapter($fake)->createCheckout($this->checkoutRequest());
+            self::fail('A reused key on createCheckout() must throw.');
+        } catch (IdempotencyKeyReusedException $e) {
+            self::assertSame('ORDER-1001', $e->idempotencyKey);
+            self::assertStringContainsString('no checkout session was created', $e->getMessage());
+        }
+
+        try {
+            $this->adapter($fake)->refund(new RefundRequest(reference: 'pi_test_456'));
+            self::fail('A reused key on refund() must throw.');
+        } catch (IdempotencyKeyReusedException $e) {
+            self::assertSame('refund:pi_test_456:full', $e->idempotencyKey);
+            self::assertStringContainsString('could refund the customer twice', $e->getMessage());
         }
     }
 

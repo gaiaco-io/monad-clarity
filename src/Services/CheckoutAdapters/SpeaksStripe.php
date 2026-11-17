@@ -6,6 +6,7 @@ namespace Monad\Clarity\Services\CheckoutAdapters;
 
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
+use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Utils\ConstantTime;
@@ -36,6 +37,19 @@ use Psr\Http\Message\ResponseInterface;
 trait SpeaksStripe
 {
     private const DEFAULT_BASE_URI = 'https://api.stripe.com/v1';
+
+    /** What a reused key on createCheckout() means, and what to do: sendKeyed()'s `$whenReused`. */
+    private const REUSED_CHECKOUT_KEY = 'no checkout session was created. A checkout\'s key is its order '
+        . 'reference unless you pass one, so this usually means the same reference was sent again with a '
+        . 'different amount, line items or URLs. If the order changed, give this attempt its own key, a new '
+        . 'reference or an explicit idempotencyKey. Creating a session charges nothing, but the earlier session '
+        . 'stays payable until it expires, so make sure the order can be paid only once.';
+
+    /** What a reused key on refund() means, and what to do: sendKeyed()'s `$whenReused`. */
+    private const REUSED_REFUND_KEY = 'no refund was made. A refund\'s key is derived from its reference and '
+        . 'amount unless you pass one, so this usually means a refund of that amount on that payment was already '
+        . 'requested with other details. Check the refunds already made on that payment before trying again: a '
+        . 'new key is a new refund, and could refund the customer twice.';
 
     /**
      * Stripe's documented replay window for webhook signatures. A callback whose timestamp
@@ -217,17 +231,52 @@ trait SpeaksStripe
     }
 
     /**
+     * An unkeyed request. A request that carries an idempotency key goes through sendKeyed(),
+     * so that no keyed call can miss Stripe's refusal of a reused key.
+     *
      * @param array<string, mixed> $params
      * @return array<string, mixed>
      */
-    private function send(
+    private function send(string $method, string $path, array $params, int $timeoutSeconds): array
+    {
+        $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds);
+
+        $this->assertSuccessful($response);
+
+        return $this->decodeJsonBody($response);
+    }
+
+    /**
+     * A request under an idempotency key. Stripe refuses a key it has already seen on a different
+     * request, and its own message advises a fresh key. That charges nothing for a checkout session
+     * and can refund twice for a refund, so the refusal becomes an IdempotencyKeyReusedException whose
+     * message carries the advice for this call: `$whenReused`, one of the REUSED_* texts.
+     *
+     * @param array<string, mixed> $params
+     * @return array<string, mixed>
+     * @throws IdempotencyKeyReusedException if Stripe refuses the key as reused.
+     * @throws CheckoutException on any other failure.
+     */
+    private function sendKeyed(
         string $method,
         string $path,
         array $params,
         int $timeoutSeconds,
-        ?string $idempotencyKey = null,
+        string $idempotencyKey,
+        string $whenReused,
     ): array {
         $response = $this->sendUnchecked($method, $path, $params, $timeoutSeconds, $idempotencyKey);
+
+        if ($this->isIdempotencyRefusal($response)) {
+            throw new IdempotencyKeyReusedException(
+                sprintf(
+                    'Stripe refused idempotency key "%s": a different request was already made under it, so %s',
+                    $idempotencyKey,
+                    $whenReused
+                ),
+                $idempotencyKey
+            );
+        }
 
         $this->assertSuccessful($response);
 

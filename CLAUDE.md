@@ -156,8 +156,9 @@ canonical for every document below — where the skeleton repo carries a mirror,
     documented rather than guarded, because the only guard is an abstract method, which is
     semver-major (§2.10).
 - `ReleaseNotes_1.11.0.md` — WHAT ships in 1.11.0 (`CheckoutAdapters\StripeSubscription`, the
-  `SpeaksStripe` trait extracted from `StripeCheckout`), and the decisions that shaped them. It
-  is DRAFT until its §5.2 live checks are done. Read before touching Stripe recurring billing.
+  `SpeaksStripe` trait extracted from `StripeCheckout`), and the decisions that shaped them.
+  FROZEN since the tag; its live gate is recorded in §5.3. Read before touching Stripe recurring
+  billing.
   The three most load-bearing:
   - The adapter **pins its own API version `2026-09-30.endive`** while `StripeCheckout` stays on
     `2024-06-20`, and both parsers read the **pre-basil and basil+ webhook shapes**, because
@@ -167,6 +168,19 @@ canonical for every document below — where the skeleton repo carries a mirror,
   - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
     record because it was never `open()`ed. This is the renewal-recording gap Stripe shares with
     Paddle, so a webhook handler routes on the reference prefix (§2.7).
+- `ReleaseNotes_1.12.0.md` — WHAT ships in 1.12.0 (`Checkout\IdempotencyKeyReusedException`), and
+  the decisions behind it. DRAFT until `v1.12.0` is tagged. Read before adding an exception
+  type or touching how a Stripe call sends its idempotency key. The three most load-bearing:
+  - **`CheckoutException` is no longer `final`, and that is one-way.** Restoring `final` breaks
+    every subclass written since, so it is semver-major (§2.2).
+  - **Every keyed Stripe call goes through `SpeaksStripe::sendKeyed()`** (or `changePlan()`'s
+    `sendUnderKey()`), and `send()` takes no key. Beware that PHP silently drops an extra argument,
+    so a key handed to `send()` is never sent: a test asserting the `Idempotency-Key` header is
+    what catches that (§2.4).
+  - **Each message gives the advice that is safe for its call.** A fresh key for a checkout
+    session charges nothing, though the earlier session stays payable until it expires, and a
+    fresh key for a refund can refund twice. So Stripe's own "try another key" is never passed
+    through (§2.5).
 - `GapAnalysis_BuildPlan_1.6.0.md` — the five-phase build sequence for 1.6.0 and its
   acceptance gate. Superseded as specification by the release notes above; still live for
   sequence and for which phases remain.

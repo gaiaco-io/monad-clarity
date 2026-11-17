@@ -9,6 +9,7 @@ use Monad\Clarity\Services\Checkout\CallbackEvent;
 use Monad\Clarity\Services\Checkout\CheckoutException;
 use Monad\Clarity\Services\Checkout\CheckoutRequest;
 use Monad\Clarity\Services\Checkout\CheckoutSession;
+use Monad\Clarity\Services\Checkout\IdempotencyKeyReusedException;
 use Monad\Clarity\Services\Checkout\Money;
 use Monad\Clarity\Services\Checkout\RefundRequest;
 use Monad\Clarity\Services\Checkout\RefundResult;
@@ -56,6 +57,10 @@ final class StripeCheckout extends Checkout
         parent::__construct($apiKey, $httpClient);
     }
 
+    /**
+     * @throws IdempotencyKeyReusedException if Stripe refuses the request's key as already used.
+     * @throws CheckoutException on any other failure.
+     */
     public function createCheckout(CheckoutRequest $request): CheckoutSession
     {
         $params = [
@@ -78,12 +83,13 @@ final class StripeCheckout extends Checkout
         // reconciliation, and the session's client_reference_id does not propagate there.
         $params['payment_intent_data']['metadata']['reference'] = $request->reference;
 
-        $session = $this->send(
+        $session = $this->sendKeyed(
             'POST',
             '/checkout/sessions',
             $params,
             $request->timeoutSeconds,
-            $request->idempotencyKey()
+            $request->idempotencyKey(),
+            self::REUSED_CHECKOUT_KEY
         );
 
         return new CheckoutSession(
@@ -181,10 +187,21 @@ final class StripeCheckout extends Checkout
         );
     }
 
+    /**
+     * @throws IdempotencyKeyReusedException if Stripe refuses the request's key as already used.
+     * @throws CheckoutException on any other failure.
+     */
     public function refund(RefundRequest $request): RefundResult
     {
         $paymentIntent = $this->resolvePaymentIntent($request);
-        $refund = $this->send('POST', '/refunds', $this->refundParams($request, $paymentIntent), $request->timeoutSeconds, $request->idempotencyKey());
+        $refund = $this->sendKeyed(
+            'POST',
+            '/refunds',
+            $this->refundParams($request, $paymentIntent),
+            $request->timeoutSeconds,
+            $request->idempotencyKey(),
+            self::REUSED_REFUND_KEY
+        );
 
         return new RefundResult(
             gateway: self::GATEWAY,
