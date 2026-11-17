@@ -23,6 +23,9 @@ namespace Monad\Clarity\Services\Checkout;
  * merchants grant a few days' grace and show a banner — but that is a product decision, and
  * a framework that encoded it would be dictating rather than enabling.
  *
+ * Stripe has eight statuses to this enum's five: StripeSubscription maps `incomplete` and
+ * `unpaid` to `PastDue` and `incomplete_expired` to `Cancelled`, keeping the raw status in `raw`.
+ *
  * @package Monad\Clarity\Services\Checkout
  * @author Marshal Yung <marshal.yung@gaiaco.io>
  */

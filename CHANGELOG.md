@@ -6,7 +6,78 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+### Added
+- **`CheckoutAdapters\StripeSubscription`: recurring billing through Stripe.** It sits beside
+  `StripeCheckout` as `PaddleSubscription` sits beside `PaddleCheckout`, with the same public
+  surface and the same twelve value objects and `SubscriptionLedger` from 1.4.0, none of them
+  changed. Subscriptions start through Checkout in `subscription` mode, so `createCheckout()`
+  returns a `cs_`, and `subscriptionReferenceOf()` reads the `sub_` off the completed session
+  synchronously. An inline plan or a catalogue `price_` (`forCatalogPrice()`) is supported, and
+  `changePlan()` takes a trailing idempotency key, which Paddle's cannot. No new table, no new
+  enum case, no fifth abstract method on `Checkout`, no new Composer dependency. The points that
+  carry weight:
+  - It **pins `2026-09-30.endive`**, per class, while `StripeCheckout` stays on `2024-06-20`.
+    Both parsers read the pre-basil and basil-and-later webhook shapes, because Stripe renders an
+    event in the endpoint's version rather than the adapter's.
+  - **`resume()` pays the open resume invoice itself.** Stripe never collects it, and the
+    subscription stays `paused` until someone does. A declined payment raises
+    `CheckoutException` saying the subscription is still paused.
+  - **An invoice's amount is its amount due.** `retrieveStatus()` on an `in_` reports
+    `amount_due`, what the card is charged, rather than the total, so a downgrade's credit
+    invoice reads as zero instead of failing.
+  - **A refund is posted only against a paid payment.** The invoice behind an `in_` or a `cs_`
+    must be `paid`, so a first payment still processing is refused, and the PaymentIntent
+    chosen is the attempt whose own status is `paid`, never an earlier declined one.
+  - **Every signup's first invoice raises `invoice.paid`**, which `TransactionLedger` cannot
+    record because it was never `open()`ed. A handler that passes every `parseCallback()` result
+    to `recordCallback()` therefore throws on every signup. Route on the reference prefix: `cs_`
+    to the ledger, `in_` to the application. This is the renewal-recording gap Paddle shares.
+  - Pause and resume are immediate only; `FullImmediately` and `FullNextBillingPeriod` are
+    refused by name; `Month` and `Year` trials and trials under two days are refused at
+    construction. Stripe's `incomplete` and `unpaid` map to `PastDue`, and `incomplete_expired`
+    to `Cancelled`.
+  - Every parser refuses a malformed signed payload as `CheckoutException` only.
+
+  Canonical spec: `ReleaseNotes_1.11.0.md`, which stays DRAFT until its §5.2 live checks are
+  done. Only the pre-decision test-mode spike in its §5.1 has been run against live Stripe.
+- **`CheckoutAdapters\SpeaksStripe`: the machinery both Stripe adapters share.** Signature
+  verification, `send()`, `requireString()`, `referenceOf()`, `amountOf()`, the refund-reason
+  rule and the line-item synthesis moved out of `StripeCheckout` into an internal trait, as
+  `SpeaksPaddle` did for Paddle. `StripeCheckoutTest` passes byte-unmodified.
+
+### Changed
+- **`referenceOf()` reads a non-string `id` as absent.** It is shared with `StripeCheckout`,
+  which now treats a malformed nested id as missing instead of casting it and raising a PHP
+  warning. Valid input is unaffected.
+
 ### Documentation
+- **`ReleaseNotes_1.11.0.md` freezes the decisions for `StripeSubscription`.** It is DRAFT
+  until the live checks listed in its §5.2 are done. It records:
+  - what ships, with the build plan's twelve decisions written up as resolved decisions;
+  - what is explicitly not in 1.11.0;
+  - what the pre-decision Stripe test-mode spike established.
+- **`GapAnalysis_BuildPlan_1.11.0.md` plans recurring billing through Stripe.** The plan is
+  for a `StripeSubscription` adapter beside `StripeCheckout`. Tasks 1 to 11 are built; the live
+  release gate, Task 12, is outstanding. It contains:
+  - twelve decisions for Marshal, each with a recommendation;
+  - eleven live-gate questions that Stripe's documentation does not settle, four of them to
+    be answered by a test-mode spike before any decision is taken;
+  - the sequenced tasks and the acceptance gate.
+
+  It also records a gap shared with `PaddleSubscription`: a renewal transaction that was
+  never `open()`ed cannot be recorded by `TransactionLedger`.
+
+  Marshal approved every recommendation on 2026-11-17. The pre-decision spike then ran in
+  Stripe test mode and is recorded in §3.1. It found four things the documentation does not
+  say:
+  - a 1-day trial is refused;
+  - a subscription update refuses an inactive product;
+  - `resume()` starting a new period leaves the subscription paused until its invoice is
+    explicitly paid;
+  - a trial checkout completes as `paid` at zero, not as `no_payment_required`.
+
+  It also found that this test account's default API version is pre-basil, so its webhooks
+  arrive in the legacy shape.
 - **`ReleaseNotes_1.2.0.md` no longer lists the live Stripe test-mode run as outstanding.** §5
   records that run as done before the tag, including the `parseCallback()` defect it found, but
   the "Outstanding before tagging" list still named it as item 3.
