@@ -657,12 +657,24 @@ final class StripeSubscription extends Checkout
      * **With ProratedImmediately this call charges the customer's card.** Stripe invoices the
      * proration at once, so a timeout or a dropped connection leaves you not knowing whether the
      * charge happened. Always pass `$idempotencyKey` on such a call, and reuse the same key to
-     * retry it: the retry reuses the same products, re-activates them (an earlier attempt may
-     * have archived them already), and the update either replays its first outcome, if it ran,
-     * or runs now, if it did not — never a second charge. Without a key a blind retry can charge
-     * twice, so read the subscription with retrieveSubscription() first. The key derives one for
-     * each product this call creates; activating and archiving a product carry none, because
-     * each simply sets a state and a replayed answer would not re-apply it.
+     * retry it. What the retry does depends on how far the first attempt got:
+     *
+     * - The update never ran: the retry reuses the same products, re-activates them (an earlier
+     *   attempt may have archived them) and runs the update now.
+     * - The update ran and was declined: Stripe replays the decline.
+     * - The update ran and changed the items: Stripe **refuses** the retry, because the same key
+     *   now arrives with different parameters (the subscription's items are no longer the ones
+     *   the first attempt replaced). That refusal means the change already happened. Confirm it
+     *   with retrieveSubscription(), and never retry with a fresh key, whatever Stripe's error
+     *   text suggests: a new key is a new request, and it could charge a second time.
+     *
+     * Without a key a blind retry can charge twice, so read the subscription with
+     * retrieveSubscription() first. The key derives one for each product this call creates;
+     * activating and archiving a product carry none, because each simply sets a state and a
+     * replayed answer would not re-apply it.
+     *
+     * A subscription with more items than Stripe embeds in one response (it embeds a single page)
+     * is refused rather than paged through, since an item left out would keep billing.
      *
      * Proration maps onto Stripe's `proration_behavior`: ProratedImmediately is `always_invoice`,
      * ProratedNextBillingPeriod is `create_prorations` and DoNotBill is `none`. The two Full*
