@@ -19,11 +19,12 @@ use JsonException;
  * Google Gemini Generative Language API adapter
  * (`POST /v1beta/models/{model}:generateContent`).
  *
- * Two real differences from the other three adapters: the model is part of the URL path,
- * not the request body, and the API key is a query parameter (`?key=...`) rather than an
- * Authorization/x-api-key header — both are Gemini's own documented auth convention, not
- * a Clarity choice. Assistant turns use role "model", not "assistant" — translated here
- * so LLMRequest's own message shape stays provider-neutral.
+ * The model is part of the URL path, not the request body, and the API key travels in an
+ * `x-goog-api-key` header, the form Google's own API-key documentation uses. It never goes
+ * in the URL: until 1.12.2 it was a `?key=` query parameter, so any access log, proxy log or
+ * error page that printed a request URI printed the key (`ReleaseNotes_1.8.0.md` §2.7 item 3,
+ * closed in 1.12.2). Assistant turns use role "model", not "assistant" — translated here so
+ * LLMRequest's own message shape stays provider-neutral.
  *
  * Structured responses (§11.3.8) use `generationConfig.responseMimeType:
  * "application/json"` plus `responseJsonSchema` — Gemini's own server-enforced
@@ -39,9 +40,8 @@ use JsonException;
  * a method on the LLM contract, because no other adapter has it — the rule Checkout applies
  * to subscriptions (`ReleaseNotes_1.9.0.md` §2.1). It speaks Google's Interactions API
  * (`POST /v1beta/interactions`), the path Google now documents for image models, while
- * complete() stays on generateContent (§2.2). The two methods therefore authenticate
- * differently: Interactions takes the key in an `x-goog-api-key` header, which also keeps it
- * out of URLs and the access logs that record them (§2.3).
+ * complete() stays on generateContent (§2.2). Both send the key the same way, in the
+ * `x-goog-api-key` header (§2.3; complete() joined it in 1.12.2).
  *
  * @package Monad\Clarity\Services\LLMAdapters
  * @author Marshal Yung <marshal.yung@gaiaco.io>
@@ -95,14 +95,13 @@ final class Gemini extends LLM
             $body['generationConfig']['responseJsonSchema'] = $request->responseSchema;
         }
 
-        $uri = sprintf(
-            '%s/models/%s:generateContent?key=%s',
-            $this->baseUri,
-            rawurlencode($request->model),
-            rawurlencode($this->apiKey)
-        );
+        $uri = sprintf('%s/models/%s:generateContent', $this->baseUri, rawurlencode($request->model));
 
-        $response = $this->httpClient->withTimeoutSeconds($request->timeoutSeconds)->postJson($uri, $body);
+        $response = $this->httpClient->withTimeoutSeconds($request->timeoutSeconds)->postJson(
+            $uri,
+            $body,
+            ['x-goog-api-key' => $this->apiKey]
+        );
 
         $this->assertSuccessful($response);
         $decoded = $this->decodeJsonBody($response);

@@ -50,9 +50,10 @@ final class GeminiTest extends TestCase
 
         $request = $fake->lastRequest();
         self::assertSame(
-            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:generateContent?key=test-key',
+            'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:generateContent',
             (string) $request->getUri()
         );
+        self::assertSame('test-key', $request->getHeaderLine('x-goog-api-key'));
 
         $body = $fake->decodedLastRequestBody();
         self::assertSame(['parts' => [['text' => 'Be nice.']]], $body['systemInstruction']);
@@ -66,14 +67,18 @@ final class GeminiTest extends TestCase
         self::assertArrayNotHasKey('responseSchema', $body['generationConfig']);
     }
 
-    public function testApiKeyIsUrlEncodedInTheQueryString(): void
+    public function testCompleteSendsTheKeyInAHeaderAndNeverInTheUrl(): void
     {
         $fake = new FakeHttpClient(static fn () => self::textResponse());
-        $adapter = new Gemini('key with spaces', $fake);
+        $adapter = new Gemini('AIza-secret.key/42', $fake);
 
         $adapter->complete(new LLMRequest(model: 'gemini-3-pro', messages: [['role' => 'user', 'content' => 'x']]));
 
-        self::assertStringContainsString('key=key%20with%20spaces', (string) $fake->lastRequest()->getUri());
+        $request = $fake->lastRequest();
+        self::assertSame('AIza-secret.key/42', $request->getHeaderLine('x-goog-api-key'));
+        self::assertSame('', $request->getUri()->getQuery());
+        self::assertStringNotContainsString('AIza-secret', (string) $request->getUri());
+        self::assertStringNotContainsString(rawurlencode('AIza-secret.key/42'), (string) $request->getUri());
     }
 
     public function testResponseSchemaSetsJsonMimeTypeAndDecodesTheContent(): void
