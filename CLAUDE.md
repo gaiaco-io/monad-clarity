@@ -141,8 +141,9 @@ canonical for every document below — where the skeleton repo carries a mirror,
   live run caught what the mocked suite asserted. Read before touching image generation. The
   three most load-bearing:
   image generation is a **public method on the adapter, not on the `LLM` contract** (§2.1); it
-  speaks the **Interactions API** while `complete()` stays on legacy `generateContent`, so one
-  class authenticates two ways until 1.8.0 §2.7 item 3 is verified and closed (§2.2, §2.3); and
+  speaks the **Interactions API** while `complete()` stays on legacy `generateContent` (§2.2). Both
+  send the key as an `x-goog-api-key` header: `complete()` moved off `?key=` in 1.12.2, which
+  closed 1.8.0 §2.7 item 3, so §2.3's "two ways" is history (§2.3); and
   every request is sent with **`store: false`**, because Google documents no default or
   retention period and a stored request holds the caller's reference images (§2.6).
 - `ReleaseNotes_1.10.0.md` — WHAT ships in 1.10.0 (image input for `complete()`: an optional

@@ -511,7 +511,7 @@ $suites['gemini'] = static function () use ($http): void {
 
     $adapter = new Gemini($key, $http);
 
-    Smoke::check('plain text (model in path, key as query param)', static function () use ($adapter, $model) {
+    Smoke::check('plain text (model in path, key in x-goog-api-key header)', static function () use ($adapter, $model) {
         return assertPlainText($adapter->complete(new LLMRequest(
             model: $model,
             messages: [['role' => 'user', 'content' => 'Reply with exactly: pong']],
