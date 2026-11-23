@@ -231,7 +231,8 @@ public function generateImage(ImageRequest $request): ImageResponse  // throws L
 ```
 
 It speaks Google's Interactions API (`POST {baseUri}/interactions`) with the key in an
-`x-goog-api-key` header and `store: false`. `complete()` is unchanged. The value objects, all in
+`x-goog-api-key` header and `store: false`. `complete()` takes its key in the same header since
+1.12.2; before that it was a `?key=` query parameter. The value objects, all in
 `Services\LLM\` and all `final readonly`:
 
 - `ImageRequest(string $model, string $prompt, list<ReferenceImage> $referenceImages = [],
