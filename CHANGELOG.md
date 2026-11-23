@@ -6,6 +6,39 @@ All notable changes to `monad/clarity` are documented in this file. Format follo
 
 ## [Unreleased]
 
+## [1.12.2] - 2026-11-23
+
+`Gemini::complete()` stops putting the API key in the URL. It now sends the key in the
+`x-goog-api-key` header, as `generateImage()` has since 1.9.0. No signature or exception-class
+changes.
+
+### Security
+- **`Gemini::complete()` sends its API key as an `x-goog-api-key` header, never as `?key=`.**
+  Since 1.0.0 the key was a query parameter on
+  `POST {baseUri}/models/{model}:generateContent`. A key in a URL lands wherever URLs are
+  recorded: web-server and proxy access logs, and any error page or log line that prints a
+  request URI, such as the URI of the request an `HttpClientException` carries. The header is
+  the form Google's own API-key documentation uses, and the form `generateImage()` already took.
+  The adapter therefore authenticates one way again, and the "two ways" note in
+  `ReleaseNotes_1.9.0.md` §2.3 no longer describes it.
+
+  This closes **`ReleaseNotes_1.8.0.md` §2.7 item 3**. It was left open in 1.8.0, and again in
+  1.9.0, only because no Gemini credential worked to verify an auth change against. One has
+  since 2026-11-14, and this change was verified with it before the tag: the live Gemini smoke
+  suite ran 9/9 green on `gemini-3.5-flash-lite` and `gemini-nano-banana-2.1`, with `complete()`
+  sending a URI that carries no key.
+
+  Worth knowing:
+  - **What this does not hide.** The key is still in the header of the PSR-7 request an
+    `HttpClientException` holds. Code that dumps a request's headers wholesale will still print
+    it, as it would for every other adapter's key.
+  - **A custom `baseUri` pointing at a proxy.** If the proxy read `?key=` to authenticate or to
+    route, it must now read the `x-goog-api-key` header. Google's endpoint itself accepts both.
+- **`GeminiTest` asserts the header and a key-free URI.** The two tests that pinned `?key=`
+  (the exact URI in the text-completion test, and `testApiKeyIsUrlEncodedInTheQueryString`) are
+  replaced. A key containing `.` and `/` must reach the header verbatim and must appear in the
+  URI neither raw nor URL-encoded.
+
 ## [1.12.1] - 2026-11-17
 
 A gateway's malformed or oversized data now produces a `CheckoutException` everywhere in the
